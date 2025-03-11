@@ -1,0 +1,10 @@
+defaults:
+ - base_seq_cls
+
+_target_: bmfm_targets.training.data_module.DataModule
+transform_datasets: True
+processed_name: processed
+dataset_kwargs:
+  label_dict_path: ${data_module.data_dir}/labels.json
+transform_kwargs:
+    source_h5ad_file_name: ${data_module.data_dir}/h5ad/original.h5ad

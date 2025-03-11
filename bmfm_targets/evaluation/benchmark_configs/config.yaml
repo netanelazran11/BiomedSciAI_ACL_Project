@@ -1,0 +1,29 @@
+defaults:
+  - data_module: sceval_default
+  - tokenizer: all_genes
+  - fields: default
+  - trainer: default
+  - task: train
+  - model: scbert
+  - label_columns: sceval_default
+  - _self_
+seed:
+  seed_value: 1234
+
+trainer:
+  losses:
+    - name: cross_entropy
+      label_column_name: ${label_columns[0].label_column_name}
+
+track_clearml:
+  project_name: "bmfm-targets/evaluate/${checkpoint_name}"
+  task_name: "${dataset_name}_cta_ft"
+  continue_last_task: False
+
+max_finetuning_epochs: 2
+
+dataset_name: "" # do not modify, set by script
+checkpoint_path: /dccstor/bmfm-targets1/users/tanwi/bmfm_sessions/scbert_train_panglaodb_zeroLoss_tanwi/scbert_train_panglaodb_zeroLoss_tanwi_2024-11-20_22-58-19/last.ckpt
+#/dccstor/bmfm-targets/models/omics/transcriptome/scRNA/pretrain/bmfm.targets.slate.bert.110m.scRNA.RDA.v1/last-v3.ckpt
+checkpoint_name: rda_test
+output_directory: /dccstor/bmfm-targets1/users/dmichael/benchmarking/

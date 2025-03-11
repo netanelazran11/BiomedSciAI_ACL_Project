@@ -1,0 +1,307 @@
+import numpy as np
+import torch
+import torch.nn.functional as F
+from clearml.logger import Logger
+from focal_loss.focal_loss import (
+    FocalLoss,  # https://github.com/mathiaszinnen/focal_loss_torch
+)
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torchmetrics import Metric
+from torchmetrics.classification import BinaryConfusionMatrix
+
+
+class NonZeroBinaryConfusionMatrix(BinaryConfusionMatrix):
+    def __init__(
+        self, ignore_index: int = -100, threshold: float = 0.5, normalize="none"
+    ):
+        super().__init__(
+            ignore_index=ignore_index, threshold=threshold, normalize=normalize
+        )
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        """Update state with predictions and targets."""
+        valid_mask = target != self.ignore_index
+
+        preds = preds[valid_mask]
+        target = target[valid_mask]
+        preds = (preds == 0).to(torch.int)
+        target = (target == 0).to(torch.int)
+        super().update(preds, target)
+
+
+class MaskedAccuracy(Metric):
+    """
+    Computes the accuracy over a batch of data.
+
+    Attributes
+    ----------
+        ignore_index: The index to ignore when computing the accuracy.
+        dist_sync_on_step: Whether to synchronize the metric state across processes at each ``forward()``
+            before returning the value at the step. Defaults to ``False``.
+    """
+
+    full_state_update: bool = False
+    higher_is_better: bool | None = True
+    is_differentiable: bool = False
+
+    def __init__(
+        self,
+        field_names: list[str],
+        ignore_index: int = -100,
+        dist_sync_on_step: bool = False,
+    ):
+        """
+        Initializes the metric.
+
+        Args:
+        ----
+            ignore_index: The index to ignore when computing the accuracy.
+            dist_sync_on_step: Whether to synchronize the metric state across processes at each ``forward()``
+                before returning the value at the step. Defaults to ``False``.
+        """
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.ignore_index = ignore_index
+
+        for field_name in field_names:
+            setattr(self, field_name + "_correct", torch.tensor(0))
+            setattr(self, field_name + "_total", torch.tensor(0))
+            self.add_state(
+                field_name + "_correct", default=torch.tensor(0), dist_reduce_fx="sum"
+            )
+            self.add_state(
+                field_name + "_total", default=torch.tensor(0), dist_reduce_fx="sum"
+            )
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor, field_name: str):  # type: ignore[override]
+        """
+        Updates the accuracy.
+
+        Args:
+        ----
+            preds: The predictions.
+            target: The targets.
+        """
+        assert preds.shape == target.shape, f"{preds.shape} != {target.shape}"
+        mask = target.ne(self.ignore_index)
+        if mask.any():
+            correct = torch.eq(preds, target)[mask].sum()
+            total = mask.sum()
+            self.__dict__[field_name + "_correct"] += correct
+            self.__dict__[field_name + "_total"] += total
+
+    def compute(self, field_name: str) -> torch.Tensor:  # type: ignore[override]
+        """
+        Computes the accuracy.
+
+
+        Returns
+        -------
+            torch.Tensor: The accuracy.
+        """
+        return (
+            self.__dict__[field_name + "_correct"].float()
+            / self.__dict__[field_name + "_total"]
+        )
+
+
+def ce_loss(logits, labels, label_smoothing=0.01):
+    """Calculates cross entropy loss function."""
+    loss_fct = CrossEntropyLoss(label_smoothing=label_smoothing)
+    return loss_fct(logits, labels)
+
+
+def focal_loss(logits, labels, focal_gamma=2.0, **kwargs):
+    """
+    Calculates focal loss. Default value of focal_gamma values returns the cross entropy loss.
+    focal_gamma is the focousing parameter, i.e. it reduces the relative loss for well-classified examples.
+    Classes can have different weights by using the weights parameter (default is torch.FloatTensor([1, 1, 1])),
+    in order to get a higher importance for rare classes.
+    """
+    if len(logits.shape) == 1:
+        m = torch.nn.Sigmoid()
+    else:
+        m = torch.nn.Softmax(dim=-1)
+    criterion = FocalLoss(gamma=focal_gamma, ignore_index=-100, **kwargs)
+    return criterion(m(logits), labels)
+
+
+class TokenValueLoss(torch.nn.Module):
+    """
+    Calculated the difference between a token's *value* and the predicted logits.
+
+    This metric performs a weighted average of the predicted tokens and compares it to
+    the ground truth tokens, returning the mean squared error.
+
+    """
+
+    def __init__(self, token_values: list[float]):
+        """
+        Args:
+        ----
+            token_values: list[float] a list of token values indexed by token_id. The
+                first few values are presumed to be nan and discarded, because the
+                special tokens have no "value". Those logits are also ignored.
+        """
+        super().__init__()
+        self.token_values = token_values
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor):
+        token_values = torch.Tensor(self.token_values).to(logits.device)
+
+        logits = logits[..., ~token_values.isnan()]
+
+        probs = F.softmax(logits, dim=-1)
+
+        preds = torch.sum(probs * token_values[~token_values.isnan()], dim=-1)
+
+        ground_truth_values = token_values[labels.int()]
+
+        token_value_loss = F.mse_loss(preds, ground_truth_values.float())
+
+        return token_value_loss
+
+
+def token_value_loss(logits, labels, token_values, ignore_index=-100):
+    ignore_mask = labels == ignore_index
+    token_value_loss = TokenValueLoss(token_values)
+    field_loss = token_value_loss(logits[~ignore_mask], labels[~ignore_mask])
+
+    return field_loss
+
+
+def classification_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor | None,
+    loss_name: str | None = None,
+    output_size: int | None = None,
+    problem_type: str | None = None,
+    ignore_zero: bool = False,
+    label_smoothing: float = 0.0,
+    focal_gamma: float = None,
+):
+    if labels is None:
+        return None
+    if problem_type is None:
+        problem_type = deduce_problem_type(labels, output_size)
+    if problem_type == "regression":
+        loss = mse_loss(logits.squeeze(), labels, ignore_zero=ignore_zero)
+    elif problem_type == "single_label_classification":
+        if loss_name == "focal":
+            loss = focal_loss(
+                logits.view(-1, output_size), labels.view(-1), focal_gamma=focal_gamma
+            )
+        elif loss_name == "cross_entropy":
+            loss = ce_loss(
+                logits.view(-1, output_size),
+                labels.view(-1),
+                label_smoothing=label_smoothing,
+            )
+    elif problem_type == "multi_label_classification":
+        loss_fct = BCEWithLogitsLoss()
+        loss = loss_fct(logits, labels)
+    else:
+        raise ValueError(f"Unsupported problem type: {problem_type}")
+    return loss
+
+
+def deduce_problem_type(labels: torch.Tensor, output_size: int):
+    if output_size == 1:
+        problem_type = "regression"
+    elif output_size > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+        problem_type = "single_label_classification"
+    else:
+        problem_type = "multi_label_classification"
+    return problem_type
+
+
+def mse_loss(logits, labels, ignore_index=-100.0, ignore_zero=False):
+    ignore_mask = labels == ignore_index
+    if ignore_zero:
+        zero_mask = labels == 0.0
+        ignore_mask = ignore_mask | zero_mask
+    if ignore_mask.all():
+        return torch.tensor(0)
+    loss_fct = MSELoss(reduction="none")
+    field_loss = loss_fct(logits.float(), labels.float())
+    field_masked_loss = field_loss * ~ignore_mask
+    field_loss = field_masked_loss.sum() / ((~ignore_mask).sum() + 1e-6)
+    return field_loss
+
+
+def is_zero_bce_loss(logits: torch.Tensor, labels: torch.Tensor, ignore_index=-100):
+    ignore_mask = labels == ignore_index
+    if ignore_mask.all():
+        return torch.tensor(0)
+    loss_fct = BCEWithLogitsLoss(reduction="none")
+    field_loss = loss_fct(logits, (labels == 0.0).float())
+    field_masked_loss = field_loss * ~ignore_mask
+    field_loss = field_masked_loss.sum() / ((~ignore_mask).sum() + 1e-6)
+    return field_loss
+
+
+def masked_mean(last_hidden_states, attention_mask, dim=1):
+    masked_hidden_states = last_hidden_states * attention_mask.unsqueeze(-1).float()
+    sum_hidden_states = torch.sum(masked_hidden_states, dim=dim)
+    count_nonzero = torch.clamp(torch.sum(attention_mask, dim=dim, keepdim=True), min=1)
+    mean_pooled_hidden_states = sum_hidden_states / count_nonzero.float()
+    return mean_pooled_hidden_states
+
+
+def log_confusion_matrix_to_clearml(cm, prefix, labels, title, iteration=None):
+    cm_normalized_by_targets = np.where(
+        cm.sum(axis=1, keepdims=True) > 0, cm / cm.sum(axis=1, keepdims=True), 0
+    )
+    cm_normalized_by_predictions = np.where(
+        cm.sum(axis=0, keepdims=True) > 0, cm / cm.sum(axis=0, keepdims=True), 0
+    )
+    cl = Logger.current_logger()
+    cl.report_confusion_matrix(
+        f"{title} confusion matrix - {prefix}",
+        series=prefix,
+        iteration=iteration,
+        matrix=cm,
+        xaxis="predictions",
+        yaxis="ground truth",
+        xlabels=labels,
+        ylabels=labels,
+    )
+    cl.report_confusion_matrix(
+        f"{title} confusion matrix - {prefix} normalized by targets",
+        series=prefix,
+        iteration=iteration,
+        matrix=cm_normalized_by_targets,
+        xaxis="predictions",
+        yaxis="ground truth",
+        xlabels=labels,
+        ylabels=labels,
+    )
+    cl.report_confusion_matrix(
+        f"{title} confusion matrix - {prefix} normalized by predictions",
+        series=prefix,
+        iteration=iteration,
+        matrix=cm_normalized_by_predictions,
+        xaxis="predictions",
+        yaxis="ground truth",
+        xlabels=labels,
+        ylabels=labels,
+    )
+
+
+def get_token_labels(token_values: list[float]):
+    """
+    Get labels for tokens that have numerical values and their indices in vocab.
+
+    This is necessary to produce a confusion matrix that is correctly labeled even if
+    the tokens are not in numerical order and even if the vocab includes non-numerical
+    tokens (aka special tokens.)
+    """
+    indices, labels = zip(
+        *[
+            i
+            for i in sorted(enumerate(token_values), key=lambda x: x[1])
+            if not np.isnan(i[1])
+        ]
+    )
+    labels = [f"token {int(i) if i.is_integer() else i}" for i in labels]
+    return indices, labels
