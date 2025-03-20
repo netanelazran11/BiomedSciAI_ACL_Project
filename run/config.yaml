@@ -1,0 +1,28 @@
+defaults:
+  - data_module: zheng68k
+  - tokenizer: all_genes
+  - fields: default
+  - trainer: default
+  - task: train
+  - model: scbert
+  - label_columns: default
+  - _self_
+seed:
+  seed_value: 1234
+
+model:
+  checkpoint: null
+  hidden_size: 16
+  intermediate_size: 32
+  num_hidden_layers: 2
+  num_attention_heads: 2
+
+data_module:
+  max_length: 32
+trainer:
+  losses:
+    - name: cross_entropy
+      label_column_name: ${label_column_name}
+
+label_column_name: celltype
+output_directory: /tmp
