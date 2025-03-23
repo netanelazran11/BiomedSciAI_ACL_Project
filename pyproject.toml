@@ -47,20 +47,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
-t5 = [
-  "fuse-med-ml @ git+https://github.com/BiomedSciAI/fuse-med-ml.git",
-  "bmfm_core @ git+ssh://git@github.ibm.com/BiomedSciAI-Innersource/bmfm-core.git",
-  "grpcio!=1.65.*",
-  ]
 bulk_rna = ["GEOparse", "biopython"]
 
 [project.urls]
-repository = "https://github.ibm.com/BiomedSciAI-Innersource/bmfm-targets"
+repository = "https://github.com/BiomedSciAI/biomed-multi-omic.git"
 
 [project.scripts]
 bmfm-targets-scbert = "bmfm_targets.tasks.scbert.scbert_main:main"
-bmfm-targets-t5 = "bmfm_targets.tasks.t5:main"
-bmfm-targets-t5-predict = "bmfm_targets.tasks.t5:predict"
 
 [tool.setuptools.packages]
 find = {}
