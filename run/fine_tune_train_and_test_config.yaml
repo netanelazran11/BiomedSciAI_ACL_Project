@@ -1,12 +1,13 @@
 defaults:
   - data_module: zheng68k
   - tokenizer: all_genes
-  - fields: default
+  - fields: default_fine_tuning
   - trainer: default
-  - task: train
+  - task: train_and_test
   - model: scbert
   - label_columns: default
   - _self_
+
 seed:
   seed_value: 1234
 
@@ -19,10 +20,19 @@ model:
 
 data_module:
   max_length: 32
+  data_dir: ${oc.env:BMFM_TARGETS_ZHENG68K_DATA}
+  batch_size: 20
+
 trainer:
+  learning_rate: 1.0e-5
   losses:
     - name: cross_entropy
       label_column_name: ${label_column_name}
+
+task:
+  accumulate_grad_batches: 5
+  max_epochs: 100
+  val_check_interval: 0.5
 
 label_column_name: celltype
 output_directory: /tmp

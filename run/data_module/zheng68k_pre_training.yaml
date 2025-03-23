@@ -1,4 +1,4 @@
 defaults:
- - base_seq_cls
+ - base_language_modeling
 
 _target_: bmfm_targets.datasets.zheng68k.Zheng68kDataModule

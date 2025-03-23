@@ -1,9 +1,9 @@
 _partial_: true
 num_workers: 8
-collation_strategy: "sequence_classification"
+collation_strategy: "language_modeling"
 batch_size: 20
 max_length: 512
 limit_dataset_samples: null
 shuffle: true
 sequence_order: "random"
-mlm: false
+mlm: true
