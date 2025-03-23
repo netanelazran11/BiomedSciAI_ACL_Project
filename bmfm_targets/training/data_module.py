@@ -16,13 +16,8 @@ from bmfm_targets.config import FieldInfo, LabelColumnInfo
 from bmfm_targets.datasets import DatasetTransformer, PerturbationDatasetTransformer
 from bmfm_targets.datasets.base_dna_dataset import BaseDNASeqDataset
 from bmfm_targets.datasets.base_perturbation_dataset import BasePerturbationDataset
-from bmfm_targets.datasets.base_rna_dataset import (
-    BaseRNAExpressionDataset,
-)
-from bmfm_targets.tokenization import (
-    MultiFieldCollator,
-    MultiFieldTokenizer,
-)
+from bmfm_targets.datasets.base_rna_dataset import BaseRNAExpressionDataset
+from bmfm_targets.tokenization import MultiFieldCollator, MultiFieldTokenizer
 from bmfm_targets.tokenization.resources import get_protein_coding_genes
 from bmfm_targets.training.masking import Masker, MaskingStrategy
 
@@ -68,6 +63,8 @@ class DataModule(pl.LightningDataModule):
         mask_ratio: float = 1.0,
         switch_ratio: float = 0.0,
         masking_strategy: MaskingStrategy | None = None,
+        prevent_attention_to_masked: bool = False,
+        comask_across_fields: bool = False,
         log_normalize_transform: bool = False,
         rda_transform: Literal["downsample"]
         | Literal["auto_align"]
@@ -164,6 +161,18 @@ class DataModule(pl.LightningDataModule):
         masking_strategy : MaskingStrategy | None, optional
             Strategy for masking tokens, by default None.
             Refer to MaskingStrategy documentation for detailed configuration options.
+        prevent_attention_to_masked: bool = False
+            Controls whether the attention mask blocks attention to masked tokens.
+            Based on scGPT's attention strategy and only applies when mlm=True.
+            When multiple fields are masked, this requires comask_across_fields=True.
+            Will raise an error if True with comask_across_fields=False and multiple
+            masked fields. Defaults to False.
+        comask_across_fields: bool = False
+            Determines if fields are masked at the same token positions in the sequence.
+            Only relevant when multiple fields have is_masked=True and mlm=True.
+            When True, the model predicts both gene and expression value simultaneously.
+            Task may be underdefined with random sequence order but defined with
+            consistent sorting. Defaults to False.
         log_normalize_transform : bool, optional
             Whether to apply log normalization to expression data, by default False.
         rda_transform : "downsample" | "auto_align" | "equal" | int | None, optional
@@ -214,6 +223,8 @@ class DataModule(pl.LightningDataModule):
             mask_ratio=mask_ratio,
             switch_ratio=switch_ratio,
             tokenizer=tokenizer,
+            prevent_attention_to_masked=prevent_attention_to_masked,
+            comask_across_fields=comask_across_fields,
             masking_strategy=masking_strategy,
         )
         self.train_dataset = None
@@ -468,24 +479,16 @@ class DataModule(pl.LightningDataModule):
                 self.limit_genes
             )
         if self.label_columns:
-            if (
-                len(self.label_columns) == 1
-                and self.label_columns[0].is_perturbation_label
-            ):
-                final_dataset_kwargs["perturbation_column_name"] = self.label_columns[
-                    0
-                ].label_column_name
-            else:
-                final_dataset_kwargs["label_columns"] = [
-                    label.label_column_name
-                    for label in self.label_columns
-                    if not label.is_regression_label
-                ]
-                final_dataset_kwargs["regression_label_columns"] = [
-                    label.label_column_name
-                    for label in self.label_columns
-                    if label.is_regression_label
-                ]
+            final_dataset_kwargs["label_columns"] = [
+                label.label_column_name
+                for label in self.label_columns
+                if not label.is_regression_label
+            ]
+            final_dataset_kwargs["regression_label_columns"] = [
+                label.label_column_name
+                for label in self.label_columns
+                if label.is_regression_label
+            ]
         return final_dataset_kwargs
 
     def load_processed_data(self):

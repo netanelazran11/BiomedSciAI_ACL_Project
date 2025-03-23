@@ -1182,6 +1182,7 @@ class SCBertForMultiTaskModeling(SCBertPreTrainedModel):
             logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
+            embeddings=outputs[1],
         )
 
     def prepare_inputs_for_generation(

@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 import torch
 
@@ -52,7 +53,6 @@ class FieldLossTask(LossTask):
         self,
         field: FieldInfo,
         loss_name: str,
-        output_size: int,  # we may actually get rid of this if we do something smart.
         weight: float = 1.0,
         label_smoothing: float = 0.01,
         focal_gamma: float = 0.0,
@@ -67,7 +67,6 @@ class FieldLossTask(LossTask):
         ----
             field: FieldInfo object
             loss_name: Name of the loss function.
-            output_size: Number of classes/labels for classification tasks.
             weight: Weight for the loss.
             label_smoothing: Label smoothing factor for classification loss.
             focal_gamma: The focal loss' focusing parameter. Higher gamma means more focus on hard examples
@@ -77,6 +76,7 @@ class FieldLossTask(LossTask):
             token_values: list of ints
 
         """
+        output_size = self._get_num_classes_for_field(loss_name, field)
         super().__init__(loss_name, output_size, weight)
         self.field = field
         self.label_smoothing = label_smoothing
@@ -113,9 +113,6 @@ class FieldLossTask(LossTask):
         return cls(
             field=field,
             loss_name=loss_request.get("name", "cross_entropy"),
-            output_size=cls._get_num_classes_for_field(
-                loss_request.get("name", "cross_entropy"), field
-            ),
             weight=loss_request.get("weight", 1.0),
             label_smoothing=loss_request.get("label_smoothing", 0.01),
             focal_gamma=loss_request.get("focal_gamma", 2.0),
@@ -310,11 +307,11 @@ class LabelLossTask(LossTask):
         self,
         label_column: LabelColumnInfo,
         loss_name: str,
-        output_size: int,
         weight: float = 1.0,
         ignore_zero: bool = False,
         label_smoothing: float = 0.0,
         focal_gamma: float = 2.0,
+        link_function: Literal["exp"] | None = None,
     ):
         """
         Initialize a LabelLossTask.
@@ -323,16 +320,16 @@ class LabelLossTask(LossTask):
         ----
             label_column: label column object.
             loss_name: Name of the loss function.
-            output_size: Number of classes/labels for classification tasks.
             weight: Weight for the loss.
             **kwargs: Additional attributes specific to the task.
 
         """
-        super().__init__(loss_name, output_size, weight)
+        super().__init__(loss_name, label_column.output_size, weight)
         self.label_column = label_column
         self.ignore_zero = ignore_zero
         self.label_smoothing = label_smoothing
         self.focal_gamma = focal_gamma
+        self.link_function = link_function
 
     def _construct_loss_key(self) -> str:
         return f"{self.output_key}_{self.loss_name}_loss"
@@ -348,7 +345,11 @@ class LabelLossTask(LossTask):
     def get_predictions(self, logits: dict[str, torch.Tensor]):
         logit_key = self.logit_key
         if logits[logit_key].shape[1] == 1:
-            return logits[logit_key].view(-1)
+            to_return = logits[logit_key].view(-1)
+            if self.link_function == "exp":
+                return torch.exp(to_return)
+            else:
+                return to_return
         else:
             return torch.argmax(logits[logit_key], dim=1)
 
@@ -380,6 +381,8 @@ class LabelLossTask(LossTask):
     def calculate_loss(
         self, logits: torch.Tensor, labels: torch.Tensor
     ) -> torch.Tensor:
+        if self.link_function == "exp":
+            logits = torch.exp(logits)
         return metrics.classification_loss(
             logits,
             labels,
@@ -392,47 +395,19 @@ class LabelLossTask(LossTask):
 
     @classmethod
     def from_loss_request(cls, loss_request: dict, label_column: LabelColumnInfo):
+        loss_name = loss_request.get("name")
+        if loss_name is None:
+            if label_column.is_regression_label:
+                loss_name = "mse"
+            else:
+                loss_name = "cross_entropy"
         return cls(
             label_column=label_column,
-            loss_name=loss_request.get("name", "cross_entropy"),
-            output_size=loss_request.get(
-                "output_size",
-                cls._get_num_classes_for_label(
-                    loss_request.get("name", "cross_entropy"), label_column
-                ),
-            ),
+            loss_name=loss_name,
             weight=loss_request.get("weight", 1.0),
             ignore_zero=loss_request.get("ignore_zero", False),
             focal_gamma=loss_request.get("focal_gamma", None),
-        )
-
-    @staticmethod
-    def _get_num_classes_for_label(
-        loss_name: str, label_column: LabelColumnInfo
-    ) -> int:
-        """
-        Determine the number of classes based on the loss and field.
-
-        Args:
-        ----
-            loss_name (str): The name of the loss function.
-            label (LabelColumnnfo): The Label object associated with this loss task.
-
-        Returns:
-        -------
-            int: The number of classes for the label.
-
-        Raises:
-        ------
-            ValueError: If the field and loss name combination are unsupported.
-
-        """
-        if loss_name in ("cross_entropy", "focal"):
-            return label_column.output_size
-        if loss_name == "mse":
-            return 1
-        raise ValueError(
-            f"Unable to deduce number of labels for loss '{loss_name}' and label '{label_column.label_column_name}'"
+            link_function=loss_request.get("link_function"),
         )
 
 
@@ -593,7 +568,9 @@ def calculate_losses(
         all_losses[loss_display_name] = loss_val
 
     all_losses["loss"] = (
-        (total_loss / total_weight) if total_weight > 0 else torch.tensor(0.0)
+        (total_loss / total_weight)
+        if total_weight > 0
+        else torch.tensor(0.0, device=[*logits.values()][0].device)
     )
     return all_losses
 

@@ -87,7 +87,7 @@ class BaseTrainingModule(pl.LightningModule):
                 "label_columns",
                 [
                     LabelColumnInfo(
-                        label_column_name=label_column_name, output_size=len(labels)
+                        label_column_name=label_column_name, n_unique_values=len(labels)
                     )
                     for label_column_name, labels in label_dict.items()
                 ],
