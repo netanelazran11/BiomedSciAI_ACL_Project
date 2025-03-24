@@ -1,0 +1,29 @@
+defaults:
+  - data_module: gears
+  - tokenizer: all_genes
+  - fields: default_perturbation
+  - trainer: perturbation
+  - task: train
+  - model: scbert
+  - _self_
+
+seed:
+  seed_value: 1234
+
+model:
+  checkpoint: null
+
+data_module:
+  max_length: 32
+  data_dir: /perturbation_data/
+  batch_size: 20
+
+trainer:
+  learning_rate: 1.0e-5
+
+task:
+  accumulate_grad_batches: 5
+  max_epochs: 100
+  val_check_interval: 0.5
+
+output_directory: /tmp
