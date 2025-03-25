@@ -4,6 +4,9 @@ from bmfm_targets.datasets.base_rna_dataset import BaseRNAExpressionDataset
 from bmfm_targets.datasets.dataset_transformer import DatasetTransformer
 from bmfm_targets.training.data_module import DataModule
 
+from pathlib import Path
+
+
 logging.basicConfig(
     level=logging.INFO,
     filename="bulk_rna_dataset.log",
@@ -18,6 +21,8 @@ class BulkRnaDatasetLabeled(BaseRNAExpressionDataset):
 
     DATASET_NAME = "bulk_rna"
     source_h5ad_file_name = "bulk_rna.h5ad"
+    default_label_dict_path = Path(__file__).parent / f"{DATASET_NAME}_all_labels.json"
+
 
 
 class BulkRnaDatasetUnlabeled(BaseRNAExpressionDataset):
@@ -47,3 +52,4 @@ class BulkRnaDataModuleLabeled(DataModule):
 
     DATASET_FACTORY = BulkRnaDatasetLabeled
     DATASET_TRANSFORMER_FACTORY = DatasetTransformer
+
