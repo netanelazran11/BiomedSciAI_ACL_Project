@@ -379,6 +379,8 @@ def calculate_95_ci(data, n, ci_method="bootstrap_quantiles"):
         If len(data)=1 returns None values for the CI's bounds.
     - binomial: CI based on the binomial distribution for proportion metrics. Does not require
         repeated samplings from the data.
+    - wilson: The Wilson score interval, it is assymetric, doesn't overshoot the [0,1] range and
+        does not result with a zero-width length intervals.
 
     Args:
     ----
@@ -415,6 +417,15 @@ def calculate_95_ci(data, n, ci_method="bootstrap_quantiles"):
         ci_length = 1.96 * np.sqrt((mean * (1 - mean)) / n)
         lower_bound = mean - ci_length
         upper_bound = mean + ci_length
+    elif ci_method == "wilson":
+        z = 1.96
+        denominator = 1 + ((z**2) / n)
+        center = (mean + ((z**2) / (2 * n))) / denominator
+        margin = (
+            z * np.sqrt((mean * (1 - mean) / n) + (z**2)) / (2 * n)
+        ) / denominator
+        lower_bound = max(0, center - margin)
+        upper_bound = min(1, center + margin)
     return mean, lower_bound, upper_bound
 
 

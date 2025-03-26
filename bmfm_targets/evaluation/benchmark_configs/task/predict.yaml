@@ -4,3 +4,6 @@ precision: "16-mixed"
 accelerator: "gpu"
 checkpoint: ${checkpoint_path}
 output_embeddings: true
+callbacks:
+  - _target_: bmfm_targets.training.callbacks.BatchIntegrationCallback
+    batch_column_name: batch

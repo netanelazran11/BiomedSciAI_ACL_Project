@@ -18,7 +18,10 @@ from bmfm_targets.datasets.base_dna_dataset import BaseDNASeqDataset
 from bmfm_targets.datasets.base_perturbation_dataset import BasePerturbationDataset
 from bmfm_targets.datasets.base_rna_dataset import BaseRNAExpressionDataset
 from bmfm_targets.tokenization import MultiFieldCollator, MultiFieldTokenizer
-from bmfm_targets.tokenization.resources import get_protein_coding_genes
+from bmfm_targets.tokenization.resources import (
+    get_ortholog_genes,
+    get_protein_coding_genes,
+)
 from bmfm_targets.training.masking import Masker, MaskingStrategy
 
 logger = logging.getLogger(__name__)
@@ -71,6 +74,7 @@ class DataModule(pl.LightningDataModule):
         | Literal["equal"]
         | int
         | None = None,
+        map_orthologs: str | None = None,
         batch_size: int = 32,
         num_workers: int = 0,
         shuffle: bool = False,
@@ -184,6 +188,10 @@ class DataModule(pl.LightningDataModule):
             RDA style without upsampling.
             - int: Uses specified value as the target reads [T].
             - None: No transformation applied.
+        map_orthologs: str | None, optional
+            Mapping genes across species by leveraging orthologs and HUGO gene symbols (external gene names).
+            - "mouse_to_human": Maps mouse genes to human genes using orthologs.
+            - "human_to_mouse": Maps human genes to mouse genes using orthologs.
         batch_size : int, optional
             Number of samples per batch, by default 32.
         num_workers : int, optional
@@ -246,6 +254,7 @@ class DataModule(pl.LightningDataModule):
                 ),
                 None,
             )
+        self.map_orthologs = map_orthologs
         self.__post_init__()
 
     def __post_init__(self):
@@ -510,11 +519,26 @@ class DataModule(pl.LightningDataModule):
         processed_data = read_h5ad(self.processed_data_file)
         return processed_data
 
-    def _get_limited_gene_list(self, limit_genes_keyword) -> list[str]:
+    def _get_limited_gene_list(self, limit_genes_keyword) -> list[str] | None:
         if limit_genes_keyword == "tokenizer":
-            return [*self.tokenizer.get_field_vocab("genes")]
+            if "genes" in self.tokenizer.tokenizers:
+                return [*self.tokenizer.get_field_vocab("genes")]
+            else:
+                logger.warning(
+                    "Field 'genes' not found in tokenizer. "
+                    '`limit_genes="tokenizer" not executed.'
+                )
+            return None
         if limit_genes_keyword == "protein_coding":
             return get_protein_coding_genes()
+        if limit_genes_keyword == "mouse_to_human_orthologs":
+            return get_ortholog_genes(
+                return_mapping=False, from_species="mmusculus", to_species="hsapiens"
+            )
+        if limit_genes_keyword == "human_to_mouse_orthologs":
+            return get_ortholog_genes(
+                return_mapping=False, from_species="hsapiens", to_species="mmusculus"
+            )
         raise ValueError("Unsupported option passed for limit_genes")
 
     def get_vocab_for_field(self, field_name: str) -> list[str]:
@@ -625,12 +649,14 @@ class DataModule(pl.LightningDataModule):
 
     def predict_dataloader(self) -> DataLoader:
         """Returns a list of DataLoaders for prediction."""
+        collate_fn = self.collate_fn
+        collate_fn.label_columns = None
         return DataLoader(
             self.predict_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            collate_fn=self.collate_fn,
+            collate_fn=collate_fn,
         )
 
     @property
@@ -668,6 +694,7 @@ class DataModule(pl.LightningDataModule):
             log_normalize_transform=self.log_normalize_transform,
             rda_transform=rda_transform,
             pad_zero_expression_strategy=self.pad_zero_expression_strategy,
+            map_orthologs=self.map_orthologs,
         )
 
 
