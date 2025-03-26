@@ -16,7 +16,10 @@ model:
 data_module:
   max_length: 32
   data_dir: /perturbation_data/
+  processed_name: processed_data
   batch_size: 20
+  limit_genes: protein_coding #could be null, protein_coding, or tokenizer
+
 
 trainer:
   learning_rate: 1.0e-5
@@ -30,3 +33,4 @@ output_directory: /tmp
 accelerator: gpu
 val_check_interval: 0.5
 max_epochs: 20
+accumulate_grad_batches: 5
