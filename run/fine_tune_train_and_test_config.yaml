@@ -37,3 +37,5 @@ task:
 label_column_name: celltype
 output_directory: /tmp
 accelerator: gpu
+val_check_interval: 0.5
+max_epochs: 20

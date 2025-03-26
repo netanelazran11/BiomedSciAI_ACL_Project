@@ -1,8 +1,8 @@
 - _target_: bmfm_targets.config.TrainingTaskConfig
   default_root_dir: "${output_directory}"
-  max_epochs: 20
+  max_epochs: "${max_epochs}"
   precision: "16-mixed"
-  val_check_interval: 0.05
+  val_check_interval: "${val_check_interval}"
   accelerator: "${accelerator}"
   max_steps: -1  # -1 means no limit
   tf32_mode: medium  # permitted values: "highest", "high", "medium"
