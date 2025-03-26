@@ -1,7 +1,7 @@
 defaults:
   - data_module: gears
   - tokenizer: all_genes
-  - fields: default_perturbation
+  - fields: perturbation
   - trainer: perturbation
   - task: train
   - model: scbert

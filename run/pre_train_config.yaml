@@ -1,7 +1,7 @@
 defaults:
   - data_module: zheng68k_pre_training
   - tokenizer: all_genes
-  - fields: default_pre_training
+  - fields: genes_expressions_masked
   - trainer: default
   - task: train
   - model: scbert
