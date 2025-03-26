@@ -36,3 +36,4 @@ task:
 
 label_column_name: celltype
 output_directory: /tmp
+accelerator: gpu

@@ -3,7 +3,7 @@ default_root_dir: "${output_directory}"
 max_epochs: 20
 precision: "16-mixed"
 val_check_interval: 0.05
-accelerator: "gpu"
+accelerator: "${accelerator}"
 max_steps: -1  # -1 means no limit
 tf32_mode: medium  # permitted values: "highest", "high", "medium"
 accumulate_grad_batches: 1

@@ -27,3 +27,4 @@ task:
   val_check_interval: 0.5
 
 output_directory: /tmp
+accelerator: gpu

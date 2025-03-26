@@ -1,6 +1,6 @@
 _target_: bmfm_targets.config.PredictTaskConfig
 default_root_dir: "${output_directory}"
 precision: "16-mixed"
-accelerator: "gpu"
+accelerator: "${accelerator}"
 checkpoint: null
 output_embeddings: true
