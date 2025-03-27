@@ -16,14 +16,12 @@ from bmfm_targets.config import FieldInfo, LabelColumnInfo
 from bmfm_targets.datasets import DatasetTransformer, PerturbationDatasetTransformer
 from bmfm_targets.datasets.base_dna_dataset import BaseDNASeqDataset
 from bmfm_targets.datasets.base_perturbation_dataset import BasePerturbationDataset
-from bmfm_targets.datasets.base_rna_dataset import (
-    BaseRNAExpressionDataset,
+from bmfm_targets.datasets.base_rna_dataset import BaseRNAExpressionDataset
+from bmfm_targets.tokenization import MultiFieldCollator, MultiFieldTokenizer
+from bmfm_targets.tokenization.resources import (
+    get_ortholog_genes,
+    get_protein_coding_genes,
 )
-from bmfm_targets.tokenization import (
-    MultiFieldCollator,
-    MultiFieldTokenizer,
-)
-from bmfm_targets.tokenization.resources import get_protein_coding_genes
 from bmfm_targets.training.masking import Masker, MaskingStrategy
 
 logger = logging.getLogger(__name__)
@@ -68,12 +66,15 @@ class DataModule(pl.LightningDataModule):
         mask_ratio: float = 1.0,
         switch_ratio: float = 0.0,
         masking_strategy: MaskingStrategy | None = None,
+        prevent_attention_to_masked: bool = False,
+        comask_across_fields: bool = False,
         log_normalize_transform: bool = False,
         rda_transform: Literal["downsample"]
         | Literal["auto_align"]
         | Literal["equal"]
         | int
         | None = None,
+        map_orthologs: str | None = None,
         batch_size: int = 32,
         num_workers: int = 0,
         shuffle: bool = False,
@@ -164,6 +165,18 @@ class DataModule(pl.LightningDataModule):
         masking_strategy : MaskingStrategy | None, optional
             Strategy for masking tokens, by default None.
             Refer to MaskingStrategy documentation for detailed configuration options.
+        prevent_attention_to_masked: bool = False
+            Controls whether the attention mask blocks attention to masked tokens.
+            Based on scGPT's attention strategy and only applies when mlm=True.
+            When multiple fields are masked, this requires comask_across_fields=True.
+            Will raise an error if True with comask_across_fields=False and multiple
+            masked fields. Defaults to False.
+        comask_across_fields: bool = False
+            Determines if fields are masked at the same token positions in the sequence.
+            Only relevant when multiple fields have is_masked=True and mlm=True.
+            When True, the model predicts both gene and expression value simultaneously.
+            Task may be underdefined with random sequence order but defined with
+            consistent sorting. Defaults to False.
         log_normalize_transform : bool, optional
             Whether to apply log normalization to expression data, by default False.
         rda_transform : "downsample" | "auto_align" | "equal" | int | None, optional
@@ -175,6 +188,10 @@ class DataModule(pl.LightningDataModule):
             RDA style without upsampling.
             - int: Uses specified value as the target reads [T].
             - None: No transformation applied.
+        map_orthologs: str | None, optional
+            Mapping genes across species by leveraging orthologs and HUGO gene symbols (external gene names).
+            - "mouse_to_human": Maps mouse genes to human genes using orthologs.
+            - "human_to_mouse": Maps human genes to mouse genes using orthologs.
         batch_size : int, optional
             Number of samples per batch, by default 32.
         num_workers : int, optional
@@ -214,6 +231,8 @@ class DataModule(pl.LightningDataModule):
             mask_ratio=mask_ratio,
             switch_ratio=switch_ratio,
             tokenizer=tokenizer,
+            prevent_attention_to_masked=prevent_attention_to_masked,
+            comask_across_fields=comask_across_fields,
             masking_strategy=masking_strategy,
         )
         self.train_dataset = None
@@ -235,6 +254,7 @@ class DataModule(pl.LightningDataModule):
                 ),
                 None,
             )
+        self.map_orthologs = map_orthologs
         self.__post_init__()
 
     def __post_init__(self):
@@ -468,24 +488,16 @@ class DataModule(pl.LightningDataModule):
                 self.limit_genes
             )
         if self.label_columns:
-            if (
-                len(self.label_columns) == 1
-                and self.label_columns[0].is_perturbation_label
-            ):
-                final_dataset_kwargs["perturbation_column_name"] = self.label_columns[
-                    0
-                ].label_column_name
-            else:
-                final_dataset_kwargs["label_columns"] = [
-                    label.label_column_name
-                    for label in self.label_columns
-                    if not label.is_regression_label
-                ]
-                final_dataset_kwargs["regression_label_columns"] = [
-                    label.label_column_name
-                    for label in self.label_columns
-                    if label.is_regression_label
-                ]
+            final_dataset_kwargs["label_columns"] = [
+                label.label_column_name
+                for label in self.label_columns
+                if not label.is_regression_label
+            ]
+            final_dataset_kwargs["regression_label_columns"] = [
+                label.label_column_name
+                for label in self.label_columns
+                if label.is_regression_label
+            ]
         return final_dataset_kwargs
 
     def load_processed_data(self):
@@ -507,11 +519,26 @@ class DataModule(pl.LightningDataModule):
         processed_data = read_h5ad(self.processed_data_file)
         return processed_data
 
-    def _get_limited_gene_list(self, limit_genes_keyword) -> list[str]:
+    def _get_limited_gene_list(self, limit_genes_keyword) -> list[str] | None:
         if limit_genes_keyword == "tokenizer":
-            return [*self.tokenizer.get_field_vocab("genes")]
+            if "genes" in self.tokenizer.tokenizers:
+                return [*self.tokenizer.get_field_vocab("genes")]
+            else:
+                logger.warning(
+                    "Field 'genes' not found in tokenizer. "
+                    '`limit_genes="tokenizer" not executed.'
+                )
+            return None
         if limit_genes_keyword == "protein_coding":
             return get_protein_coding_genes()
+        if limit_genes_keyword == "mouse_to_human_orthologs":
+            return get_ortholog_genes(
+                return_mapping=False, from_species="mmusculus", to_species="hsapiens"
+            )
+        if limit_genes_keyword == "human_to_mouse_orthologs":
+            return get_ortholog_genes(
+                return_mapping=False, from_species="hsapiens", to_species="mmusculus"
+            )
         raise ValueError("Unsupported option passed for limit_genes")
 
     def get_vocab_for_field(self, field_name: str) -> list[str]:
@@ -622,12 +649,14 @@ class DataModule(pl.LightningDataModule):
 
     def predict_dataloader(self) -> DataLoader:
         """Returns a list of DataLoaders for prediction."""
+        collate_fn = self.collate_fn
+        collate_fn.label_columns = None
         return DataLoader(
             self.predict_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            collate_fn=self.collate_fn,
+            collate_fn=collate_fn,
         )
 
     @property
@@ -665,6 +694,7 @@ class DataModule(pl.LightningDataModule):
             log_normalize_transform=self.log_normalize_transform,
             rda_transform=rda_transform,
             pad_zero_expression_strategy=self.pad_zero_expression_strategy,
+            map_orthologs=self.map_orthologs,
         )
 
 

@@ -35,6 +35,41 @@ def randomize(mfi: MultiFieldInstance, *args, **kwargs) -> MultiFieldInstance:
     return MultiFieldInstance(data=randomized_data, metadata=mfi.metadata)
 
 
+def field_remap(
+    mfi: MultiFieldInstance,
+    mapping: dict,
+    field_to_remap: str = "genes",
+    *args,
+    **kwargs,
+):
+    """
+    Remaps a field in a MultiFieldInstance object.
+
+    Args:
+    ----
+        mfi (MultiFieldInstance): mfi
+        mapping (dict): A dictionary that maps the original field values to the new values.
+        field_to_remap (str): The name of the field to be remapped (default: "genes").
+
+    Returns:
+    -------
+        MultiFieldInstance: mfi.
+
+    """
+    updated_field = [mapping[g] for g in mfi[field_to_remap]]
+    updated_data = {}
+    for field, vals in mfi.data.items():
+        if field == field_to_remap:
+            updated_data[field] = updated_field
+        else:
+            updated_data[field] = vals
+
+    return MultiFieldInstance(
+        data=updated_data,
+        metadata=mfi.metadata,
+    )
+
+
 def sort_by_field(
     mfi: MultiFieldInstance, field: str, reverse=True, *args, **kwargs
 ) -> MultiFieldInstance:
@@ -179,9 +214,9 @@ def log_normalize(
     updated_data = {}
     for field, vals in mfi.data.items():
         if field == "expressions":
-            updated_data[field] = expressions
+            updated_data[field] = [*expressions]
         else:
-            updated_data[field] = vals
+            updated_data[field] = [*vals]
 
     return MultiFieldInstance(
         data=updated_data,

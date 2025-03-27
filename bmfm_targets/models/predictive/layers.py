@@ -10,7 +10,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
-from bmfm_targets.config import FieldInfo, SCModelConfigBase
+from bmfm_targets.config import FieldInfo, LabelColumnInfo, SCModelConfigBase
 from bmfm_targets.training.metrics import masked_mean
 
 
@@ -356,17 +356,25 @@ class FieldDecoder(nn.Linear):
         return super().forward(hidden_states)
 
 
-class LabelDecoder(nn.Linear):
+class LabelDecoder(nn.Module):
     def __init__(
         self,
         config: SCModelConfigBase,
-        output_size: int = 1,
+        label_column: LabelColumnInfo,
     ):
-        super().__init__(config.hidden_size, output_size)
-        self.bias = nn.Parameter(torch.zeros(output_size))
+        super().__init__()
+        output_size = label_column.output_size
+        cls = nn.Linear(config.hidden_size, output_size)
+        cls.bias = nn.Parameter(torch.zeros(output_size))
+        if label_column.gradient_reversal_coefficient is not None:
+            self.decoder = nn.Sequential(
+                GradientReversal(label_column.gradient_reversal_coefficient), cls
+            )
+        else:
+            self.decoder = cls
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        return super().forward(hidden_states)
+        return self.decoder.forward(hidden_states)
 
 
 class SCBaseFieldDecoder(nn.Module):
@@ -397,10 +405,9 @@ class SCClassificationDecoder(nn.Module):
         self.config = config
         self.label_decoders = nn.ModuleDict()
 
-        for label in self.config.label_columns:
-            output_dim = 1 if label.is_regression_label else label.output_size
-            label_decoder = LabelDecoder(config, output_dim)
-            self.label_decoders[label.label_column_name] = label_decoder
+        for label_column in self.config.label_columns:
+            label_decoder = LabelDecoder(config, label_column)
+            self.label_decoders[label_column.label_column_name] = label_decoder
 
     def forward(self, hidden_states: torch.Tensor) -> dict[str, torch.Tensor]:
         label_logits = {}
@@ -682,3 +689,23 @@ class ScaleAdaptEncoder(nn.Module):
         x = self.dense(x)
 
         return x
+
+
+class GradientReversalFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.alpha = alpha
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg() * ctx.alpha, None
+
+
+class GradientReversal(torch.nn.Module):
+    def __init__(self, alpha=1.0):
+        super().__init__()
+        self.alpha = torch.tensor(alpha, requires_grad=False)
+
+    def forward(self, x):
+        return GradientReversalFunction.apply(x, self.alpha)

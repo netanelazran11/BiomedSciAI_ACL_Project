@@ -175,8 +175,11 @@ class SCBertMainConfig:
     @staticmethod
     def update_label_columns(label_columns: list[LabelColumnInfo], label_dict):
         for label_column in label_columns:
-            if not label_column.is_perturbation_label:
-                label_column.update_output_size(label_dict)
+            if (
+                label_column.label_column_name in label_dict
+                and label_column.n_unique_values is None
+            ):
+                label_column.update_n_unique_values(label_dict)
 
     def _load_tokenizer_from_cfg(self):
         # to avoid circular import

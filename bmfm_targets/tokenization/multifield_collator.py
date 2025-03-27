@@ -7,6 +7,7 @@ import torch
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from bmfm_targets.config import FieldInfo, LabelColumnInfo
+from bmfm_targets.tokenization.resources import get_ortholog_genes
 from bmfm_targets.training import sample_transforms
 from bmfm_targets.training.masking import Masker
 
@@ -61,6 +62,7 @@ class MultiFieldCollator:
         sequence_dropout_factor: float | int | None = None,
         log_normalize_transform: bool = False,
         rda_transform: Literal["downsample"] | Literal["equal"] | int | None = None,
+        map_orthologs: str | None = None,
     ):
         """
         Multifield Data collator.
@@ -117,6 +119,7 @@ class MultiFieldCollator:
         self.log_normalize_transform = log_normalize_transform
         self.collation_strategy = collation_strategy
         self.label_dict = label_dict
+        self.map_orthologs = map_orthologs
         self.__post__init__()
 
     def __post__init__(self):
@@ -155,6 +158,7 @@ class MultiFieldCollator:
         max_length=None,
         sequence_dropout_factor=None,
         fields_to_downcast=None,
+        map_orthologs=None,
     ):
         transforms = []
         if sequence_order == "random":
@@ -228,6 +232,35 @@ class MultiFieldCollator:
                     fields_to_downcast=fields_to_downcast,
                 )
             )
+        if map_orthologs == "mouse_to_human_orthologs":
+            mapping = get_ortholog_genes(
+                return_mapping=True,
+                from_species="mmusculus",
+                to_species="hsapiens",
+                id_type="gene_name",
+            )
+            transforms.append(
+                partial(
+                    sample_transforms.field_remap,
+                    field_to_remap="genes",
+                    mapping=mapping,
+                )
+            )
+        elif map_orthologs == "human_to_mouse_orthologs":
+            mapping = get_ortholog_genes(
+                return_mapping=True,
+                from_species="hsapiens",
+                to_species="mmusculus",
+                id_type="gene_name",
+            )
+            transforms.append(
+                partial(
+                    sample_transforms.field_remap,
+                    field_to_remap="genes",
+                    mapping=mapping,
+                )
+            )
+
         return transforms
 
     def _transform_inputs(self, examples):
@@ -246,6 +279,7 @@ class MultiFieldCollator:
             max_length=self.max_length,
             sequence_dropout_factor=self.sequence_dropout_factor,
             fields_to_downcast=fields_to_downcast,
+            map_orthologs=self.map_orthologs,
         )
         if "perturbations" in [i.field_name for i in self.fields]:
             transforms.append(
@@ -398,8 +432,9 @@ class MultiFieldCollator:
         if self.collation_strategy == "multitask":
             labels = {}
             if self.mlm and self.mask_field_names is not None:
-                input_ids, labels = self.masker.mask_inputs(self.fields, batch)
-
+                input_ids, labels, attention_mask = self.masker.mask_inputs(
+                    self.fields, batch
+                )
             if "label_ids" in batch:
                 for key in batch["label_ids"]:
                     labels[key] = batch["label_ids"][key]
@@ -414,7 +449,9 @@ class MultiFieldCollator:
 
         if self.collation_strategy == "language_modeling":
             if self.mlm and self.mask_field_names is not None:
-                input_ids, labels = self.masker.mask_inputs(self.fields, batch)
+                input_ids, labels, attention_mask = self.masker.mask_inputs(
+                    self.fields, batch
+                )
 
                 return_dict = {
                     "input_ids": input_ids,

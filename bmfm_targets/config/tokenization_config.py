@@ -191,26 +191,110 @@ class FieldInfo:
 @dataclass(eq=True, repr=True)
 class LabelColumnInfo:
     """
-    Represents information about a field.
+    Represents configuration settings for a column in a dataset that will be used as a label during training.
+
+    This dataclass encapsulates properties related to a label column, such as its name,
+    task type (classification or regression), and training-related parameters like stratification,
+    domain adaptation, and shared layer configurations for grouped labels.
 
     Args:
     ----
-        label_column_name (str): the name of the label column
-        output_size (int): Number of labels. This depends on the tokenizer and
-          may not be known at instantiation time.
-        task_group (str): the task group of the label
+        label_column_name (str): The name of the label column in the dataset.
+        task_group (Optional[str], optional): A grouping identifier for related labels.
+            If multiple label columns share the same `task_group`, an additional shared
+            layer is created to learn a common representation for these labels. Defaults to None.
+        is_stratification_label (bool, optional): If True, the label is used for stratified sampling
+            during data splitting, ensuring balanced label representation in each split.
+            Defaults to False.
+        is_regression_label (bool, optional): If True, the label is treated as a regression target;
+            otherwise, it is treated as a classification target. Defaults to False.
+        classifier_depth (int, optional): The number of layers in the classifier head for this label.
+            Must be a positive integer. Defaults to 1.
+        gradient_reversal_coefficient (Optional[float], optional): The gradient reversal coefficient for
+            domain adaptation, as described in https://arxiv.org/abs/1409.7495.
+            Must be a positive float; starting with 0.1 is recommended to avoid excessive gradient scaling.
+            Defaults to None.
+        n_unique_values (Optional[int], optional): Number of unique labels. Required for classification
+            tasks, can remain None for regression tasks.
+
+    Attributes:
+    ----------
+        output_size (int): The number of unique labels for classification tasks or 1 for regression tasks.
+
+    Raises:
+    ------
+        ValueError: If `output_size` is accessed before it is set for classification tasks (i.e., not regression).
+
     """
 
     label_column_name: str
-    output_size: int | None = None
     task_group: str | None = None
     is_stratification_label: bool = False
     is_regression_label: bool = False
-    is_perturbation_label: bool = False
     classifier_depth: int = 1
+    gradient_reversal_coefficient: float | None = None
+    n_unique_values: int | None = None
 
-    def update_output_size(self, label_dict):
-        self.output_size = len(label_dict[self.label_column_name])
+    def __setstate__(self, state):
+        # Handle legacy field name "output_size"
+        if "output_size" in state:
+            state["n_unique_values"] = state.pop("output_size")
+        self.__dict__.update(state)
+
+    @property
+    def output_size(self) -> int:
+        """
+        The number of unique labels for this column.
+
+        For regression tasks (`is_regression_label=True`), the output size is always 1.
+        For classification tasks, the output size is the internally stored `_output_size`
+        which must be set using `update_n_unique_values`.
+
+        Returns
+        -------
+            int: The number of unique labels (1 for regression, or the number of classes for classification).
+
+        Raises
+        ------
+            ValueError: If `output_size` is accessed before it is set for a classification task.
+
+        """
+        if self.is_regression_label:
+            return 1
+        elif self.n_unique_values is not None:
+            return self.n_unique_values
+        raise ValueError(
+            "`n_unique_values` must be set, for non-regression classes. Run `update_n_unique_values` with valid label_dict!"
+        )
+
+    def update_n_unique_values(self, label_dict):
+        """
+        Updates the output size based on the provided label dictionary.
+
+        The `label_dict` should map label column names to lists of unique label values. This method sets the
+        output size to the length of the list corresponding to `label_column_name`.
+
+        Args:
+        ----
+            label_dict (Dict[str, List]): A dictionary where keys are label column names and values are lists
+                of unique label values.
+
+        Raises:
+        ------
+            KeyError: If `label_column_name` is not found in `label_dict`.
+        """
+        self.n_unique_values = len(label_dict[self.label_column_name])
 
     def to_dict(self):
+        """
+        Converts the `LabelColumnInfo` instance to a dictionary, including the `output_size` property.
+
+        The resulting dictionary includes all public attributes and the computed `output_size`.
+        If `output_size` cannot be determined (e.g., not set for a classification task), it is set to None in the dictionary.
+
+        Returns
+        -------
+            Dict: A dictionary representation of the `LabelColumnInfo` instance.
+
+        """
         return asdict(self)

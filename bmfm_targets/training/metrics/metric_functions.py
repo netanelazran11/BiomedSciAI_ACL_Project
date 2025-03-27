@@ -221,7 +221,7 @@ def mse_loss(logits, labels, ignore_index=-100.0, ignore_zero=False):
         zero_mask = labels == 0.0
         ignore_mask = ignore_mask | zero_mask
     if ignore_mask.all():
-        return torch.tensor(0)
+        return torch.tensor(0, device=logits.device)
     loss_fct = MSELoss(reduction="none")
     field_loss = loss_fct(logits.float(), labels.float())
     field_masked_loss = field_loss * ~ignore_mask
@@ -232,7 +232,7 @@ def mse_loss(logits, labels, ignore_index=-100.0, ignore_zero=False):
 def is_zero_bce_loss(logits: torch.Tensor, labels: torch.Tensor, ignore_index=-100):
     ignore_mask = labels == ignore_index
     if ignore_mask.all():
-        return torch.tensor(0)
+        return torch.tensor(0, device=logits.device)
     loss_fct = BCEWithLogitsLoss(reduction="none")
     field_loss = loss_fct(logits, (labels == 0.0).float())
     field_masked_loss = field_loss * ~ignore_mask

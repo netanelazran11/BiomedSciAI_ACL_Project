@@ -119,7 +119,7 @@ def calculate_metrics_embedding(distances, labels):
 def generate_clusters(
     adata,
     n_components=2,
-    label="celltype",
+    label="CellType",
     clustering_method="kmeans",
     **kwargs,
 ):
@@ -173,7 +173,7 @@ def get_clusters(
     return clusters
 
 
-def evaluate_clusters(clusters, clustering_method, label="celltype", normalize=False):
+def evaluate_clusters(clusters, clustering_method, label="CellType", normalize=False):
     eval_res_dict = {}
     eval_res_dict["method"] = clustering_method
     eval_res_dict["ARI"] = metrics.adjusted_rand_score(

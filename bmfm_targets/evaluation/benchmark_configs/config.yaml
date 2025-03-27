@@ -23,7 +23,7 @@ track_clearml:
 max_finetuning_epochs: 2
 
 dataset_name: "" # do not modify, set by script
-checkpoint_path: /dccstor/bmfm-targets1/users/tanwi/bmfm_sessions/scbert_train_panglaodb_zeroLoss_tanwi/scbert_train_panglaodb_zeroLoss_tanwi_2024-11-20_22-58-19/last.ckpt
+checkpoint_path: /dccstor/bmfm-targets1/users/tanwi/training_runs/scbert_panglaodb_pretrain_CVE_exposeZeros_Proteincoding_RDA_24h_Back/last.ckpt
 #/dccstor/bmfm-targets/models/omics/transcriptome/scRNA/pretrain/bmfm.targets.slate.bert.110m.scRNA.RDA.v1/last-v3.ckpt
 checkpoint_name: rda_test
 output_directory: /dccstor/bmfm-targets1/users/dmichael/benchmarking/

@@ -4,8 +4,7 @@ Package to pretrain foundational AI models using single-cell data or genomic seq
 
 ## Source code and issue tracker
 
-Available on Github Enterprise, [BiomedSciAI-Innersource/
-bmfm-targets](https://github.ibm.com/BiomedSciAI-Innersource/bmfm-targets).
+Available on Github, [biomed-multi-omics](https://github.com/BiomedSciAI/biomed-multi-omic).
 Please report bugs, issues and feature extensions there.
 
 ## Training
@@ -13,41 +12,15 @@ Please report bugs, issues and feature extensions there.
 After installing the package run
 
 ```bash
-bmfm-targets-scbert -cn scbert_train_panglaodb # to use panglaodb
-bmfm-targets-scbert -cn scbert_train_zheng68k # to use zheng68k in mlm mode
-bmfm-targets-scbert -cn scbert_train_humancellatlas # to use human cell atlas in mlm mode
-bmfm-targets-scbert -cn scbert_train_cellxgene # to use cellXgene in mlm mode
-bmfm-targets-scbert -cn scbert_nystromformer_train_panglaodb  # to use nystromformer model with panglaodb
-bmfm-targets-scbert -cn scbert_train_streaming_panglaodb # to use scbert with streamiing panglaodb data
-bmfm-targets-scbert -cn scbert_nystromformer_streaming_snpdb # to use nystromformer model with streaming snp genomic sequences
+bmfm-targets-scbert -cn pre_train_config -cd run
 ```
 
 For finetuning you will probably want to select a checkpoint and provide it to the `model.checkpoint` field of the
 config and then set `mlm` to false in the data module:
 
 ```bash
-bmfm-targets-scbert -cn scbert_train_zheng68k data_module.mlm=false # to use zheng68k in fine-tune mode
+bmfm-targets-scbert -cn fine_tune_train_config data_module.mlm=false -dc run
 ```
-
-or to use the T5 model
-
-```bash
-bmfm-targets-t5
-```
-
-to execute pretraining with the scBERT or T5 models on the panglaodb datasets respectively.
-See [tasks](./tasks/) for more details.
-
-## Downstream tasks
-
-Currently cell-type annotation on pretrained models is implemented. To execute it please run
-
-```bash
-bmfm-targets-scbert -cn scbert_predict_zheng68k
-```
-
-This task is only defined on existing checkpoints.
-Make sure you have updated paths to pretrained models in your config.
 
 ## Running dna seq finetuning tasks
 
@@ -57,50 +30,6 @@ Currently there are 10 finetuning data that we are running on our pre-trained dn
 ## Configuration
 
 The configuration is structured into different sections to define various aspects of the experiment.
-
-By default the app makes use of the following environment variables. Below are their settings for CCC.
-To use the scripts either copy these lines into your bashrc or override them in your config yaml.
-
-```bash
-export BMFM_TARGETS_PANGLAO_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/pretrain/panglao/
-export BMFM_TARGETS_PANGLAO_METADATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/pretrain/panglao/metadata/metadata.csv
-export BMFM_TARGETS_ZHENG68K_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/Zheng68K/
-export BMFM_TARGETS_HUMANCELLATLAS_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/HumanCellAtlas/
-export BMFM_TARGETS_CELLXGENE_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/pretrain/cellxgene/
-export BMFM_TARGETS_SCIPLEX3_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/SciPlex3/
-export BMFM_TARGETS_PANCREAS_CROSS_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/PancreasCross/
-export BMFM_TARGETS_HBONES_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/hBones/
-export BMFM_TARGETS_TCGA_KIRC_data=/dccstor/bmfm-targets/data/omics/transcriptome/bulkRNA/finetune/TCGA-KIRC/
-
-export BMFM_TARGETS_DNASEQ_LENTI_MPRA_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/lenti_mpra_regression
-export BMFM_TARGETS_DNASEQ_CHROMATIN_PROFILE_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/chromatin_profile_prediction
-export BMFM_TARGETS_DNASEQ_CORE_PROMOTER_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/core_promoter_prediction
-export BMFM_TARGETS_DNASEQ_COVID_PREDICTION_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/covid_prediction
-export BMFM_TARGETS_DNASEQ_DROSOPHILA_ENHANCER_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/drosophila_enhancer_prediction
-export BMFM_TARGETS_DNASEQ_EPIGENETIC_MARK_PREDICTION_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/epigenetic_marks_prediction
-export BMFM_TARGETS_DNASEQ_PROMOTER_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/promoter_prediction
-export BMFM_TARGETS_DNASEQ_SNV_MPRA_CAGI_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/snv_mpra_cagi_regression
-export BMFM_TARGETS_DNASEQ_SPLICE_SITE_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/splice_site_prediction
-export BMFM_TARGETS_DNASEQ_TF_PREDICTION_DATA=/dccstor/bmfm-targets1/data/omics/genome/finetune_datasets/tf_prediction
-
-
-export BMFM_TARGETS_SCIBD_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/scIBD/
-export BMFM_TARGETS_SCIBD300K_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/scIBD300K/
-export BMFM_TARGETS_TIL_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/TIL/
-export BMFM_TARGETS_SCP1884_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/SCP1884/
-export BMFM_TARGETS_ADAMSON_DATA=/dccstor/bmfm-targets/data/omics/transcriptome/scRNA/finetune/Perturbation/scPerturb/
-export BMFM_TARGETS_ENSEMBL_DATA=/dccstor/bmfm-targets/data/omics/proteins/ensembl-release-112/data/
-export BMFM_TARGETS_DNA_DATA_REF_1KB=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/ref_1kb/
-export BMFM_TARGETS_DNA_DATA_REF_RC_1KB=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/ref_rc_1kb/
-export BMFM_TARGETS_DNA_DATA_REF_RC_1KB_10KB=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/ref_rc_1kb_10kb/
-export BMFM_TARGETS_DNA_DATA_REF_RC_1KB_10KB_10X=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/ref_rc_1kb_10kb_10x/
-
-export BMFM_TARGETS_DNA_DATA_SNP_1KB=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/biallele_1kb/
-export BMFM_TARGETS_DNA_DATA_SNP_1KB_10KB=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/biallele_1kb_10kb/
-export BMFM_TARGETS_DNA_DATA_SNP_RC_1KB_10KB_10X=/dccstor/bmfm-targets/data/omics/genome/snpdb/litdata/biallele_rc_1kb_10kb_10x/
-
-export BMFM_TARGETS_TRAINING_DIR=/dccstor/bmfm-targets/users/$USER/training_runs
-```
 
 ### Seed
 
@@ -299,21 +228,3 @@ During testing, three types of CI for the evaluation metrics are available thoru
     - binomial: CI based on the binomial distribution for proportion metrics. Does not require
         repeated samplings from the data, thus num_bootstrap_runs can be set to 0. In case num_bootstrap_runs >=1
         The binomial CI uses the metric's average value across the bootstrap samples as the estimate.
-
-### Running `scbert.py` on CCC
-
-```jbsub -mem 32g -cores 1+1 -q x86_6h -require a100 bmfm-targets-scbert -cn scbert_train_panglaodb```
-
-Note that the environment variables (as detailed in the Configuration section above) need to be exported within the user .bashrc file (located in the CCC user root directory `/u/{user_name}/.bashrc`).
-
-### Running `scbert_train.py` on CCC with SessionManager
-
-[SessionManager](https://github.ibm.com/BiomedSciAI-Innersource/bmfm-core/blob/main/bmfm_core/infra/session_manager/README.md) allows running a task in a clean "container" like environment while resubmitting it to queue when needed, overcoming the 24h queue limitation.
-See [scbert_train_session_manager](../session_manager/scbert_train_session_manager.yaml) for running instructions.
-
-
-## Working with olded checkpoints
-
-The code for the MultiFieldTokenizer has been refactored and checkpoints that where saved prior to 15th July 2024 will need to convert the tokenizer to the new format.  To do this, use the
-`bmfm-targets/bmfm_targets/tokenization/convert_multifiled_tokenizer.py`
-script.  Give the script the path to the old tokenizer and either a path to save the new one, or use `--write-back` to save it back to the input directory.  Note: saving back does not override old tokenizers' files.

@@ -1,18 +1,6 @@
-# bmfm targets
+# biomed multi omics
 
-Biomedical foundational models for target discovery
-
-This repo contains the code for the [bmfm targets challenge](https://challenges.apps.res.ibm.com/challenges/6452?tab=details).
-As of October 2023, it contains code for scRNA expression foundation models divided into the following sections:
-
-* [bmfm_targets](./bmfm_targets/) a package implementing the pre-training of a foundation model on scRNA expression data, inspired by [scBERT](https://github.com/TencentAILabHealthcare/scBERT). Currently the pretraining works for BERT style models, over the PanglaoDB collection of scRNA datasets.
-The [t5](./bmfm_targets/tasks/t5) sub-folder holds implementation of pre-training and fine-tunining tasks using the bmfm-core MAMMAL model, see it's [README](./bmfm-targets/tasks/t5/README.md) for more details.
-
-* [benchmarks](./benchmarks/) downstream tasks that make use of foundation models for scRNA data
-
-* [session_manager](./session_manager/) yamls and instructions for running jobs using the session manager from bmfm-core
-
-* [aer2vec](./aer2vec/) SNP embedding code, see readme for more details.
+Biomedical foundational models for omics data
 
 Instructions for installing and running the pre-training and fine-tuning tasks are available in their respective directories.
 
@@ -39,7 +27,7 @@ The following command will install the repository as a Python package, and also 
 ```sh
 # assuming you have an SSH key set up on GitHub
 # this
-pip install "git+ssh://git@github.ibm.com/BiomedSciAI-Innersource/bmfm-targets.git@main"
+pip install "git@github.com:BiomedSciAI/biomed-multi-omic.git"
 ```
 
 ### For developers
@@ -47,15 +35,15 @@ pip install "git+ssh://git@github.ibm.com/BiomedSciAI-Innersource/bmfm-targets.g
 
 ```sh
 # Clone the cloned repository
-git clone git@github.ibm.com:BiomedSciAI-Innersource/bmfm-targets.git
+git clone git@github.com:BiomedSciAI/biomed-multi-omic.git
 
 # Change directory to the root of the cloned repository
-cd bmfm-targets
+cd biomed-multi-omics
 
 pip install --upgrade pre-commit
 
 # install from the local directory
-pip install -e ."[test]"   # ."[test,t5]" if t5 is needed; this installs many extra packages that are only used for t5
+pip install -e ."[test]"
 
 pre-commit install
 ```
@@ -76,4 +64,4 @@ Check [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 Check [SUPPORT.md](.github/SUPPORT.md).
 
 ## Credits
-This project was created using https://github.ibm.com/BiomedSciAI-Innersource/python-blueprint.
+This project was created in IBM Research

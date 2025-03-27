@@ -28,7 +28,7 @@ def main(cfg: config.SCBertMainHydraConfigSchema) -> None:
     if not isinstance(cfg.task, list | dict | ListConfig | DictConfig):
         raise ValueError("task must be a list[dict], dict, ListConfig, or DictConfig")
 
-    if cfg.track_clearml:
+    if hasattr(cfg, "track_clearml") and cfg.track_clearml:
         clearml_logger = start_clearml_logger(**cfg.track_clearml)
     else:
         clearml_logger = None

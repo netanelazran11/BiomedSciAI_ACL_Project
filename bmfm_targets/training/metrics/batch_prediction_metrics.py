@@ -272,18 +272,22 @@ def concat_batch_tensors(batch, outputs, predictions, loss_task):
 def create_label_predictions_df(
     predictions_list, label_name, sample_names, this_label_dict
 ):
-    predictions_array = (
+    preds_array = (
         torch.concat([*predictions_list]).detach().cpu().to(torch.float32).numpy()
     )
-    label_preds_df = pd.DataFrame(index=sample_names, data=predictions_array)
     columns = [f"{label_name}_prediction", f"{label_name}_label"]
-    if predictions_array.shape[1] > 2:  # classification task
+
+    if preds_array.shape[1] == 3:  # regression_task
+        # usually logits and predictions are the same for regression task
+        # but link_function or other steps could impact it
+        columns += [f"{label_name}_logits"]
+    elif preds_array.shape[1] > 3:  # classification task
         label_values = [
             i[0] for i in sorted(this_label_dict.items(), key=lambda x: x[1])
         ]
         columns += [f"{label_value}_logits" for label_value in label_values]
-        label_preds_df.iloc[:, :2] = (
-            label_preds_df.iloc[:, :2].astype(int).map(label_values.__getitem__)
-        )
-    label_preds_df.columns = columns
+        preds_array = preds_array.astype(object)
+        preds_array[:, :2] = np.array(label_values)[preds_array[:, :2].astype(int)]
+
+    label_preds_df = pd.DataFrame(index=sample_names, data=preds_array, columns=columns)
     return label_preds_df

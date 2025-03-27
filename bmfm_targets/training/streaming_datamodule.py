@@ -1,3 +1,4 @@
+import inspect
 import logging
 from collections.abc import Mapping
 from itertools import islice
@@ -5,7 +6,7 @@ from typing import Any
 
 import pytorch_lightning as pl
 import torch
-from litdata import StreamingDataLoader, StreamingDataset
+from litdata import CombinedStreamingDataset, StreamingDataLoader, StreamingDataset
 
 from bmfm_targets.training.data_module import DataModule
 
@@ -72,6 +73,17 @@ class StreamingDataModule(DataModule):
                 for label in self.label_columns
                 if label.is_regression_label
             ]
+        if self.limit_genes is not None:
+            if "limit_genes" in inspect.signature(self.DATASET_FACTORY).parameters:
+                final_dataset_kwargs["limit_genes"] = self._get_limited_gene_list(
+                    self.limit_genes
+                )
+            else:
+                logger.warning(
+                    "`limit_genes` requested but not supported "
+                    f"for dataset {self.DATASET_FACTORY.__name__}."
+                )
+
         return final_dataset_kwargs
 
     def setup(self, stage: str = None) -> None:
@@ -105,6 +117,12 @@ class StreamingDataModule(DataModule):
                 **self.dataset_kwargs,
                 split="test",
                 shuffle=self.shuffle,
+            )
+        if stage == "predict":
+            if self.train_dataset is None or self.dev_dataset is None:
+                self.setup("fit")
+            self.predict_dataset = CombinedStreamingDataset(
+                [self.train_dataset, self.dev_dataset]
             )
 
     def get_dataloader_state_from_checkpoint(self):

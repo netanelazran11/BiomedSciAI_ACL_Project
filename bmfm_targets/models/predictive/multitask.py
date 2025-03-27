@@ -7,11 +7,12 @@ from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models import auto
 
-from bmfm_targets.config.model_config import SCModelConfigBase
+import bmfm_targets.config
 from bmfm_targets.models import register_configs_and_models
 from bmfm_targets.models.model_utils import (
     SequenceClassifierOutputWithEmbeddings,
 )
+from bmfm_targets.models.predictive.layers import GradientReversal
 from bmfm_targets.training.metrics import LabelLossTask
 
 logger = getLogger()
@@ -22,7 +23,7 @@ register_configs_and_models()
 class ClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, config: SCModelConfigBase, output_size: int):
+    def __init__(self, config: bmfm_targets.config.SCModelConfigBase, output_size: int):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(config.classifier_dropout)
@@ -55,13 +56,12 @@ class MultiTaskClassifier(nn.Module):
                   - `classifier_depth` which can be 1 for a simple nn.Linear classifier, or 2 for
                     a 2-layer classifier head. If absent, will use 1 for models with poolers and 2
                     for models without poolers.
-            label_columns (list[LabelColumnInfo]): list of LabelColumnInfo objects
 
         """
         super().__init__()
         self.base_model_prefix = "base_model"
         self.base_model = base_model
-        self.config: SCModelConfigBase = base_model.config
+        self.config: bmfm_targets.config.SCModelConfigBase = base_model.config
         self.shared_latents = nn.ModuleDict()
         self.dropout = nn.Dropout(self.config.classifier_dropout)
         self.loss_tasks = loss_tasks
@@ -88,13 +88,22 @@ class MultiTaskClassifier(nn.Module):
         self.apply(self.base_model._init_weights)
 
     # TODO: @michael Should we keep this output_size as part of task or label_column's output size is enough?
-    def _make_classifier(self, label_column, output_size):
+    def _make_classifier(
+        self, label_column: bmfm_targets.config.LabelColumnInfo, output_size
+    ):
         depth = label_column.classifier_depth
         if depth == 1:
-            return nn.Linear(self.config.hidden_size, output_size)
+            cls = nn.Linear(self.config.hidden_size, output_size)
         elif depth == 2:
-            return ClassificationHead(self.config, output_size)
-        raise NotImplementedError(f"`classifier_depth`={depth} not supported.")
+            cls = ClassificationHead(self.config, output_size)
+        else:
+            raise NotImplementedError(f"`classifier_depth`={depth} not supported.")
+        if label_column.gradient_reversal_coefficient is not None:
+            return nn.Sequential(
+                GradientReversal(label_column.gradient_reversal_coefficient), cls
+            )
+        else:
+            return cls
 
     @property
     def device(self) -> torch.device:
@@ -105,7 +114,7 @@ class MultiTaskClassifier(nn.Module):
         cls,
         ckpt_path: str,
         loss_tasks: list[LabelLossTask] | None = None,
-        model_config: SCModelConfigBase | None = None,
+        model_config: bmfm_targets.config.SCModelConfigBase | None = None,
     ):
         """
         Load MultiTask model from chekpoint.
