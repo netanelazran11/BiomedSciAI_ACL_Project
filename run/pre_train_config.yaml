@@ -31,10 +31,6 @@ trainer:
     - name: cross_entropy
       label_column_name: ${label_column_name}
 
-task:
-  accumulate_grad_batches: 5
-  max_epochs: 100
-  val_check_interval: 0.5
 
 label_column_name: celltype
 output_directory: /tmp
