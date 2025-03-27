@@ -51,7 +51,7 @@ test = ["pytest", "pytest-cov"]
 bulk_rna = ["GEOparse", "biopython"]
 
 [project.urls]
-repository = "https://github.com/BiomedSciAI/biomed-multi-omic.git"
+repository = "https://github.com/BiomedSciAI/biomed-multi-omic/"
 
 [project.scripts]
 bmfm-targets-scbert = "bmfm_targets.tasks.scbert.scbert_main:main"
