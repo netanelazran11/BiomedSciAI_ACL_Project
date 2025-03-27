@@ -15,7 +15,7 @@ model:
 
 data_module:
   max_length: 32
-  data_dir: /perturbation_data/
+  data_dir: ${oc.env:BMFM_TARGETS_ADAMSON_DATA}
   processed_name: processed_data
   batch_size: 20
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer

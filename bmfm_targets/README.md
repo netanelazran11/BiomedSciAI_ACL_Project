@@ -228,9 +228,3 @@ During testing, three types of CI for the evaluation metrics are available thoru
     - binomial: CI based on the binomial distribution for proportion metrics. Does not require
         repeated samplings from the data, thus num_bootstrap_runs can be set to 0. In case num_bootstrap_runs >=1
         The binomial CI uses the metric's average value across the bootstrap samples as the estimate.
-
-### Running `scbert.py` on CCC
-
-```jbsub -mem 32g -cores 1+1 -q x86_6h -require a100 bmfm-targets-scbert -cn scbert_train_panglaodb```
-
-Note that the environment variables (as detailed in the Configuration section above) need to be exported within the user .bashrc file (located in the CCC user root directory `/u/{user_name}/.bashrc`).
