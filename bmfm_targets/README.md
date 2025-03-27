@@ -12,7 +12,7 @@ Please report bugs, issues and feature extensions there.
 After installing the package run
 
 ```bash
-bmfm-targets-scbert -cn pre_train_config -cd run 
+bmfm-targets-scbert -cn pre_train_config -cd run
 ```
 
 For finetuning you will probably want to select a checkpoint and provide it to the `model.checkpoint` field of the

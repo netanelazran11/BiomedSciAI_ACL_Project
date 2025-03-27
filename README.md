@@ -43,7 +43,7 @@ cd biomed-multi-omics
 pip install --upgrade pre-commit
 
 # install from the local directory
-pip install -e ."[test]"  
+pip install -e ."[test]"
 
 pre-commit install
 ```
