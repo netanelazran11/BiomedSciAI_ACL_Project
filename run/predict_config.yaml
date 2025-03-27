@@ -17,3 +17,5 @@ task:
 
 output_directory: /tmp
 accelerator: gpu
+output_embeddings: true
+output_predictions: true

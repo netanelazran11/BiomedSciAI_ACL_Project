@@ -14,6 +14,9 @@ data_module:
 
 task:
   checkpoint: null
+  num_bootstrap_runs: 1
 
 output_directory: /tmp
 accelerator: gpu
+output_embeddings: true
+output_predictions: true

@@ -5,3 +5,5 @@ accelerator: "${accelerator}"
 tf32_mode: medium
 checkpoint: null
 num_bootstrap_runs: 1
+output_embeddings: "${output_embeddings}"
+output_predictions: "${output_predictions}"
