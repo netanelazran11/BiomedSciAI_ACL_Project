@@ -1,5 +1,5 @@
 defaults:
-  - data_module: zheng68k_pre_training
+  - data_module: base_language_modeling
   - tokenizer: all_genes
   - fields: genes_expressions_masked
   - trainer: default
@@ -19,7 +19,7 @@ model:
 
 data_module:
   max_length: 32
-  data_dir: ${oc.env:BMFM_TARGETS_ZHENG68K_DATA}
+  data_dir: /PATH/TO/DATA/
   processed_name: processed_data
   batch_size: 20
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer
