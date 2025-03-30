@@ -14,7 +14,7 @@ data_module:
 
 task:
   checkpoint: null
-  num_bootstrap_runs: 1
+  num_bootstrap_runs: 0
 
 output_directory: /tmp
 accelerator: gpu
