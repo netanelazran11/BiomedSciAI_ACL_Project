@@ -3,5 +3,5 @@ default_root_dir: "${output_directory}"
 precision: "16-mixed"
 accelerator: "${accelerator}"
 checkpoint: null
-output_embeddings: "${output_embeddings}"
-output_predictions: "${output_predictions}"
+output_embeddings: true
+output_predictions: true
