@@ -4,4 +4,4 @@ precision: 16-mixed
 accelerator: "${accelerator}"
 tf32_mode: medium
 checkpoint: null
-num_bootstrap_runs: 1
+num_bootstrap_runs: 0
