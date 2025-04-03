@@ -24,10 +24,15 @@ data_module:
 trainer:
   learning_rate: 1.0e-5
   losses:
-    - name: cross_entropy
-      label_column_name: ${label_column_name}
+    - field_name: genes
+      name: cross_entropy
+    - field_name: expressions
+      name: mse
+      ignore_zeros: true
+      link_function: exp
+    - field_name: expressions
+      name: is_zero_bce
 
-label_column_name: celltype
 output_directory: /tmp
 accelerator: gpu
 val_check_interval: 0.5
