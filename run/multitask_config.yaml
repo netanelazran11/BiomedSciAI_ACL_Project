@@ -1,5 +1,5 @@
 defaults:
-  - data_module: base_language_modeling
+  - data_module: base_multi_task
   - tokenizer: all_genes
   - fields: genes_expressions_masked
   - trainer: default
@@ -22,6 +22,21 @@ data_module:
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer
 
 
+trainer:
+  learning_rate: 1.0e-5
+  losses:
+    - name: cross_entropy
+      label_column_name: ${label_column_name}
+      weight: 0.4
+    - field_name: expressions
+      name: cross_entropy
+      weight: 0.3
+    - field_name: genes
+      name: cross_entropy
+      weight: 0.3
+
+
+label_column_name: celltype
 output_directory: /tmp
 accelerator: gpu
 val_check_interval: 0.5
