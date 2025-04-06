@@ -22,7 +22,7 @@ data_module:
   transform_datasets: true
 
   transform_kwargs:
-    source_h5ad_file_name: "/dccstor/bmfm-targets/data/omics/transcriptome/epilepsy/brain/epilepsy_all_brain.h5ad"
+    source_h5ad_file_name: /PATH/TO/DATA/input_data.h5ad
     transforms:
        - transform_name: KeepVocabGenesTransform
          transform_args:
@@ -30,7 +30,7 @@ data_module:
 
        - transform_name: TPMNormalizationTransform
          transform_args:
-           gtf_file: /dccstor/bmfm-targets/data/omics/transcriptome/bulkRNA/GRCh38_latest_genomic.gtf
+           gtf_file: /PATH/TO/GTF/GRCh38_latest_genomic.gtf
            filter_genes_min_value: 0.01
            filter_genes_min_percentage: 0.01
 
@@ -38,7 +38,7 @@ data_module:
          transform_args:
            add_one: False
            base: 2
-      
+
        - transform_name: BinTransform
          transform_args:
           num_bins: 15
