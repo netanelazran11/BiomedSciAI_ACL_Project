@@ -28,7 +28,7 @@ trainer:
       name: cross_entropy
     - field_name: expressions
       name: mse
-      ignore_zeros: true
+      ignore_zero: true
       link_function: exp
     - field_name: expressions
       name: is_zero_bce
