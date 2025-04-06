@@ -20,7 +20,7 @@ data_module:
   processed_name: processed_data
   batch_size: 20
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer
-
+  transform_datasets: false
 
 trainer:
   learning_rate: 1.0e-5
