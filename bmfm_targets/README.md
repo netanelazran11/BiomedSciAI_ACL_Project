@@ -19,7 +19,7 @@ For finetuning you will probably want to select a checkpoint and provide it to t
 config and then set `mlm` to false in the data module:
 
 ```bash
-bmfm-targets-scbert -cn fine_tune_train_config data_module.mlm=false -dc run
+bmfm-targets-scbert -cn fine_tune_train_config data_module.mlm=false -cd run
 ```
 
 ## Running dna seq finetuning tasks
