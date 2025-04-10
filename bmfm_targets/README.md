@@ -9,31 +9,26 @@ Please report bugs, issues and feature extensions there.
 
 ## Training
 
-After installing the package run
+After installing the package, open the mlm_train_config.yaml file in the run directory, edit the paths to the data to direct to your data and run
 
 ```bash
-bmfm-targets-scbert -cn pre_train_config -cd run
+bmfm-targets-scbert -cn mlm_train_config -cd run
 ```
 
 For finetuning you will probably want to select a checkpoint and provide it to the `model.checkpoint` field of the
-config and then set `mlm` to false in the data module:
+config and then set `mlm` to false in the data module. These parameters could be set in the command line in teh following manner:
 
 ```bash
-bmfm-targets-scbert -cn fine_tune_train_config data_module.mlm=false -dc run
+bmfm-targets-scbert -cn prediction_train_config data_module.mlm=false -cd run
 ```
-
-## Running dna seq finetuning tasks
-
-Currently there are 10 finetuning data that we are running on our pre-trained dnaseq model.
-
 
 ## Configuration
 
-The configuration is structured into different sections to define various aspects of the experiment.
+The configuration is structured into different sections to define various aspects of the experiment. These sections are depicted in the folder structure under the run directory, and in each of these you'll find default yamls for common cases.
 
 ### Seed
 
-The seed value used to ensure reproducibility across runs of the experiment.
+The seed value is used to ensure reproducibility across runs of the experiment.
 
 ```yaml
 seed:
@@ -58,15 +53,14 @@ fields:
 
 ### Data Module
 
-The data module settings selects which data to use and also what kind of task
-will be executed. The dataset can refer to one of the packaged datasets or a generic h5ad file based dataset.
+The data module settings selects which data to use and also what kind of task will be executed. The dataset can refer to one of the packaged datasets or a generic h5ad file based dataset.
 
 By selecting a `collation_strategy`, the same dataset can be used for different tasks.
-The recommended option is `"multitask"` which supports masked language modeling and sequence classification.
+The recommended option is `"multitask"` which supports masked language modeling and sequence classification/regression simoultaniously.
 To perform just MLM `"language_modeling"` can be used and `"sequence_classification"` for just sequence classification.
 In "multitask" mode, any combination of field and label_column losses is supported.
 
-The `"sequence_labeling"` option is only supported for datasets with paired "control" perturbed cells.
+The `"sequence_labeling"` option is only supported for datasets with paired "control" and perturbed cells.
 
 Full documentation can be found in [data_module.py](./training/data_module.py)
 
@@ -225,6 +219,5 @@ During testing, three types of CI for the evaluation metrics are available thoru
     - bootstrap_quantiles: takes the 2.5% and 97.5% quantiles of the bootstrap sample.
     - bootstrap_t_interval: based on the bootstrap sample distribution around the sample's mean.
         If len(data)=1 returns None values for the CI's bounds.
-    - binomial: CI based on the binomial distribution for proportion metrics. Does not require
-        repeated samplings from the data, thus num_bootstrap_runs can be set to 0. In case num_bootstrap_runs >=1
+    - binomial: CI based on the binomial distribution for proportion metrics. Does not require repeated samplings from the data, thus num_bootstrap_runs should be set to 0. In case num_bootstrap_runs >=1
         The binomial CI uses the metric's average value across the bootstrap samples as the estimate.

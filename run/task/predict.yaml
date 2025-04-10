@@ -4,3 +4,4 @@ precision: "16-mixed"
 accelerator: "${accelerator}"
 checkpoint: null
 output_embeddings: true
+output_predictions: true

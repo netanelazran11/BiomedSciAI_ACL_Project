@@ -11,9 +11,11 @@ data_module:
   data_dir: /PATH/TO/DATA/
   processed_name: processed_data
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer
+  transform_datasets: false
 
 task:
   checkpoint: null
+  num_bootstrap_runs: 0
 
 output_directory: /tmp
 accelerator: gpu

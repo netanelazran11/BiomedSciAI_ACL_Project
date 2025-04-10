@@ -1,7 +1,7 @@
 defaults:
-  - data_module: base_language_modeling
+  - data_module: rda_language_modeling
   - tokenizer: all_genes
-  - fields: genes_expressions_masked
+  - fields: rda_genes_expressions_masked
   - trainer: default
   - task: train
   - model: scbert
@@ -12,10 +12,6 @@ seed:
 
 model:
   checkpoint: null
-  hidden_size: 16
-  intermediate_size: 32
-  num_hidden_layers: 2
-  num_attention_heads: 2
 
 data_module:
   max_length: 32
@@ -23,16 +19,20 @@ data_module:
   processed_name: processed_data
   batch_size: 20
   limit_genes: protein_coding #could be null, protein_coding, or tokenizer
-
+  transform_datasets: false
 
 trainer:
   learning_rate: 1.0e-5
   losses:
-    - name: cross_entropy
-      label_column_name: ${label_column_name}
+    - field_name: genes
+      name: cross_entropy
+    - field_name: expressions
+      name: mse
+      ignore_zero: true
+      link_function: exp
+    - field_name: expressions
+      name: is_zero_bce
 
-
-label_column_name: celltype
 output_directory: /tmp
 accelerator: gpu
 val_check_interval: 0.5

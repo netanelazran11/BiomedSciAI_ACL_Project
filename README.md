@@ -1,13 +1,13 @@
 # biomed multi omics
 
-Biomedical foundational models for omics data
+Biomedical foundational models for omics data.
 
 Instructions for installing and running the pre-training and fine-tuning tasks are available in their respective directories.
 
 
 ## Environment
 
-Code has been tested with Python 3.10 and 3.11 only.
+Code has been tested with Python 3.10, 3.11 and 3.12 only.
 Using a virtual environment for all commands in this guide is strongly recommended.
 Both conda and vanilla venv environments are supported.
 
@@ -34,7 +34,7 @@ pip install "git@github.com:BiomedSciAI/biomed-multi-omic.git"
 
 
 ```sh
-# Clone the cloned repository
+# Clone the repository
 git clone git@github.com:BiomedSciAI/biomed-multi-omic.git
 
 # Change directory to the root of the cloned repository
@@ -55,13 +55,6 @@ pytest bmfm_targets
 The tests may take a long time to execute (~35 min on some machines, ~15 min on Travis).
 If the tests do not all pass, please open an issue in this repo.
 
-## Contributing
-
-Check [CONTRIBUTING.md](.github/CONTRIBUTING.md).
-
-## Getting support
-
-Check [SUPPORT.md](.github/SUPPORT.md).
 
 ## Credits
-This project was created in IBM Research
+This project was created in IBM Research.
