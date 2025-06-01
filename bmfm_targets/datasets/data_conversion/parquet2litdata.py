@@ -31,6 +31,8 @@ def convert_files(file_path, tokenizer, serializer, data_source="dnaseq_base"):
     """
     if data_source == "hic":
         data = Parquet2LitDatasetHiC(file_path, tokenizer, serializer)
+    elif data_source == "insulation":
+        data = Parquet2LitDatasetInsulation(file_path, tokenizer, serializer)
     elif data_source == "chromatin":
         data = Parquet2LitDatasetChromatinProfile(file_path, tokenizer, serializer)
     elif data_source == "dnaseq_base":
@@ -134,6 +136,25 @@ class Parquet2LitDatasetHiC(Parquet2LitDataset):
                     self.serializer.serialize(tokens1),
                     self.serializer.serialize(tokens2),
                     self.serializer.serialize([str(hic_contact1)]),
+                )
+
+
+class Parquet2LitDatasetInsulation(Parquet2LitDataset):
+    """Dataset class to read a parquet file and yield a pair of tokenized DNA sequences with HiC contact score."""
+
+    def __iter__(self):
+        for batch in self.data.iter_batches(
+            batch_size=1000,
+            use_threads=False,
+            columns=["dna_chunk", "insulation"],
+        ):
+            df_dna_hic = batch.to_pandas()
+            for i in range(len(df_dna_hic)):
+                dna_chunk, insulation = df_dna_hic.iloc[i, :]
+                tokens = self.tokenizer.tokenize(dna_chunk)
+                yield (
+                    self.serializer.serialize(tokens),
+                    self.serializer.serialize([str(insulation)]),
                 )
 
 
@@ -279,6 +300,13 @@ def get_args():
         default=False,
     )
     parser.add_argument(
+        "--insulation",
+        help="if the dataset is insulation dataset from HiC",
+        action=argparse.BooleanOptionalAction,
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
         "--chromatin",
         help="if the dataset is Chromatin dataset",
         action=argparse.BooleanOptionalAction,
@@ -306,9 +334,11 @@ if __name__ == "__main__":
         clean_text=False,
         strip_accents=None,
     )
-    # tokenizer = get_refgen2vec_BPEtokenizer()
+
     if args.hic:
         data_source = "hic"
+    elif args.insulation:
+        data_source = "insulation"
     elif args.chromatin:
         data_source = "chromatin"
     else:
