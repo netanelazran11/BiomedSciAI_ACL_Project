@@ -37,7 +37,7 @@ def test_shuffle_sort_instance():
     mfi = sample_transforms.sort_by_field(mfi_0, "expressions")
     assert mfi["genes"] == ["token4", "token3", "token1", "token2"]
     assert mfi["expressions"] == ["6", "5", "4", "1"]
-    mfi = sample_transforms.randomize(mfi_0)
+    mfi = sample_transforms.randomize(mfi_0, seed=123)
     assert mfi["genes"] != ["token4", "token3", "token1", "token2"]
     assert mfi["expressions"] != ["6", "5", "4", "1"]
 
@@ -115,6 +115,25 @@ def test_rda_downsampling():
     assert float(mfi1["expressions"][0]) == float(mfi1["expressions"][1])
     assert float(mfi1["label_expressions"][0]) == float(mfi1["label_expressions"][1])
     assert mfi1["expressions"][0] == np.log1p(36)
+
+
+def test_poisson_downsample():
+    mfi = MultiFieldInstance(
+        metadata={"cell_name": "test"},
+        data={
+            "genes": ["token" + str(x) for x in range(1, 100)],
+            "expressions": [str(x) for x in range(1, 100)],
+        },
+    )
+
+    mfi1 = sample_transforms.poisson_downsample(mfi, renoise=0.6)
+    n_genes = len(mfi["expressions"])
+    expected_T = np.log1p(sum([float(x) for x in mfi["expressions"]]))
+
+    assert mfi1["genes"][:2] == ["[S]", "[T]"]
+    assert float(mfi1["expressions"][1]) == expected_T
+    assert len(mfi1["label_expressions"]) == n_genes + 2
+    assert (np.count_nonzero(np.array(mfi1["expressions"]) == 0)) > 0
 
 
 def test_pad_zero_expressed_genes_batchwise():
