@@ -1,4 +1,4 @@
-# bmfm-multi-omics
+# biomed-multi-omic
 
 Biomedical foundational models for omics data. This package supports the development of foundation models for scRNA or for DNA data.
 
@@ -18,8 +18,8 @@ Biomedical foundational models for omics data. This package supports the develop
 
 ## Introduction
 
-`bmfm-multi-omics` is a comprehensive software package that not only facilitates this combinatorial exploration but is also inherently flexible and easily extensible to incorporate novel methods as the field continues to advance. It also facilitates downstream tasks such as cell type annotation, perturbation prediction, and batch effect
-correction on benchmark datasets. `bmfm-multi-omics` is built upon anndata, HuggingFace Transformers and PyTorchLighting to ensure integration into exsisting software stacks.
+`biomed-multi-omic` is a comprehensive software package that not only facilitates this combinatorial exploration but is also inherently flexible and easily extensible to incorporate novel methods as the field continues to advance. It also facilitates downstream tasks such as cell type annotation, perturbation prediction, and batch effect
+correction on benchmark datasets. `biomed-multi-omic` is built upon anndata, HuggingFace Transformers and PyTorchLighting to ensure integration into exsisting software stacks.
 
 
 ## Package Architecture
@@ -103,7 +103,7 @@ The model's weights can be aquired from [IBM's HuggingFace collection](https://h
 For details on how the models were trained, please refer to [the BMFM-RNA preprint](https://arxiv.org/abs/2506.14861).
 
 ### Zero-shot inference (CLI)
-`bmfm-multi-omics` allows for multiple input data types, but the core data object at the heart of the tool is based around the adata object. Once your dataset is created.
+`biomed-multi-omic` allows for multiple input data types, but the core data object at the heart of the tool is based around the adata object. Once your dataset is created.
 
 To get scRNA embeddings and zero shot cell-type predictions:
 
