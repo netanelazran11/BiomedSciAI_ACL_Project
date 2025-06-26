@@ -225,13 +225,13 @@ def create_results_obs(results: dict, label_dict: dict | None = None) -> sc.AnnD
 def get_label_dict(ckpt_path: Path | str) -> dict:
     device = check_gpu()
 
-    cpkt = torch.load(
+    ckpt = torch.load(
         ckpt_path,
         map_location=torch.device(device),
         weights_only=False,
     )
 
-    label_dict = cpkt["hyper_parameters"]["label_dict"]
+    label_dict = ckpt["hyper_parameters"]["label_dict"]
     return label_dict
 
 
