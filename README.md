@@ -6,7 +6,7 @@ For details see the preprints:
 
 - BMFM-RNA: An Open Framework for Building and Evaluating Transcriptomic Foundation Models, Bharath Dandala, Michael M. Danziger, Ella Barkan, Tanwi Biswas, Viatcheslav Gurev, Jianying Hu, Matthew Madgwick, Akira Koseki, Tal Kozlovski, Michal Rosen-Zvi, Yishai Shimoni, Ching-Huei Tsou, [arXiv:2506.14861](https://arxiv.org/abs/2506.14861)
 - BMFM-DNA: A SNP-aware DNA foundation model to capture variant effects
-Hongyang Li, Sanjoy Dey, Bum Chul Kwon, Michael M. Danziger, Michal Rosen-Tzvi, Jianying Hu, James Kozloski, Ching-Huei Tsou, Bharath Dandala, Pablo Meyer [arXiv:2507.05265]([https://arxiv.org/abs/2506.14861](https://www.arxiv.org/abs/2507.05265))
+Hongyang Li, Sanjoy Dey, Bum Chul Kwon, Michael M. Danziger, Michal Rosen-Tzvi, Jianying Hu, James Kozloski, Ching-Huei Tsou, Bharath Dandala, Pablo Meyer [arXiv:2507.05265](https://www.arxiv.org/abs/2507.05265)
 
 ## Install
 
