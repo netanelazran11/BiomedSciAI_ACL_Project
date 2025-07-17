@@ -45,9 +45,16 @@ NB - Orange indicates in-development.
 
 ![bmfm_omics_workflow](docs/images/package_diagram.png)
 
+## DNA Modules
+
+TBC.
+
+
 ## Installation
 
-We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip.
+We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip. 
+
+NB - if you do not have `curl` installed you will need to install it before trying to install the tool (e.g. `apt`, `brew` or `choco`). For more information please refer to `curl`'s github:
 
 Install uisng `uv` (recommended):
 ```sh
@@ -66,12 +73,8 @@ pip install "git+github.com/BiomedSciAI/biomed-multi-omic.git"
 
 Install using cloned repo:
 ```sh
-# Clone the repository
 git clone git@github.com:BiomedSciAI/biomed-multi-omic.git
-
-# Change directory to the root of the cloned repository
 cd biomed-multi-omics
-# recommended venv setup (vanilla pip and conda also work)
 uv venv .venv -p3.12
 source ./.venv/bin/activate
 uv pip install -e .
@@ -105,6 +108,7 @@ For details on how the models were trained, please refer to [the BMFM-RNA prepri
 ### Zero-shot inference (CLI)
 `biomed-multi-omic` allows for multiple input data types, but the core data object at the heart of the tool is based around the adata object. Once your dataset is created.
 
+### RNA Inference
 To get scRNA embeddings and zero shot cell-type predictions:
 
 ```bash
@@ -112,8 +116,21 @@ export MY_DATA_FILE=... # path to h5ad file with raw counts and gene symbols
 bmfm-targets-run -cn predict input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.rna.bert.110m.wced.multitask.v1
 ```
 
+For more details tutorial see RNA tutoirals.
+
+### DNA Inference
+
+To perform DNA zero-shot:
+
+```bash
+export MY_DATA_FILE=... # path to your DNA data file
+bmfm-targets-run -cn predict input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.dna.snp.modernbert.113m.v1
+```
+
+For more details tutorial see DNA tutoirals.
+
 ### Zero-shot inference (programmatically)
-To run inference programmatically, you can see a zero-shot example in this [notebook](notebooks/1_zero_shot_cell_type_anno.ipynb).
+To run inference programmatically, you can see a zero-shot example in this [notebook](tutorials/1_zero_shot_cell_type_anno.ipynb).
 
 Note to use the notebook you will need to install the `notebook` optional dependencies (see [Installation](#2-installation))
 
@@ -131,12 +148,13 @@ To cite the tool for both RNA and DNA, please cite both the following articles:
       url={https://arxiv.org/abs/2506.14861},
 }
 
-@misc{BMFM-DNA,
-      title={TBC},
-      author={TBC},
+@misc{li2025bmfmdnasnpawarednafoundation,
+      title={BMFM-DNA: A SNP-aware DNA foundation model to capture variant effects}, 
+      author={Hongyang Li and Sanjoy Dey and Bum Chul Kwon and Michael Danziger and Michal Rosen-Tzvi and Jianying Hu and James Kozloski and Ching-Huei Tsou and Bharath Dandala and Pablo Meyer},
       year={2025},
-      eprint={TBC},
+      eprint={2507.05265},
       archivePrefix={arXiv},
-      primaryClass={TBC}
+      primaryClass={q-bio.GN},
+      url={https://arxiv.org/abs/2507.05265}, 
 }
 ```
