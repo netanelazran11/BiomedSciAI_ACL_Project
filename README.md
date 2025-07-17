@@ -52,7 +52,7 @@ TBC.
 
 ## Installation
 
-We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip. 
+We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip.
 
 NB - if you do not have `curl` installed you will need to install it before trying to install the tool (e.g. `apt`, `brew` or `choco`). For more information please refer to `curl`'s github:
 
@@ -149,12 +149,12 @@ To cite the tool for both RNA and DNA, please cite both the following articles:
 }
 
 @misc{li2025bmfmdnasnpawarednafoundation,
-      title={BMFM-DNA: A SNP-aware DNA foundation model to capture variant effects}, 
+      title={BMFM-DNA: A SNP-aware DNA foundation model to capture variant effects},
       author={Hongyang Li and Sanjoy Dey and Bum Chul Kwon and Michael Danziger and Michal Rosen-Tzvi and Jianying Hu and James Kozloski and Ching-Huei Tsou and Bharath Dandala and Pablo Meyer},
       year={2025},
       eprint={2507.05265},
       archivePrefix={arXiv},
       primaryClass={q-bio.GN},
-      url={https://arxiv.org/abs/2507.05265}, 
+      url={https://arxiv.org/abs/2507.05265},
 }
 ```
