@@ -100,7 +100,9 @@ export MY_DATA_FILE=... # path to h5ad file with raw counts and gene symbols
 bmfm-targets-run -cn predict input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.rna.bert.110m.wced.multitask.v1
 ```
 
-For more details tutorial see RNA tutoirals.
+For more details tutorial see RNA tutoirals. Note to use the notebook you will need to install the `notebook` optional dependencies (see [Installation](#2-installation)):
+- To run inference programmatically, you can see a zero-shot example in this [scRNA zero-shot notebook](tutorials/RNA/1_zero_shot_using_yaml.ipynb).
+- To inspect the resulting embeddings and cell-type predictions use this [scRNA inspect embeddings notebook](tutorials/RNA/2_inference_inspection.ipynb).
 
 ### Downloading DNA checkpoint
 
@@ -121,11 +123,6 @@ bmfm-targets-run -cn predict input_file=$MY_DATA_FILE working_dir=/tmp checkpoin
 ```
 
 For more details tutorial see DNA tutoirals.
-
-### Zero-shot inference (programmatically)
-To run inference programmatically, you can see a zero-shot example in this [notebook](tutorials/1_zero_shot_cell_type_anno.ipynb).
-
-Note to use the notebook you will need to install the `notebook` optional dependencies (see [Installation](#2-installation))
 
 ## Citation
 
