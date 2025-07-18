@@ -10,11 +10,11 @@ Biomedical foundational models for omics data. This package supports the develop
 
 ## Contents
 
-1. [Introduction](#1-introduction)
-2. [Installation](#2-installation)
-3. [Quick start](#3-quick-start)
-4. [Contributing](#4-contributing)
-5. [Citation](#5-citation)
+1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [Quick start](#quick-start)
+4. [Contributing](#contributing)
+5. [Citation](#citation)
 
 ## Introduction
 
