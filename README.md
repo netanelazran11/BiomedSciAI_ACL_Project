@@ -34,7 +34,6 @@ correction on benchmark datasets. `biomed-multi-omic` is built upon anndata, Hug
 
 TBC.
 
-
 ## Installation
 
 We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip.
@@ -46,14 +45,14 @@ Install uisng `uv` (recommended):
 python -m venv .venv
 source .venv/bin/activate
 pip install uv
-uv pip install "git+https://github.com/BiomedSciAI/biomed-multi-omic.git"
+uv pip install git+https://github.com/BiomedSciAI/biomed-multi-omic.git
 ```
 
 Install uisng `pip`:
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-pip install "git+https://github.com/BiomedSciAI/biomed-multi-omic.git"
+pip install git+https://github.com/BiomedSciAI/biomed-multi-omic.git
 ```
 
 Install using cloned repo:
