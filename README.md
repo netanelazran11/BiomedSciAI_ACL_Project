@@ -39,21 +39,21 @@ TBC.
 
 We recommend using [uv](https://github.com/astral-sh/uv) to create your enviroment due to it's 10-100x speed up over pip.
 
-NB - if you do not have `curl` installed you will need to install it before trying to install the tool (e.g. `apt`, `brew` or `choco`). For more information please refer to `curl`'s github:
+NB - if you do not have `curl` installed you will need to install it before trying to install the tool (e.g. `apt`, `brew` or `choco`). For more information please refer to `curl`'s install instructions for your OS.
 
 Install uisng `uv` (recommended):
 ```sh
 python -m venv .venv
 source .venv/bin/activate
 pip install uv
-uv pip install "git+github.com/BiomedSciAI/biomed-multi-omic.git"
+uv pip install "git+https://github.com/BiomedSciAI/biomed-multi-omic.git"
 ```
 
 Install uisng `pip`:
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-pip install "git+github.com/BiomedSciAI/biomed-multi-omic.git"
+pip install "git+https://github.com/BiomedSciAI/biomed-multi-omic.git"
 ```
 
 Install using cloned repo:
