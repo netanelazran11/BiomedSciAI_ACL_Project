@@ -62,10 +62,10 @@ def _create_general_cell_type_mapping(label_dict: dict, level: str = "sub_class"
 
 def get_general_cell_type(
     cell_labels: list | AnnData,
-    label_dict: dict,
-    key: str = "cell_type_predictions",
+    key: str = "cell_type",
     level: str = "cell_type_descendants",
 ) -> dict:
+    label_dict = {"cell_type": cell_labels.obs["cell_type"].unique().tolist()}
     level, general_mapping = _create_general_cell_type_mapping(label_dict, level)
 
     if isinstance(cell_labels, AnnData):
