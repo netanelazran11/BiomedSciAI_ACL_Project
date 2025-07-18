@@ -137,26 +137,16 @@ def get_clusters(
     n_classes_in_data: int,
     **kwargs,
 ):
-    if clustering_method == "louvain":
-        if not "resolution" in kwargs:
-            kwargs["resolution"] = 0.6
-        clusters = sc.tl.louvain(adata_dim_reduced, copy=True, **kwargs)
-    elif clustering_method == "leiden":
-        if not "resolution" in kwargs:
-            kwargs["resolution"] = 0.6
-        clusters = sc.tl.leiden(adata_dim_reduced, copy=True, **kwargs)
-    elif clustering_method == "kmeans":
+    if clustering_method == "kmeans":
         if not "n_clusters" in kwargs:
             kwargs["n_clusters"] = n_classes_in_data
         kmeans = KMeans(**kwargs).fit(adata_dim_reduced.obsm["X_pca"])
         clusters = adata_dim_reduced.copy()
         clusters.obs["kmeans"] = pd.Categorical(kmeans.labels_)
     elif clustering_method == "dbscan":
-        logger.info("Running DBSCAN")
         db = DBSCAN(**kwargs).fit(adata_dim_reduced.obsm["X_pca"])
         clusters = adata_dim_reduced.copy()
         clusters.obs["dbscan"] = pd.Categorical(db.labels_)
-        logger.info("Number of clusters DBSCAN found: %d" % len(np.unique(db.labels_)))
     elif clustering_method == "hierarchical":
         if not "n_clusters" in kwargs:
             kwargs["n_clusters"] = n_classes_in_data
@@ -164,10 +154,13 @@ def get_clusters(
         hierarchical = clusterer.fit(adata_dim_reduced.obsm["X_pca"])
         clusters = adata_dim_reduced.copy()
         clusters.obs["hierarchical"] = pd.Categorical(hierarchical.labels_)
-
+    elif clustering_method in ["leiden", "louvain"]:
+        raise NotImplementedError(
+            "Both leiden and louvain are currently not implemented due to GPL license."
+        )
     else:
         raise ValueError(
-            "clustering_method is not 'kmeans' or 'louvain' or 'dbscan' or 'leiden' or 'hierarchical'"
+            "clustering_method is not 'kmeans' or 'dbscan' or 'hierarchical'"
         )
 
     return clusters
