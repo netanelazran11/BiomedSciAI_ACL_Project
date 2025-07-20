@@ -10,14 +10,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bmfm-targets"
 description = "Biomedical foundational models for target discovery"
-authors = [{ name = "Bharath Dandala", email = "bdand@us.ibm.com" }]
+authors = [
+  { name = "Bharath Dandala", email = "bdand@us.ibm.com" },
+  { name = "Michael M. Danziger", email = "michael.danziger@ibm.com" },
+  { name = "Pablo Meyer", email = "pmeyerr@us.ibm.com" },
+]
 version = "0.15.0"
 readme = "README.md"
 # due to how PEP 440 defines version matching, prefer [incl, excl) definitions like below:
 requires-python = ">=3.10, <3.13"
 dependencies = [
   "anndata>=0.10.0",
-  "scanpy[louvain]",
+  "scanpy",
   "numpy<2",
   "scipy<1.15.0", #unpin when upstream fixes this https://github.com/scverse/anndata/issues/1811
   "torch",
@@ -45,7 +49,6 @@ dependencies = [
   "focal-loss-torch @ git+https://github.com/mathiaszinnen/focal_loss_torch.git",
   "torchdata<0.10",
   "peft"
-
 ]
 
 [project.optional-dependencies]
@@ -58,6 +61,7 @@ benchmarking = [
   "scanorama",
   "harmony-pytorch",
 ]
+notebook = ["cellxgene-ontology-guide", "jupyter", "swatch"]
 
 [project.urls]
 repository = "https://github.com/BiomedSciAI/biomed-multi-omic/"
