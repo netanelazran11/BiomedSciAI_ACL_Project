@@ -76,3 +76,79 @@ bmfm-targets-run  -cn finetune label_column_name=celltype split_column_name=null
 ```bash
 bmfm-targets-run -cn finetune label_column_name=celltype split_column_name=null input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.rna.bert.110m.wced.v1
 ```
+
+
+## DNA Fine-tuning
+
+### Fine-tuning on a biological task containing DNA-sequences
+
+For fine-tuning DNA pre-trained model on a new biological task involves first creating a dataset folder with three files train.csv, test.csv and dev.csv. The framework will
+look for these files for model development automatically. Each file should contains at least two columns. The first column must contain the dna sequence and then followed by the class labels, where column names are passed in the LabelColumnInfo yaml.
+Additional columns (e.g., seq_id) can follow in each of the files which will not be used.
+
+As an example of 'Sample' dataset with the multiclass prediction problem where there are two regression labels measuring gene expression in types of genes: development and housekeeping (Dev_enrichment, HK_enrichment), the dataset siles should be like follows:
+
+```csv
+sequence,Dev_enrichment,HK_enrichment,seq_id
+ACGTTTACCCCTGGGTAAG,-0.24,0.35,seq_99
+```
+
+Next, the yaml file has to be created properly. A simple finetuning yaml for single classification task is provided [here](./dna_finetune_train_and_test_config.yaml).
+
+For a new dataset such as the drosophilla expression prediction task, the corresponding datamodule and LabelInfo yaml should be overridden as belows:
+
+```yaml
+label_columns:
+- _target_: bmfm_targets.config.LabelColumnInfo
+  label_column_name: "Dev_log2_enrichment"
+  is_regression_label: true
+- _target_: bmfm_targets.config.LabelColumnInfo
+  label_column_name: "Hk_log2_enrichment"
+  is_regression_label: true
+
+data_module:
+    defaults: dna_base_seq_cls
+    max_length: 80
+    dataset_kwargs:
+      processed_data_source: ${input_directory}
+      dataset_name: ${dataset_name}
+      label_dict_path: ${input_directory}/${dataset_name}_all_labels.json
+
+
+trainer:
+  learning_rate: ${learning_rate}
+  losses:
+    - name: mse
+      label_column_name: ${label_columns[0].label_column_name}
+    - name: mse
+      label_column_name: ${label_columns[1].label_column_name}
+
+  ```
+
+
+```bash
+export INPUT_DIRECTORY=... # path to the three (train/test/dev.csv) files
+bmfm-targets-run -cn dna_finetune_train_and_test_config input_directory=$INPUT_DIRECTORY output_directory=/tmp checkpoint=ibm-research/biomed.dna.snp.modernbert.113m.v1
+```
+
+### Running benchmarking fine-tuning tasks of DNA
+
+Please refer to the [readme](evaluation/benchmark_configs_dna/README.md) for running the 6 benchmarking finetuning tasks of DNA, discussed in the preprint.
+
+
+
+## DNA Pretraining
+
+
+### Running pre-training framework
+
+Our framework supports running pretraining framework using MLM or supervised loss on a class label or both.
+
+For pre-processing DNA datasets using both reference and SNPified version, please use the [steps](../README_SNP_PREPROCESSING.md) for pre-processing before running the pre-training framework.
+
+
+### Snpification of the finetuning data
+
+We preprocessed a few datasets to impute SNPs extracting from the reference genome. The easiest way to impute such SNPs is to map each input dna sequence to the reference geneome if the chromose and position location of the sequence is availabe. For example, we extracted the promoter location from [here](https://genome.ucsc.edu/cgi-bin/hgTables) provided by EPDNew. Then we use the [notebook script](datasets/dnaseq/preprocess_dataset/snpify_promoter_dnabert2_v1.ipynb) to preprocess the promoter dataset to impute SNPs. In this version, the negative sequences were imputed with random SNPs coming from the same distribution of the positive set (Class 1 of the paper). Note that the notebook requires reference genome fasta data (fasta_path), preprocessed SNPified chromosome-wise data (cell 4 of the notebook) for both forward and reverse strands, which can be downloaded from [here](https://zenodo.org/records/15981429).
+
+For other types of SNPification of data, we had different scripts which are available upon request.
