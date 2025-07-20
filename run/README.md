@@ -1,7 +1,7 @@
 # biomed-multi-omic entrypoint: `bmfm-targets-run`
 
-
 ## scRNA zero shot inference
+
 To get embeddings for an h5ad file from the checkpoints discussed in the manuscript ( <https://arxiv.org/abs/2506.14861> ) run the following code snippets, after installing the package.
 
 The only thing you need is an h5ad file with raw gene counts to run inference, and a writable directory `working_dir` for output. For convenience, this page assumes that the location of the file is stored to an environment variable. Checkpoints will be downloaded automatically from HuggingFace.
@@ -74,5 +74,5 @@ bmfm-targets-run  -cn finetune label_column_name=celltype split_column_name=null
 ### WCED 10 pct
 
 ```bash
-bmfm-targets-run -cn finetune label_column_name=celltype split_column_name=null input_file=$MY_DATA_FILE working_dir=/tmp data_module.collation_strategy=language_modeling checkpoint=ibm-research/biomed.rna.bert.110m.wced.v1
+bmfm-targets-run -cn finetune label_column_name=celltype split_column_name=null input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.rna.bert.110m.wced.v1
 ```
