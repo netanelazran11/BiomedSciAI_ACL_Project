@@ -27,7 +27,6 @@ def create_methylation_config(
     hidden_act: str = "gelu",
     layer_norm_eps: float = 1e-12,
     initializer_range: float = 0.02,
-    classifier_pooling: str = "cls",
     **kwargs
 ) -> SCBertConfig:
     """
@@ -51,7 +50,6 @@ def create_methylation_config(
         hidden_act: Activation function
         layer_norm_eps: Layer norm epsilon
         initializer_range: Weight initialization range
-        classifier_pooling: "cls" or "mean"
 
     Returns:
         SCBertConfig configured for methylation
@@ -60,28 +58,28 @@ def create_methylation_config(
     actual_vocab_size = vocab_size if vocab_size is not None else num_cpg_sites + 5
 
     # Define fields for methylation data
+    # FieldInfo parameters: field_name, vocab_size, is_input, tokenization_strategy, encoder_kwargs
     fields = [
         # CpG site IDs - discrete tokens
         FieldInfo(
             field_name="cpg_sites",
             vocab_size=actual_vocab_size,
             is_input=True,
-            is_decode=False,
             tokenization_strategy="tokenize",
         ),
-        # Beta values - continuous values
+        # Beta values - continuous values (0-1)
         FieldInfo(
             field_name="beta_values",
             is_input=True,
-            is_decode=False,
             tokenization_strategy="continuous_value_encoder",
             encoder_kwargs={
-                "kind": "mlp",  # Simple MLP encoder for methylation
+                "kind": "mlp",  # MLP encoder for continuous methylation values
             },
         ),
     ]
 
     config = SCBertConfig(
+        fields=fields,
         num_hidden_layers=num_hidden_layers,
         num_attention_heads=num_attention_heads,
         hidden_size=hidden_size,
@@ -93,10 +91,6 @@ def create_methylation_config(
         hidden_act=hidden_act,
         layer_norm_eps=layer_norm_eps,
         initializer_range=initializer_range,
-        classifier_pooling=classifier_pooling,
-        fields=fields,
-        is_decoder=False,
-        add_cross_attention=False,
         **kwargs
     )
 
