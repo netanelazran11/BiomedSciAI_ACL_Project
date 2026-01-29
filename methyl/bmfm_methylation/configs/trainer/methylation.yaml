@@ -6,7 +6,7 @@ _target_: bmfm_targets.config.TrainerConfig
 learning_rate: 1.0e-4
 weight_decay: 0.01
 warmup_steps: 1000
-lr_decay_steps: null
+lr_decay_steps: -1  # Use -1 to decay based on total training steps
 
 # Adam parameters
 betas:
@@ -14,8 +14,12 @@ betas:
   - 0.999
 epsilon: 1.0e-8
 
-# Metrics for regression
+# Losses for MLM pretraining (cross entropy on masked tokens)
+losses:
+  - name: cross_entropy
+    label_smoothing: 0.01
+
+# Metrics
 metrics:
-  - name: mae
-  - name: mse
-  - name: r2
+  - name: accuracy
+  - name: f1

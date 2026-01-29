@@ -33,6 +33,10 @@ from bmfm_methylation.tokenizer import (
 )
 from bmfm_methylation.data_module import MethylationDataModule
 
+# Import BMFM training modules
+from bmfm_targets.training.modules.masked_language_modeling import MLMTrainingModule
+from bmfm_targets.config import TrainerConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,11 +128,29 @@ def main(cfg: DictConfig):
     )
     data_module.setup()
 
-    # Setup model
+    # Setup model config
     model_config = hydra.utils.instantiate(cfg.model, fields=fields)
 
-    from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertForMaskedLM
-    model = SCBertForMaskedLM(model_config)
+    # Setup trainer config for MLMTrainingModule
+    # Convert losses from OmegaConf to list of dicts
+    losses = OmegaConf.to_container(cfg.trainer.losses) if hasattr(cfg.trainer, 'losses') else [{"name": "cross_entropy"}]
+
+    trainer_config = TrainerConfig(
+        learning_rate=cfg.trainer.learning_rate,
+        weight_decay=cfg.trainer.weight_decay,
+        warmup_steps=cfg.trainer.warmup_steps,
+        lr_decay_steps=cfg.trainer.lr_decay_steps,
+        betas=tuple(cfg.trainer.betas),
+        epsilon=cfg.trainer.epsilon,
+        losses=losses,
+    )
+
+    # Create MLMTrainingModule (proper LightningModule wrapper for SCBertForMaskedLM)
+    model = MLMTrainingModule(
+        model_config=model_config,
+        trainer_config=trainer_config,
+        tokenizer=tokenizer,
+    )
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 

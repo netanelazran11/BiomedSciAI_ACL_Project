@@ -294,10 +294,28 @@ def main(cfg: DictConfig):
 
     if cfg.checkpoint_path and cfg.checkpoint_path != "null":
         logger.info(f"Loading pretrained checkpoint: {cfg.checkpoint_path}")
-        # Load from checkpoint
-        from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertForMaskedLM
-        pretrained = SCBertForMaskedLM.from_pretrained(cfg.checkpoint_path)
-        encoder = pretrained.scbert
+        # Load from MLMTrainingModule checkpoint (PyTorch Lightning checkpoint)
+        from bmfm_targets.training.modules.masked_language_modeling import MLMTrainingModule
+        from bmfm_targets.config import TrainerConfig
+
+        # Create a trainer config (needed for loading)
+        trainer_config = TrainerConfig(
+            learning_rate=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+            warmup_steps=cfg.trainer.warmup_steps,
+            losses=[{"name": "cross_entropy"}],  # Required for MLMTrainingModule
+        )
+
+        # Extract the encoder (SCBertModel) from the MLMTrainingModule
+        # The model structure is: MLMTrainingModule.model (SCBertForMaskedLM) -> .scbert (SCBertModel)
+        pretrained_module = MLMTrainingModule.load_from_checkpoint(
+            cfg.checkpoint_path,
+            model_config=model_config,
+            trainer_config=trainer_config,
+            tokenizer=tokenizer,
+        )
+        encoder = pretrained_module.model.scbert
+        logger.info("Loaded encoder from pretrained MLMTrainingModule checkpoint")
     else:
         logger.info("Training from scratch (no pretraining)")
         encoder = SCBertModel(model_config)
