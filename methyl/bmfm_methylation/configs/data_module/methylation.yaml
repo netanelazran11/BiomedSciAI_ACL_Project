@@ -1,0 +1,32 @@
+# Data module configuration for methylation data
+
+_target_: bmfm_methylation.data_module.MethylationDataModule
+_partial_: true
+
+# Data paths (set via command line)
+h5ad_path: ${data_path}
+train_split: "train"
+val_split: "valid"
+test_split: "test"
+age_column: "age"
+split_column: "split"
+
+# Data loading
+batch_size: 16
+num_workers: 4
+max_length: 8010
+padding: "max_length"
+truncation: true
+pad_to_multiple_of: 16
+
+# Age normalization
+normalize_age: true
+
+# MLM settings (for pretraining)
+mlm: ${mlm_enabled}
+change_ratio: 0.15  # 15% of tokens are candidates for masking
+mask_ratio: 0.8     # 80% of candidates are replaced with [MASK]
+switch_ratio: 0.1   # 10% of candidates are replaced with random token
+
+# Collation strategy
+collation_strategy: ${collation_strategy}

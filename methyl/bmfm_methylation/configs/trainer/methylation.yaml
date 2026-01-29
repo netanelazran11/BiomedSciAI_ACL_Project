@@ -1,0 +1,21 @@
+# Trainer configuration for methylation age prediction
+
+_target_: bmfm_targets.config.TrainerConfig
+
+# Optimizer settings
+learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_steps: 1000
+lr_decay_steps: null
+
+# Adam parameters
+betas:
+  - 0.9
+  - 0.999
+epsilon: 1.0e-8
+
+# Metrics for regression
+metrics:
+  - name: mae
+  - name: mse
+  - name: r2

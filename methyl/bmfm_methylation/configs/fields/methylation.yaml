@@ -1,0 +1,17 @@
+# Field configuration for methylation data
+# Two fields: cpg_sites (discrete tokens) and beta_values (continuous)
+
+- _target_: bmfm_targets.config.FieldInfo
+  field_name: "cpg_sites"
+  vocab_size: 8005  # 8000 CpG sites + 5 special tokens
+  is_input: true
+  is_masked: true  # Enable masking for MLM pretraining
+  tokenization_strategy: "tokenize"
+
+- _target_: bmfm_targets.config.FieldInfo
+  field_name: "beta_values"
+  is_input: true
+  is_masked: false
+  tokenization_strategy: "continuous_value_encoder"
+  encoder_kwargs:
+    kind: "mlp"
