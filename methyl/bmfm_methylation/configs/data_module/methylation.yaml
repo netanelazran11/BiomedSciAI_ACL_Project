@@ -14,10 +14,10 @@ split_column: "split"
 # Data loading
 batch_size: 16
 num_workers: 4
-max_length: 8016  # Must be multiple of pad_to_multiple_of (16)
+max_length: 8002  # 8000 CpG + [CLS] + [SEP]
 padding: "max_length"
 truncation: true
-pad_to_multiple_of: 16
+pad_to_multiple_of: 2  # 8002 is divisible by 2
 
 # Age normalization
 normalize_age: true
