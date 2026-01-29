@@ -168,14 +168,14 @@ def main(cfg: DictConfig):
     callbacks = [
         pl.callbacks.ModelCheckpoint(
             dirpath=output_dir / "pretrain" / "checkpoints",
-            filename="epoch={epoch}-val_loss={val/loss:.4f}",
-            monitor="val/loss",
+            filename="epoch={epoch}-val_loss={validation/loss:.4f}",
+            monitor="validation/loss",
             mode="min",
             save_top_k=3,
             save_last=True,
         ),
         pl.callbacks.EarlyStopping(
-            monitor="val/loss",
+            monitor="validation/loss",
             patience=10,
             mode="min",
         ),
