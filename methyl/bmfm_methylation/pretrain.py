@@ -129,7 +129,9 @@ def main(cfg: DictConfig):
     data_module.setup()
 
     # Setup model config
-    model_config = hydra.utils.instantiate(cfg.model, fields=fields)
+    # Hydra returns a partial when _partial_: true, so we need to call it with fields
+    model_config_partial = hydra.utils.instantiate(cfg.model)
+    model_config = model_config_partial(fields=fields)
 
     # Setup trainer config for MLMTrainingModule
     # Convert losses from OmegaConf to list of dicts
