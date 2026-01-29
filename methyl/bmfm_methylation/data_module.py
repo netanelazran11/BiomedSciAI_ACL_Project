@@ -112,14 +112,18 @@ class MethylationDataset(Dataset):
         if self.normalize_age:
             age = (age - self.age_mean) / self.age_std
 
-        # Create MultiFieldInstance
-        mfi = MultiFieldInstance({
-            "cpg_sites": self.cpg_sites,  # CpG site names/indices
-            "beta_values": beta_values.tolist(),  # Continuous values
-        })
-
-        # Add labels
-        mfi["labels"] = age
+        # Create MultiFieldInstance with data and metadata
+        # Labels go in metadata, not data (data is for model inputs)
+        mfi = MultiFieldInstance(
+            data={
+                "cpg_sites": self.cpg_sites,  # CpG site names/indices
+                "beta_values": beta_values.tolist(),  # Continuous values
+            },
+            metadata={
+                "labels": float(age),
+                "cell_name": str(idx),  # Sample identifier
+            }
+        )
 
         return mfi
 
