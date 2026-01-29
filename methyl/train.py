@@ -52,6 +52,8 @@ def main():
                         help="Intermediate size in feed-forward layers")
     parser.add_argument("--dropout", type=float, default=0.1,
                         help="Dropout probability")
+    parser.add_argument("--no-flash-attention", action="store_true",
+                        help="Disable Flash Attention (use standard attention)")
 
     # Training arguments
     parser.add_argument("--epochs", type=int, default=100,
@@ -119,6 +121,7 @@ def main():
     print(f"  Attention heads: {args.num_heads}")
     print(f"  Intermediate size: {args.intermediate_size}")
     print(f"  Dropout: {args.dropout}")
+    print(f"  Flash Attention: {'Disabled' if args.no_flash_attention else 'Enabled'}")
     print(f"\nTraining:")
     print(f"  Epochs: {args.epochs}")
     print(f"  Batch size: {args.batch_size}")
@@ -152,6 +155,7 @@ def main():
         hidden_dropout_prob=args.dropout,
         attention_probs_dropout_prob=args.dropout,
         max_position_embeddings=args.max_cpg + 10,
+        use_flash_attention=not args.no_flash_attention,
     )
 
     # Train model

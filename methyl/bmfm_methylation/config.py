@@ -27,6 +27,7 @@ def create_methylation_config(
     hidden_act: str = "gelu",
     layer_norm_eps: float = 1e-12,
     initializer_range: float = 0.02,
+    use_flash_attention: bool = True,
     **kwargs
 ) -> SCBertConfig:
     """
@@ -50,6 +51,7 @@ def create_methylation_config(
         hidden_act: Activation function
         layer_norm_eps: Layer norm epsilon
         initializer_range: Weight initialization range
+        use_flash_attention: Use Flash Attention / memory-efficient attention (recommended for long sequences)
 
     Returns:
         SCBertConfig configured for methylation
@@ -78,6 +80,12 @@ def create_methylation_config(
         ),
     ]
 
+    # Use "torch" attention for Flash Attention / memory-efficient attention
+    # This uses F.scaled_dot_product_attention which auto-selects:
+    # - Flash Attention on Ampere GPUs (A100, H100, etc.)
+    # - Memory-efficient attention on older GPUs (V100, etc.)
+    attention_type = "torch" if use_flash_attention else None
+
     config = SCBertConfig(
         fields=fields,
         num_hidden_layers=num_hidden_layers,
@@ -91,6 +99,7 @@ def create_methylation_config(
         hidden_act=hidden_act,
         layer_norm_eps=layer_norm_eps,
         initializer_range=initializer_range,
+        attention=attention_type,
         **kwargs
     )
 
