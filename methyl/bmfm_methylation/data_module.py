@@ -148,10 +148,10 @@ class MethylationDataModule(pl.LightningDataModule):
         split_column: str = "split",
         batch_size: int = 32,
         num_workers: int = 4,
-        max_length: int = 8010,
+        max_length: int = 8002,  # 8000 CpG + [CLS] + [SEP]
         padding: Union[PaddingStrategy, str, bool] = "max_length",
         truncation: Union[TruncationStrategy, bool] = True,
-        pad_to_multiple_of: int = 16,
+        pad_to_multiple_of: int = 2,  # 8002 is divisible by 2
         mlm: bool = False,
         change_ratio: float = 0.15,
         mask_ratio: float = 0.8,
