@@ -17,6 +17,7 @@ epsilon: 1.0e-8
 # Losses for MLM pretraining (cross entropy on masked tokens)
 losses:
   - name: cross_entropy
+    field_name: cpg_sites  # Compute loss on masked CpG site predictions
     label_smoothing: 0.01
 
 # Metrics
