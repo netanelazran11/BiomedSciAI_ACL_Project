@@ -258,7 +258,6 @@ class MethylationDataModule(pl.LightningDataModule):
             from bmfm_targets.training.masking import Masker
             masker = Masker(
                 tokenizer=self.tokenizer,
-                fields=self.fields,
                 change_ratio=self.change_ratio,
                 mask_ratio=self.mask_ratio,
                 switch_ratio=self.switch_ratio,
