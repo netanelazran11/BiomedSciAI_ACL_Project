@@ -21,7 +21,7 @@ initializer_range: 0.02
 layer_norm_eps: 1.0e-12
 pad_token_id: 0
 use_cache: true
-max_position_embeddings: 8010
+max_position_embeddings: 8016  # Must match max_length in data_module
 
 # Use Flash Attention for memory efficiency
 attention: "torch"

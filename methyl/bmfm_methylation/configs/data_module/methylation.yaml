@@ -14,7 +14,7 @@ split_column: "split"
 # Data loading
 batch_size: 16
 num_workers: 4
-max_length: 8010
+max_length: 8016  # Must be multiple of pad_to_multiple_of (16)
 padding: "max_length"
 truncation: true
 pad_to_multiple_of: 16
