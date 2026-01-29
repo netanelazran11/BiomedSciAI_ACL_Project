@@ -2,76 +2,91 @@
 BMFM Methylation Encoder Package
 ================================
 
-A wrapper around the original BMFM-RNA SCBertModel architecture
-for DNA methylation age prediction.
+A complete wrapper around the original BMFM-RNA SCBertModel architecture
+for DNA methylation age prediction, following the PhD student's recommendations:
 
-This package uses the ORIGINAL bmfm_targets code (SCBertModel, SCBertConfig)
-with configuration adapted for methylation data:
-- CpG site IDs (discrete tokens)
-- Beta values (continuous values 0-1)
+1. Tokenizer: Creates proper tokenizer for CpG sites
+2. Pretraining: MLM pretraining to learn methylation patterns
+3. Fine-tuning: Age regression on pretrained model
+
+Training Pipeline:
+    Step 1: Create tokenizer from h5ad data
+    Step 2: Pretrain with MLM (learn methylation patterns)
+    Step 3: Fine-tune for age prediction
+
+Quick Start:
+    # Pretraining
+    python -m bmfm_methylation.pretrain data_path=methylation.h5ad
+
+    # Fine-tuning
+    python -m bmfm_methylation.finetune data_path=methylation.h5ad checkpoint_path=pretrain/best.ckpt
+
+    # Or train from scratch (skip pretraining)
+    python -m bmfm_methylation.finetune data_path=methylation.h5ad checkpoint_path=null
 
 Components:
-    - create_methylation_config: Creates SCBertConfig for methylation data
-    - MethylationEncoder: Wrapper around original SCBertModel
-    - MethylationAgeModel: Complete model with regression head
-    - MethylationDataset: Dataset for h5ad files
-    - MethylationAgeLightningModule: PyTorch Lightning training module
-    - train_methylation_model: High-level training function
-
-Example:
-    >>> from bmfm_methylation import create_methylation_config, MethylationAgeModel
-    >>> config = create_methylation_config(num_cpg_sites=8000)
-    >>> model = MethylationAgeModel(config)
-
-    >>> # Training
-    >>> from bmfm_methylation import train_methylation_model
-    >>> trainer, module = train_methylation_model(
-    ...     data_path="methylation.h5ad",
-    ...     train_split="train",
-    ...     val_split="valid"
-    ... )
+    - Tokenizer: create_methylation_multifield_tokenizer, create_tokenizer_from_h5ad
+    - Config: create_methylation_config
+    - Data: MethylationDataset, MethylationDataModule
+    - Model: MethylationAgeRegressor (uses SCBertModel encoder)
+    - Training: pretrain.py (MLM), finetune.py (age regression)
 """
 
 # Configuration - wraps original bmfm_targets.config.SCBertConfig
-from .config import create_methylation_config, BMFMConfig, SCBertConfig, FieldInfo
+from .config import create_methylation_config, BMFMConfig
 
-# Model - wraps original bmfm_targets SCBertModel
-from .model import MethylationEncoder, MethylationAgeModel
+# Tokenizer - creates MultiFieldTokenizer for methylation
+from .tokenizer import (
+    create_methylation_tokenizer,
+    create_methylation_multifield_tokenizer,
+    create_tokenizer_from_h5ad,
+    create_indexed_tokenizer,
+    extract_cpg_sites_from_h5ad,
+)
 
-# Dataset - standalone data loading for h5ad
-from .dataset import MethylationDataset, create_data_loaders
+# Data Module - loads h5ad and prepares for training
+from .data_module import MethylationDataset, MethylationDataModule
 
-# Optional Lightning components
+# Re-export from bmfm_targets
 try:
-    from .lightning_module import MethylationAgeLightningModule
-    from .trainer import create_trainer, train_methylation_model
-    _HAS_LIGHTNING = True
+    from bmfm_targets.config import SCBertConfig, FieldInfo
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    from bmfm_targets.models.predictive.scbert.modeling_scbert import (
+        SCBertModel,
+        SCBertForMaskedLM,
+    )
+    _HAS_BMFM = True
 except ImportError:
-    MethylationAgeLightningModule = None
-    create_trainer = None
-    train_methylation_model = None
-    _HAS_LIGHTNING = False
+    SCBertConfig = None
+    FieldInfo = None
+    MultiFieldTokenizer = None
+    SCBertModel = None
+    SCBertForMaskedLM = None
+    _HAS_BMFM = False
 
 
 __all__ = [
-    # Config (wraps bmfm_targets)
+    # Config
     "create_methylation_config",
-    "BMFMConfig",  # Alias for create_methylation_config
-    "SCBertConfig",  # Re-export for type hints
+    "BMFMConfig",
+    "SCBertConfig",
     "FieldInfo",
 
-    # Model (wraps bmfm_targets SCBertModel)
-    "MethylationEncoder",
-    "MethylationAgeModel",
+    # Tokenizer
+    "create_methylation_tokenizer",
+    "create_methylation_multifield_tokenizer",
+    "create_tokenizer_from_h5ad",
+    "create_indexed_tokenizer",
+    "extract_cpg_sites_from_h5ad",
+    "MultiFieldTokenizer",
 
-    # Dataset (standalone)
+    # Data
     "MethylationDataset",
-    "create_data_loaders",
+    "MethylationDataModule",
 
-    # Lightning (optional)
-    "MethylationAgeLightningModule",
-    "create_trainer",
-    "train_methylation_model",
+    # Models (from bmfm_targets)
+    "SCBertModel",
+    "SCBertForMaskedLM",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -1,0 +1,39 @@
+# Main configuration for methylation pretraining (MLM)
+#
+# Usage:
+#   python -m bmfm_methylation.pretrain \
+#       data_path=/path/to/methylation.h5ad \
+#       output_directory=./outputs
+
+defaults:
+  - data_module: methylation
+  - fields: methylation
+  - trainer: methylation
+  - task: pretrain_mlm
+  - model: scbert_methylation
+  - _self_
+
+# Paths
+data_path: ???  # Required: path to h5ad file
+output_directory: ./outputs/methylation
+tokenizer_path: ./tokenizer  # Will be created if doesn't exist
+checkpoint_path: null  # No checkpoint for pretraining from scratch
+
+# Training settings
+pretrain_epochs: 50
+accumulate_grad_batches: 2
+
+# MLM settings
+mlm_enabled: true
+collation_strategy: "language_modeling"
+
+# Seed
+seed:
+  seed_value: 42
+
+# WandB logging
+track_wandb:
+  enabled: true
+  project: "methylation-pretrain"
+  entity: null  # Set to your WandB entity
+  name: "methylation_mlm_pretrain"
