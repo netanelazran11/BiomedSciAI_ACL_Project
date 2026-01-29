@@ -26,5 +26,8 @@ max_position_embeddings: 8010
 # Use Flash Attention for memory efficiency
 attention: "torch"
 
+# Label columns (null for pretraining, set during fine-tuning)
+label_columns: null
+
 # Checkpoint (set during training)
 checkpoint: ${checkpoint_path}

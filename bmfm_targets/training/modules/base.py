@@ -79,10 +79,9 @@ class BaseTrainingModule(pl.LightningModule):
             model_config.checkpoint = None
 
         # this is needed when model_config is loaded from old checkpoints which don't contain the label_columns item in "hyperparameter" section
-        if (
+        if label_dict is not None and (
             not hasattr(model_config, "label_columns")
             or model_config.label_columns is None
-            and label_dict is not None
         ):
             logger.warning(
                 f"Adding label columns to model_config from label_dict: {label_dict.keys()}"
