@@ -8,7 +8,7 @@
   is_masked: true  # Enable masking for MLM pretraining
   tokenization_strategy: "tokenize"
   decode_modes:
-    mlm: {}  # MLM decoding mode for pretraining
+    token_scores: {}  # Predict masked tokens from vocabulary (for MLM)
 
 - _target_: bmfm_targets.config.FieldInfo
   field_name: "beta_values"
