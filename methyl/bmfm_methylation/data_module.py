@@ -252,6 +252,18 @@ class MethylationDataModule(pl.LightningDataModule):
                 self.test_dataset.age_mean = self.train_dataset.age_mean
                 self.test_dataset.age_std = self.train_dataset.age_std
 
+        # Create masker if MLM is enabled
+        masker = None
+        if self.mlm:
+            from bmfm_targets.training.masking import Masker
+            masker = Masker(
+                tokenizer=self.tokenizer,
+                fields=self.fields,
+                change_ratio=self.change_ratio,
+                mask_ratio=self.mask_ratio,
+                switch_ratio=self.switch_ratio,
+            )
+
         # Create collator
         self.collator = MultiFieldCollator(
             tokenizer=self.tokenizer,
@@ -260,11 +272,7 @@ class MethylationDataModule(pl.LightningDataModule):
             padding=self.padding,
             truncation=self.truncation,
             pad_to_multiple_of=self.pad_to_multiple_of,
-            mlm=self.mlm,
-            change_ratio=self.change_ratio,
-            mask_ratio=self.mask_ratio,
-            switch_ratio=self.switch_ratio,
-            masking_strategy=self.masking_strategy,
+            masker=masker,
             collation_strategy=self.collation_strategy,
         )
 
