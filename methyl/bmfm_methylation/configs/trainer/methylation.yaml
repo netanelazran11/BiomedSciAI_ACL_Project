@@ -20,6 +20,9 @@ losses:
     field_name: cpg_sites  # Compute loss on masked CpG site predictions
     label_smoothing: 0.01
 
+# Batch prediction tracking (for rich metrics like confusion matrix)
+batch_prediction_behavior: track
+
 # Metrics
 metrics:
   - name: accuracy
