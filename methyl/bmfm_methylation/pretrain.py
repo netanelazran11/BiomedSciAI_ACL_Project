@@ -106,8 +106,14 @@ def main(cfg: DictConfig):
     # Setup tokenizer
     tokenizer = setup_tokenizer(cfg)
 
-    # Instantiate fields from config
-    fields = hydra.utils.instantiate(cfg.fields)
+    # Instantiate fields from config and convert to actual FieldInfo dataclass instances
+    from bmfm_targets.config import FieldInfo
+    fields = []
+    for field_cfg in cfg.fields:
+        # Convert OmegaConf to dict, remove _target_, and create FieldInfo
+        field_dict = OmegaConf.to_container(field_cfg)
+        field_dict.pop('_target_', None)
+        fields.append(FieldInfo(**field_dict))
 
     # Setup data module
     data_module = MethylationDataModule(
