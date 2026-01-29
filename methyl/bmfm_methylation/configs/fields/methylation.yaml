@@ -7,6 +7,8 @@
   is_input: true
   is_masked: true  # Enable masking for MLM pretraining
   tokenization_strategy: "tokenize"
+  decode_modes:
+    mlm: {}  # MLM decoding mode for pretraining
 
 - _target_: bmfm_targets.config.FieldInfo
   field_name: "beta_values"
