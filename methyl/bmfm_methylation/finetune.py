@@ -267,8 +267,14 @@ def main(cfg: DictConfig):
     # Setup tokenizer
     tokenizer = setup_tokenizer(cfg)
 
-    # Instantiate fields from config
-    fields = hydra.utils.instantiate(cfg.fields)
+    # Instantiate fields from config and convert to actual FieldInfo dataclass instances
+    from bmfm_targets.config import FieldInfo
+    fields = []
+    for field_cfg in cfg.fields:
+        # Convert OmegaConf to dict, remove _target_, and create FieldInfo
+        field_dict = OmegaConf.to_container(field_cfg)
+        field_dict.pop('_target_', None)
+        fields.append(FieldInfo(**field_dict))
 
     # Setup data module
     data_module = MethylationDataModule(
@@ -286,8 +292,10 @@ def main(cfg: DictConfig):
     )
     data_module.setup()
 
-    # Setup model
-    model_config = hydra.utils.instantiate(cfg.model, fields=fields)
+    # Setup model config
+    # Hydra returns a partial when _partial_: true, so we need to call it with fields
+    model_config_partial = hydra.utils.instantiate(cfg.model)
+    model_config = model_config_partial(fields=fields)
 
     # Load pretrained encoder or create new one
     from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel

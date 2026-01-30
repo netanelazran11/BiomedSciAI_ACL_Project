@@ -279,6 +279,26 @@ class MethylationDataModule(pl.LightningDataModule):
             collation_strategy=self.collation_strategy,
         )
 
+        # For finetuning (non-MLM), wrap collator to include age labels
+        if not self.mlm:
+            self._base_collator = self.collator
+            self.collator = self._collate_with_labels
+
+    def _collate_with_labels(self, examples):
+        """Wrapper collator that adds age labels from metadata."""
+        batch = self._base_collator(examples)
+
+        # Extract age labels from metadata
+        labels = []
+        for example in examples:
+            if example.metadata and "labels" in example.metadata:
+                labels.append(example.metadata["labels"])
+            else:
+                labels.append(0.0)
+
+        batch["labels"] = torch.tensor(labels, dtype=torch.float32)
+        return batch
+
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_dataset,
