@@ -61,6 +61,8 @@ class MethylationAgeRegressor(pl.LightningModule):
         max_steps: int = 10000,
         age_mean: float = 0.0,
         age_std: float = 1.0,
+        freeze_encoder: bool = False,
+        use_huber_loss: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
@@ -69,19 +71,29 @@ class MethylationAgeRegressor(pl.LightningModule):
         self.age_mean = age_mean
         self.age_std = age_std
 
-        # Regression head
+        # Optionally freeze encoder for initial training
+        if freeze_encoder:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+
+        # Improved regression head with BatchNorm for better training
         self.regression_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
-            nn.ReLU(),
+            nn.BatchNorm1d(head_hidden_size),
+            nn.GELU(),  # GELU often works better than ReLU
             nn.Dropout(head_dropout),
             nn.Linear(head_hidden_size, head_hidden_size // 2),
-            nn.ReLU(),
+            nn.BatchNorm1d(head_hidden_size // 2),
+            nn.GELU(),
             nn.Dropout(head_dropout),
             nn.Linear(head_hidden_size // 2, 1),
         )
 
-        # Loss
-        self.loss_fn = nn.MSELoss()
+        # Huber loss is more robust to outliers than MSE
+        if use_huber_loss:
+            self.loss_fn = nn.HuberLoss(delta=1.0)
+        else:
+            self.loss_fn = nn.MSELoss()
 
         # Metrics
         self.train_mae = pl.metrics.MeanAbsoluteError() if hasattr(pl, 'metrics') else None
@@ -164,25 +176,47 @@ class MethylationAgeRegressor(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        # Separate weight decay
+        # Discriminative learning rates: lower for encoder, higher for head
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
 
+        # Separate encoder and head parameters with different learning rates
+        encoder_lr = self.hparams.learning_rate * 0.1  # 10x lower for pretrained encoder
+        head_lr = self.hparams.learning_rate * 1.0  # Same as base (encoder already lower)
+
         optimizer_grouped_parameters = [
+            # Encoder parameters with weight decay
             {
-                "params": [p for n, p in self.named_parameters()
+                "params": [p for n, p in self.encoder.named_parameters()
                            if not any(nd in n for nd in no_decay)],
                 "weight_decay": self.hparams.weight_decay,
+                "lr": encoder_lr,
             },
+            # Encoder parameters without weight decay
             {
-                "params": [p for n, p in self.named_parameters()
+                "params": [p for n, p in self.encoder.named_parameters()
                            if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
+                "lr": encoder_lr,
+            },
+            # Regression head parameters with weight decay
+            {
+                "params": [p for n, p in self.regression_head.named_parameters()
+                           if not any(nd in n for nd in no_decay)],
+                "weight_decay": self.hparams.weight_decay,
+                "lr": head_lr,
+            },
+            # Regression head parameters without weight decay
+            {
+                "params": [p for n, p in self.regression_head.named_parameters()
+                           if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+                "lr": head_lr,
             },
         ]
 
         optimizer = torch.optim.AdamW(
             optimizer_grouped_parameters,
-            lr=self.hparams.learning_rate,
+            lr=self.hparams.learning_rate,  # Default LR (will be overridden by group LRs)
             betas=(0.9, 0.999),
             eps=1e-8,
         )
@@ -229,22 +263,49 @@ def setup_tokenizer(cfg: DictConfig):
 
 def setup_wandb(cfg: DictConfig):
     """Setup WandB logging if enabled."""
+    # Check if WandB is enabled (support both nested and flat config)
+    wandb_enabled = False
     if hasattr(cfg, 'track_wandb') and cfg.track_wandb.get('enabled', False):
+        wandb_enabled = True
+    elif cfg.get('wandb_enabled', False):
+        wandb_enabled = True
+
+    if wandb_enabled:
         try:
             import wandb
             from pytorch_lightning.loggers import WandbLogger
 
+            # Get WandB settings from nested or flat config
+            if hasattr(cfg, 'track_wandb'):
+                project = cfg.track_wandb.get('project', 'methylation-age')
+                entity = cfg.track_wandb.get('entity', None)
+                run_name = cfg.track_wandb.get('name', None)
+            else:
+                project = cfg.get('wandb_project', 'methylation-age')
+                entity = cfg.get('wandb_entity', None)
+                run_name = cfg.get('wandb_name', None)
+
+            # Create WandB logger
             wandb_logger = WandbLogger(
-                project=cfg.track_wandb.get('project', 'methylation-age'),
-                entity=cfg.track_wandb.get('entity'),
-                name=cfg.track_wandb.get('name', 'methylation_age'),
+                project=project,
+                entity=entity,
+                name=run_name,
                 save_dir=cfg.output_directory,
+                log_model=True,  # Log model checkpoints
             )
+
+            # Log all hyperparameters
+            wandb_logger.experiment.config.update(OmegaConf.to_container(cfg, resolve=True))
+
+            logger.info(f"WandB logging enabled - Project: {project}")
             return wandb_logger
         except ImportError:
             logger.warning("WandB not installed, using TensorBoard")
+        except Exception as e:
+            logger.warning(f"WandB setup failed: {e}, using TensorBoard")
 
     from pytorch_lightning.loggers import TensorBoardLogger
+    logger.info("Using TensorBoard logger")
     return TensorBoardLogger(cfg.output_directory, name="finetune")
 
 
@@ -340,6 +401,10 @@ def main(cfg: DictConfig):
         encoder = SCBertModel(model_config)
 
     # Create regression model
+    # Get optional parameters with defaults
+    freeze_encoder = cfg.get('freeze_encoder', False)
+    use_huber_loss = cfg.get('use_huber_loss', True)
+
     model = MethylationAgeRegressor(
         encoder=encoder,
         hidden_size=model_config.hidden_size,
@@ -351,6 +416,8 @@ def main(cfg: DictConfig):
         max_steps=cfg.finetune_epochs * len(data_module.train_dataset) // cfg.data_module.batch_size,
         age_mean=data_module.age_mean,
         age_std=data_module.age_std,
+        freeze_encoder=freeze_encoder,
+        use_huber_loss=use_huber_loss,
     )
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
