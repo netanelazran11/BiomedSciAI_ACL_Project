@@ -95,8 +95,13 @@ class MethylationAgeRegressor(pl.LightningModule):
             attention_mask=attention_mask,
         )
 
-        # Use pooler output (CLS token representation)
-        pooled = outputs.pooler_output
+        # Use CLS token representation from last hidden state
+        # pooler_output may be None depending on model config, so use last_hidden_state[:, 0]
+        if outputs.pooler_output is not None:
+            pooled = outputs.pooler_output
+        else:
+            # Use the [CLS] token (first token) from last hidden state
+            pooled = outputs.last_hidden_state[:, 0]
 
         # Predict age
         age_pred = self.regression_head(pooled)
