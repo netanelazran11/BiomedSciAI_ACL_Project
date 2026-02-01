@@ -1,11 +1,11 @@
-# Trainer configuration for methylation age prediction
+# Trainer configuration for methylation pretraining
 
 _target_: bmfm_targets.config.TrainerConfig
 
 # Optimizer settings
-learning_rate: 1.0e-4
+learning_rate: 5.0e-4  # Higher LR for regression task
 weight_decay: 0.01
-warmup_steps: 1000
+warmup_steps: 500  # ~5% of total steps
 lr_decay_steps: -1  # Use -1 to decay based on total training steps
 
 # Adam parameters
@@ -14,16 +14,15 @@ betas:
   - 0.999
 epsilon: 1.0e-8
 
-# Losses for MLM pretraining (cross entropy on masked tokens)
+# Losses for pretraining (MSE on masked methylation values)
 losses:
-  - name: cross_entropy
-    field_name: cpg_sites  # Compute loss on masked CpG site predictions
-    label_smoothing: 0.01
+  - name: mse
+    field_name: beta_values  # Predict masked methylation values
 
-# Batch prediction tracking (for rich metrics like confusion matrix)
+# Batch prediction tracking
 batch_prediction_behavior: track
 
-# Metrics
+# Metrics for regression
 metrics:
-  - name: accuracy
-  - name: f1
+  - name: mae
+  - name: r2

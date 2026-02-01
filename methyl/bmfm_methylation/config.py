@@ -60,22 +60,27 @@ def create_methylation_config(
     actual_vocab_size = vocab_size if vocab_size is not None else num_cpg_sites + 5
 
     # Define fields for methylation data
-    # FieldInfo parameters: field_name, vocab_size, is_input, tokenization_strategy, encoder_kwargs
+    # Pretraining task: Mask and predict methylation VALUES (not CpG IDs)
     fields = [
-        # CpG site IDs - discrete tokens
+        # CpG site IDs - discrete tokens (NOT masked - they are fixed identifiers)
         FieldInfo(
             field_name="cpg_sites",
             vocab_size=actual_vocab_size,
             is_input=True,
+            is_masked=False,  # CpG IDs are fixed - no need to mask/predict them
             tokenization_strategy="tokenize",
         ),
-        # Beta values - continuous values (0-1)
+        # Beta values - continuous methylation values (0-1) - THIS IS MASKED
         FieldInfo(
             field_name="beta_values",
             is_input=True,
+            is_masked=True,  # Mask methylation values for pretraining
             tokenization_strategy="continuous_value_encoder",
             encoder_kwargs={
-                "kind": "mlp",  # MLP encoder for continuous methylation values
+                "kind": "mlp_with_special_token_embedding",  # Handles mask tokens properly
+            },
+            decode_modes={
+                "regression": {},  # Predict continuous methylation values with MSE/MAE
             },
         ),
     ]
