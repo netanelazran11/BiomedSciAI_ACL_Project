@@ -8,8 +8,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=50:00:00
 
-#SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/bmfm_methylation/bmfm_logs/%x_%j.out
-#SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/bmfm_methylation/bmfm_logs/%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 
 set -euo pipefail
 
