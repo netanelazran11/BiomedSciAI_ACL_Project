@@ -48,6 +48,9 @@ echo "============================================================"
 # -------------------------
 # Modules (CUDA/NVCC)
 # -------------------------
+# Initialize module system (required for non-login shells)
+source /etc/profile.d/modules.sh 2>/dev/null || source /usr/share/modules/init/bash 2>/dev/null || true
+
 module purge
 module load spack/all
 module load cuda/12.3.2-gcc-5bv3kyh
