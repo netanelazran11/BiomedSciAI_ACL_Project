@@ -60,7 +60,11 @@ class SCBertSelfAttention(nn.Module):
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+        self.dropout_p = config.attention_probs_dropout_prob
         self.is_decoder = config.is_decoder
+
+        # Use Flash Attention via F.scaled_dot_product_attention when attention="torch"
+        self.use_sdpa = getattr(config, 'attention', None) == "torch"
 
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
         new_x_shape = x.size()[:-1] + (
@@ -121,25 +125,54 @@ class SCBertSelfAttention(nn.Module):
             # if encoder bi-directional self-attention `past_key_value` is always `None`
             past_key_value = (key_layer, value_layer)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in SCBertModel forward() function)
-            attention_scores = attention_scores + attention_mask
+        # Use Flash Attention (SDPA) when enabled and compatible
+        # SDPA doesn't support head_mask or output_attentions, fall back to standard attention
+        use_sdpa_path = self.use_sdpa and head_mask is None and not output_attentions
 
-        # Normalize the attention scores to probabilities.
-        attention_probs: torch.Tensor = nn.functional.softmax(attention_scores, dim=-1)
+        if use_sdpa_path:
+            # Flash Attention path using F.scaled_dot_product_attention
+            # Automatically uses Flash Attention 2 on H100/H200/A100, memory-efficient on others
+            dropout_p = self.dropout_p if self.training else 0.0
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout(attention_probs)
+            # SDPA expects attention_mask as boolean (True = attend) or additive bias
+            # Our mask is additive (0 = attend, -inf = ignore), convert to boolean for efficiency
+            if attention_mask is not None:
+                # Convert additive mask to boolean: positions with 0 should be attended
+                # attention_mask shape: [batch, 1, 1, seq_len] or [batch, 1, seq_len, seq_len]
+                attn_mask = attention_mask > -1.0  # True where we should attend
+            else:
+                attn_mask = None
 
-        # Mask heads if we want to
-        if head_mask is not None:
-            attention_probs = attention_probs * head_mask
+            context_layer = nn.functional.scaled_dot_product_attention(
+                query_layer,
+                key_layer,
+                value_layer,
+                attn_mask=attn_mask,
+                dropout_p=dropout_p,
+                is_causal=False,
+            )
+            attention_probs = None  # Not computed in SDPA path
+        else:
+            # Standard attention path (fallback when head_mask or output_attentions needed)
+            # Take the dot product between "query" and "key" to get the raw attention scores.
+            attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+            attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+            if attention_mask is not None:
+                # Apply the attention mask is (precomputed for all layers in SCBertModel forward() function)
+                attention_scores = attention_scores + attention_mask
 
-        context_layer: torch.Tensor = torch.matmul(attention_probs, value_layer)
+            # Normalize the attention scores to probabilities.
+            attention_probs = nn.functional.softmax(attention_scores, dim=-1)
+
+            # This is actually dropping out entire tokens to attend to, which might
+            # seem a bit unusual, but is taken from the original Transformer paper.
+            attention_probs = self.dropout(attention_probs)
+
+            # Mask heads if we want to
+            if head_mask is not None:
+                attention_probs = attention_probs * head_mask
+
+            context_layer = torch.matmul(attention_probs, value_layer)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)

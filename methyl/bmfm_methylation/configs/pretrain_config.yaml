@@ -20,8 +20,8 @@ tokenizer_path: ./tokenizer  # Will be created if doesn't exist
 checkpoint_path: null  # No checkpoint for pretraining from scratch
 
 # Training settings
-pretrain_epochs: 50
-accumulate_grad_batches: 2
+pretrain_epochs: 150  # More epochs for small dataset
+accumulate_grad_batches: 4  # Effective batch = 32 × 4 = 128
 
 # MLM settings
 mlm_enabled: true

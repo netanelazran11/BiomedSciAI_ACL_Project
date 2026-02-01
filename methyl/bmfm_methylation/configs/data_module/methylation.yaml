@@ -12,7 +12,7 @@ age_column: "age"
 split_column: "split"
 
 # Data loading
-batch_size: 16
+batch_size: 32  # Flash Attention enabled - can use larger batches on H200
 num_workers: 4
 max_length: 8002  # 8000 CpG + [CLS] + [SEP]
 padding: "max_length"
@@ -24,9 +24,9 @@ normalize_age: true
 
 # MLM settings (for pretraining)
 mlm: ${mlm_enabled}
-change_ratio: 0.15  # 15% of tokens are candidates for masking
-mask_ratio: 0.8     # 80% of candidates are replaced with [MASK]
-switch_ratio: 0.1   # 10% of candidates are replaced with random token
+change_ratio: 0.25  # 25% of values masked (higher for regression)
+mask_ratio: 0.9     # 90% of candidates are replaced with [MASK]
+switch_ratio: 0.0   # No random switching for continuous values
 
 # Collation strategy
 collation_strategy: ${collation_strategy}
