@@ -31,21 +31,23 @@ import torch.nn as nn
 import torch.serialization
 from omegaconf import DictConfig, OmegaConf
 
+# =============================================================================
+# CRITICAL FIX for PyTorch 2.6+ checkpoint loading
+# PyTorch 2.6 changed default weights_only=True which breaks Lightning checkpoints
+# We monkey-patch torch.load to force weights_only=False for ALL calls
+# This is needed because PyTorch Lightning loads checkpoints internally
+# =============================================================================
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    # Force weights_only=False unless explicitly set to True
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+# =============================================================================
+
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-# Fix for PyTorch 2.6+ checkpoint loading (weights_only=True by default)
-# Add all config classes that might be in checkpoints
-from bmfm_targets.config.model_config import SCBertConfig
-from bmfm_targets.config.training_config import TrainerConfig, TrainingTaskConfig
-from bmfm_targets.config import FieldInfo, LabelColumnInfo
-torch.serialization.add_safe_globals([
-    SCBertConfig,
-    TrainerConfig,
-    TrainingTaskConfig,
-    FieldInfo,
-    LabelColumnInfo,
-])
 
 from bmfm_methylation.tokenizer import (
     extract_cpg_sites_from_h5ad,
