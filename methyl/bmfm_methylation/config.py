@@ -76,6 +76,7 @@ def create_methylation_config(
             is_input=True,
             is_masked=True,  # Mask methylation values for pretraining
             tokenization_strategy="continuous_value_encoder",
+            num_special_tokens=5,  # PAD, UNK, CLS, SEP, MASK
             encoder_kwargs={
                 "kind": "mlp_with_special_token_embedding",  # Handles mask tokens properly
             },

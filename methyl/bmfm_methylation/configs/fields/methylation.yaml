@@ -14,6 +14,7 @@
   is_input: true
   is_masked: true  # Mask methylation values for pretraining
   tokenization_strategy: "continuous_value_encoder"
+  num_special_tokens: 5  # PAD, UNK, CLS, SEP, MASK
   encoder_kwargs:
     kind: "mlp_with_special_token_embedding"  # Handles mask tokens properly
   decode_modes:
