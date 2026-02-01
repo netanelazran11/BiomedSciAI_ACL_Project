@@ -22,6 +22,7 @@ checkpoint_path: null  # No checkpoint for pretraining from scratch
 # Training settings
 pretrain_epochs: 150  # More epochs for small dataset
 accumulate_grad_batches: 4  # Effective batch = 32 × 4 = 128
+early_stop_patience: 20  # Stop after 20 val checks (~5 epochs) without improvement
 
 # MLM settings
 mlm_enabled: true

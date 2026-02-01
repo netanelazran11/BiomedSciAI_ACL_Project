@@ -141,7 +141,19 @@ def main(cfg: DictConfig):
 
     # Setup trainer config for MLMTrainingModule
     # Convert losses from OmegaConf to list of dicts
-    losses = OmegaConf.to_container(cfg.trainer.losses) if hasattr(cfg.trainer, 'losses') else [{"name": "cross_entropy"}]
+    losses = OmegaConf.to_container(cfg.trainer.losses) if hasattr(cfg.trainer, 'losses') else [{"name": "mse", "field_name": "beta_values"}]
+
+    # Convert metrics from OmegaConf to list of dicts
+    metrics = None
+    if hasattr(cfg.trainer, 'metrics') and cfg.trainer.metrics:
+        metrics = OmegaConf.to_container(cfg.trainer.metrics)
+        logger.info(f"Metrics configured: {metrics}")
+
+    # Get batch prediction behavior
+    batch_prediction_behavior = None
+    if hasattr(cfg.trainer, 'batch_prediction_behavior'):
+        batch_prediction_behavior = cfg.trainer.batch_prediction_behavior
+        logger.info(f"Batch prediction behavior: {batch_prediction_behavior}")
 
     trainer_config = TrainerConfig(
         learning_rate=cfg.trainer.learning_rate,
@@ -151,6 +163,8 @@ def main(cfg: DictConfig):
         betas=tuple(cfg.trainer.betas),
         epsilon=cfg.trainer.epsilon,
         losses=losses,
+        metrics=metrics,
+        batch_prediction_behavior=batch_prediction_behavior,
     )
 
     # Create MLMTrainingModule (proper LightningModule wrapper for SCBertForMaskedLM)
@@ -165,6 +179,11 @@ def main(cfg: DictConfig):
     # Setup trainer
     wandb_logger = setup_wandb(cfg)
 
+    # Early stopping patience: with val_check_interval=0.25 (4 checks/epoch),
+    # patience=20 means ~5 epochs without improvement before stopping
+    early_stop_patience = cfg.get("early_stop_patience", 20)
+    logger.info(f"Early stopping patience: {early_stop_patience} validation checks")
+
     callbacks = [
         pl.callbacks.ModelCheckpoint(
             dirpath=output_dir / "pretrain" / "checkpoints",
@@ -176,8 +195,9 @@ def main(cfg: DictConfig):
         ),
         pl.callbacks.EarlyStopping(
             monitor="validation/loss",
-            patience=10,
+            patience=early_stop_patience,
             mode="min",
+            verbose=True,  # Log when early stopping is triggered
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
     ]
@@ -200,7 +220,26 @@ def main(cfg: DictConfig):
 
     # Save best checkpoint path
     best_ckpt = trainer.checkpoint_callback.best_model_path
-    logger.info(f"\nPretraining complete!")
+    logger.info(f"\nTraining complete!")
+    logger.info(f"Best checkpoint: {best_ckpt}")
+
+    # Run test evaluation with best checkpoint
+    logger.info("=" * 70)
+    logger.info("RUNNING TEST EVALUATION")
+    logger.info("=" * 70)
+    if best_ckpt:
+        test_results = trainer.test(model, data_module, ckpt_path=best_ckpt)
+        logger.info(f"\nTest Results:")
+        for result in test_results:
+            for key, value in result.items():
+                logger.info(f"  {key}: {value:.6f}")
+    else:
+        logger.warning("No best checkpoint found, running test with current model weights")
+        test_results = trainer.test(model, data_module)
+
+    logger.info("=" * 70)
+    logger.info("PRETRAINING COMPLETE")
+    logger.info("=" * 70)
     logger.info(f"Best checkpoint: {best_ckpt}")
     logger.info(f"\nNext step: Fine-tune for age prediction:")
     logger.info(f"  python -m bmfm_methylation.finetune \\")
