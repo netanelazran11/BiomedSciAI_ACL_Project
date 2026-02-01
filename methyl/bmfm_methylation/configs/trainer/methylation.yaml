@@ -22,7 +22,8 @@ losses:
 # Batch prediction tracking
 batch_prediction_behavior: track
 
-# Metrics for regression
+# Metrics for regression (available: mae, mse, pcc)
 metrics:
   - name: mae
-  - name: r2
+  - name: mse
+  - name: pcc
