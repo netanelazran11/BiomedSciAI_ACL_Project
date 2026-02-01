@@ -28,10 +28,15 @@ import hydra
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.serialization
 from omegaconf import DictConfig, OmegaConf
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Fix for PyTorch 2.6+ checkpoint loading (weights_only=True by default)
+from bmfm_targets.config.model_config import SCBertConfig
+torch.serialization.add_safe_globals([SCBertConfig])
 
 from bmfm_methylation.tokenizer import (
     extract_cpg_sites_from_h5ad,
