@@ -23,7 +23,7 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 
 # Pretrained checkpoint (from pretraining run)
 # UPDATE THIS PATH to point to your best pretrain checkpoint
-CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-<JOB_ID>/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt"
+CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43987959/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -84,7 +84,7 @@ PY
 # -------------------------
 python -m bmfm_methylation.finetune \
     data_path="${DATA}" \
-    checkpoint_path="${CHECKPOINT}" \
+    "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
