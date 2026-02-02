@@ -5,6 +5,23 @@ This module follows the BMFM DataModule pattern for loading methylation data
 from h5ad files and preparing it for training.
 """
 
+# =============================================================================
+# CRITICAL: Patch torch.load FIRST - before ANY other imports
+# This is needed for DataLoader worker subprocesses in PyTorch 2.6+
+# =============================================================================
+import torch
+import torch.serialization
+
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+torch.load = _patched_torch_load
+torch.serialization.load = _patched_torch_load
+# =============================================================================
+
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Mapping, Optional, Union

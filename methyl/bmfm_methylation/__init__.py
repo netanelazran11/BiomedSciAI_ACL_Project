@@ -32,6 +32,24 @@ Components:
     - Training: pretrain.py (MLM), finetune.py (age regression)
 """
 
+# =============================================================================
+# CRITICAL: Patch torch.load FIRST - before ANY other imports
+# PyTorch 2.6 changed default weights_only=True which breaks checkpoint loading
+# This patch MUST be here so it applies to ALL subprocesses that import this package
+# =============================================================================
+import torch
+import torch.serialization
+
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+torch.load = _patched_torch_load
+torch.serialization.load = _patched_torch_load
+# =============================================================================
+
 # Configuration - wraps original bmfm_targets.config.SCBertConfig
 from .config import create_methylation_config, BMFMConfig
 

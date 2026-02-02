@@ -13,7 +13,7 @@ split_column: "split"
 
 # Data loading
 batch_size: 32  # Flash Attention enabled - can use larger batches on H200
-num_workers: 4
+num_workers: 0  # MUST be 0 to avoid subprocess issues with PyTorch 2.6 checkpoint loading
 max_length: 8002  # 8000 CpG + [CLS] + [SEP]
 padding: "max_length"
 truncation: true
