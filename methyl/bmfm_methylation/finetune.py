@@ -171,8 +171,47 @@ class MethylationAgeRegressor(pl.LightningModule):
         attention_mask = batch.get("attention_mask")
         labels = batch["labels"].float().view(-1, 1)
 
+        # DEBUG: Print batch info on first step to verify data pipeline
+        if not hasattr(self, '_debug_printed') or not self._debug_printed:
+            self._debug_printed = True
+            logger.info("=" * 70)
+            logger.info("DEBUG: BATCH INSPECTION")
+            logger.info(f"  input_ids shape: {input_ids.shape}")
+            logger.info(f"  input_ids dtype: {input_ids.dtype}")
+            logger.info(f"  batch keys: {list(batch.keys())}")
+            if input_ids.dim() == 3:
+                # Multi-field: [batch, num_fields, seq_len]
+                logger.info(f"  Field 0 (cpg_sites) - first 10 values: {input_ids[0, 0, :10].tolist()}")
+                logger.info(f"  Field 1 (beta_values) - first 10 values: {input_ids[0, 1, :10].tolist()}")
+                # Check if field 1 varies between samples
+                f1_sample0 = input_ids[0, 1, :10].tolist()
+                f1_sample1 = input_ids[1, 1, :10].tolist() if input_ids.shape[0] > 1 else f1_sample0
+                logger.info(f"  Field 1 sample 0: {f1_sample0}")
+                logger.info(f"  Field 1 sample 1: {f1_sample1}")
+                logger.info(f"  Field 1 same across samples? {f1_sample0 == f1_sample1}")
+                logger.info(f"  Field 1 min={input_ids[:, 1, :].min():.4f}, max={input_ids[:, 1, :].max():.4f}, std={input_ids[:, 1, :].std():.4f}")
+            elif input_ids.dim() == 2:
+                logger.info(f"  WARNING: input_ids is 2D! Shape: {input_ids.shape}")
+                logger.info(f"  First 10 values: {input_ids[0, :10].tolist()}")
+            if attention_mask is not None:
+                logger.info(f"  attention_mask shape: {attention_mask.shape}")
+                logger.info(f"  attention_mask sum (non-pad tokens): {attention_mask[0].sum().item()}")
+            logger.info(f"  labels (first 5): {labels[:5, 0].tolist()}")
+            logger.info(f"  labels std: {labels.std():.4f}")
+            logger.info(f"  age_mean={self.age_mean:.2f}, age_std={self.age_std:.2f}")
+            logger.info("=" * 70)
+
         # Forward pass
         predictions = self(input_ids, attention_mask)
+
+        # DEBUG: Check predictions on first few steps
+        if not hasattr(self, '_debug_pred_count'):
+            self._debug_pred_count = 0
+        if self._debug_pred_count < 3:
+            self._debug_pred_count += 1
+            preds_flat = predictions.detach()[:5, 0].tolist()
+            labels_flat = labels[:5, 0].tolist()
+            logger.info(f"DEBUG step {self._debug_pred_count}: preds={preds_flat}, labels={labels_flat}")
 
         # Loss (on normalized values)
         loss = self.loss_fn(predictions, labels)
