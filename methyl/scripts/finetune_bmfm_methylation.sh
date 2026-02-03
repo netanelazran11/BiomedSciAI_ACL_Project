@@ -90,7 +90,7 @@ echo "============================================================"
 # -------------------------
 python -m bmfm_methylation.finetune \
     data_path="${DATA}" \
-    checkpoint_path="${CHECKPOINT}" \
+    "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
     freeze_encoder=true \
     unfreeze_encoder_epoch=5 \
