@@ -80,8 +80,10 @@ class MethylationAgeRegressor(pl.LightningModule):
         max_steps: int = 10000,
         age_mean: float = 0.0,
         age_std: float = 1.0,
-        freeze_encoder: bool = False,
-        use_huber_loss: bool = True,
+        freeze_encoder: bool = True,
+        unfreeze_encoder_epoch: int = 5,
+        use_huber_loss: bool = False,
+        huber_delta: float = 2.0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
@@ -90,34 +92,40 @@ class MethylationAgeRegressor(pl.LightningModule):
         self.age_mean = age_mean
         self.age_std = age_std
 
-        # Optionally freeze encoder for initial training
+        # Freeze encoder initially -- let head learn first, then unfreeze
         if freeze_encoder:
             for param in self.encoder.parameters():
                 param.requires_grad = False
+            logger.info(f"Encoder FROZEN. Will unfreeze at epoch {unfreeze_encoder_epoch}.")
 
-        # Improved regression head with BatchNorm for better training
+        # Regression head with LayerNorm (stable with any batch size)
         self.regression_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
-            nn.BatchNorm1d(head_hidden_size),
-            nn.GELU(),  # GELU often works better than ReLU
+            nn.LayerNorm(head_hidden_size),
+            nn.GELU(),
             nn.Dropout(head_dropout),
             nn.Linear(head_hidden_size, head_hidden_size // 2),
-            nn.BatchNorm1d(head_hidden_size // 2),
+            nn.LayerNorm(head_hidden_size // 2),
             nn.GELU(),
             nn.Dropout(head_dropout),
             nn.Linear(head_hidden_size // 2, 1),
         )
 
-        # Huber loss is more robust to outliers than MSE
+        # MSELoss by default: gives stronger gradients for large errors,
+        # helping the model escape the "predict the mean" trap.
+        # HuberLoss optional with configurable delta.
         if use_huber_loss:
-            self.loss_fn = nn.HuberLoss(delta=1.0)
+            self.loss_fn = nn.HuberLoss(delta=huber_delta)
+            logger.info(f"Using HuberLoss with delta={huber_delta}")
         else:
             self.loss_fn = nn.MSELoss()
+            logger.info("Using MSELoss")
 
-        # Metrics
-        self.train_mae = pl.metrics.MeanAbsoluteError() if hasattr(pl, 'metrics') else None
-        self.val_mae = pl.metrics.MeanAbsoluteError() if hasattr(pl, 'metrics') else None
-        self.test_mae = pl.metrics.MeanAbsoluteError() if hasattr(pl, 'metrics') else None
+        # Accumulate predictions for epoch-level R² computation
+        self._val_preds = []
+        self._val_labels = []
+        self._test_preds = []
+        self._test_labels = []
 
     def forward(self, input_ids, attention_mask=None):
         # Get encoder outputs
@@ -126,18 +134,37 @@ class MethylationAgeRegressor(pl.LightningModule):
             attention_mask=attention_mask,
         )
 
-        # Use CLS token representation from last hidden state
-        # pooler_output may be None depending on model config, so use last_hidden_state[:, 0]
-        if outputs.pooler_output is not None:
-            pooled = outputs.pooler_output
+        # Use MEAN POOLING over all non-padding positions
+        # Do NOT use pooler_output -- it's an untrained linear+tanh from
+        # pretraining (MLM never trains the pooler) and destroys signal.
+        # Do NOT use CLS token alone -- MLM doesn't train it to summarize.
+        hidden_states = outputs.last_hidden_state  # [batch, seq_len, hidden]
+
+        if attention_mask is not None:
+            # Expand mask to hidden dim: [batch, seq_len] -> [batch, seq_len, 1]
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (hidden_states * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
         else:
-            # Use the [CLS] token (first token) from last hidden state
-            pooled = outputs.last_hidden_state[:, 0]
+            pooled = hidden_states.mean(dim=1)
 
         # Predict age
         age_pred = self.regression_head(pooled)
 
         return age_pred
+
+    def on_train_epoch_start(self):
+        """Unfreeze encoder after warmup epochs."""
+        if (self.hparams.freeze_encoder
+                and self.current_epoch >= self.hparams.unfreeze_encoder_epoch):
+            # Check if already unfrozen
+            already_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
+            if not already_unfrozen:
+                for param in self.encoder.parameters():
+                    param.requires_grad = True
+                logger.info(
+                    f"Epoch {self.current_epoch}: Encoder UNFROZEN. "
+                    f"Fine-tuning all parameters now."
+                )
 
     def _shared_step(self, batch, stage: str):
         input_ids = batch["input_ids"]
@@ -173,26 +200,57 @@ class MethylationAgeRegressor(pl.LightningModule):
         self.log("val/loss", loss, on_epoch=True, prog_bar=True)
         self.log("val/mae", mae, on_epoch=True, prog_bar=True)
 
-        # Compute R2
-        ss_res = torch.sum((labels - preds) ** 2)
-        ss_tot = torch.sum((labels - labels.mean()) ** 2)
-        r2 = 1 - ss_res / (ss_tot + 1e-8)
-        self.log("val/r2", r2, on_epoch=True)
+        # Accumulate for epoch-level R² (per-batch R² is unreliable)
+        self._val_preds.append(preds.detach())
+        self._val_labels.append(labels.detach())
 
         return loss
+
+    def on_validation_epoch_end(self):
+        if self._val_preds:
+            all_preds = torch.cat(self._val_preds, dim=0)
+            all_labels = torch.cat(self._val_labels, dim=0)
+
+            ss_res = torch.sum((all_labels - all_preds) ** 2)
+            ss_tot = torch.sum((all_labels - all_labels.mean()) ** 2)
+            r2 = 1 - ss_res / (ss_tot + 1e-8)
+            self.log("val/r2", r2, prog_bar=True)
+
+            # Also log epoch-level MAE for accuracy
+            epoch_mae = torch.abs(all_preds - all_labels).mean()
+            self.log("val/mae_epoch", epoch_mae)
+
+        self._val_preds.clear()
+        self._val_labels.clear()
 
     def test_step(self, batch, batch_idx):
         loss, mae, preds, labels = self._shared_step(batch, "test")
 
         self.log("test/mae", mae, on_epoch=True)
 
-        # Compute R2
-        ss_res = torch.sum((labels - preds) ** 2)
-        ss_tot = torch.sum((labels - labels.mean()) ** 2)
-        r2 = 1 - ss_res / (ss_tot + 1e-8)
-        self.log("test/r2", r2, on_epoch=True)
+        # Accumulate for epoch-level R²
+        self._test_preds.append(preds.detach())
+        self._test_labels.append(labels.detach())
 
         return loss
+
+    def on_test_epoch_end(self):
+        if self._test_preds:
+            all_preds = torch.cat(self._test_preds, dim=0)
+            all_labels = torch.cat(self._test_labels, dim=0)
+
+            ss_res = torch.sum((all_labels - all_preds) ** 2)
+            ss_tot = torch.sum((all_labels - all_labels.mean()) ** 2)
+            r2 = 1 - ss_res / (ss_tot + 1e-8)
+            self.log("test/r2", r2)
+
+            epoch_mae = torch.abs(all_preds - all_labels).mean()
+            self.log("test/mae_epoch", epoch_mae)
+
+            logger.info(f"Test MAE: {epoch_mae:.2f} years, R2: {r2:.4f}")
+
+        self._test_preds.clear()
+        self._test_labels.clear()
 
     def configure_optimizers(self):
         # Discriminative learning rates: lower for encoder, higher for head
@@ -420,9 +478,22 @@ def main(cfg: DictConfig):
         encoder = SCBertModel(model_config)
 
     # Create regression model
-    # Get optional parameters with defaults
-    freeze_encoder = cfg.get('freeze_encoder', False)
-    use_huber_loss = cfg.get('use_huber_loss', True)
+    freeze_encoder = cfg.get('freeze_encoder', True)
+    unfreeze_encoder_epoch = cfg.get('unfreeze_encoder_epoch', 5)
+    use_huber_loss = cfg.get('use_huber_loss', False)
+    huber_delta = cfg.get('huber_delta', 2.0)
+
+    effective_batch = cfg.data_module.batch_size * cfg.accumulate_grad_batches
+    steps_per_epoch = len(data_module.train_dataset) // effective_batch
+    total_steps = cfg.finetune_epochs * steps_per_epoch
+
+    logger.info(f"Dataset size: {len(data_module.train_dataset)} train samples")
+    logger.info(f"Effective batch size: {effective_batch}")
+    logger.info(f"Steps per epoch: {steps_per_epoch}")
+    logger.info(f"Total steps: {total_steps}")
+    logger.info(f"Age stats: mean={data_module.age_mean:.2f}, std={data_module.age_std:.2f}")
+    logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
+    logger.info(f"Loss: {'Huber(delta=' + str(huber_delta) + ')' if use_huber_loss else 'MSE'}")
 
     model = MethylationAgeRegressor(
         encoder=encoder,
@@ -432,11 +503,13 @@ def main(cfg: DictConfig):
         learning_rate=cfg.trainer.learning_rate,
         weight_decay=cfg.trainer.weight_decay,
         warmup_steps=cfg.trainer.warmup_steps,
-        max_steps=cfg.finetune_epochs * len(data_module.train_dataset) // cfg.data_module.batch_size,
+        max_steps=total_steps,
         age_mean=data_module.age_mean,
         age_std=data_module.age_std,
         freeze_encoder=freeze_encoder,
+        unfreeze_encoder_epoch=unfreeze_encoder_epoch,
         use_huber_loss=use_huber_loss,
+        huber_delta=huber_delta,
     )
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")

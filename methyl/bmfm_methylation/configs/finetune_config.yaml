@@ -28,6 +28,14 @@ accumulate_grad_batches: 2
 mlm_enabled: false
 collation_strategy: "sequence_classification"
 
+# Encoder freeze strategy: freeze for first N epochs, then unfreeze
+freeze_encoder: true
+unfreeze_encoder_epoch: 5
+
+# Loss function: MSE gives stronger gradients; Huber optional
+use_huber_loss: false
+huber_delta: 2.0
+
 # Seed
 seed:
   seed_value: 42
@@ -48,5 +56,5 @@ track_wandb:
 # Early stopping
 early_stopping:
   monitor: "val/mae"
-  patience: 10
+  patience: 20
   mode: "min"

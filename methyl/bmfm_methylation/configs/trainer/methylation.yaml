@@ -3,9 +3,9 @@
 _target_: bmfm_targets.config.TrainerConfig
 
 # Optimizer settings
-learning_rate: 5.0e-4  # Higher LR for regression task
+learning_rate: 1.0e-4  # Conservative LR; encoder gets 10x lower (1e-5)
 weight_decay: 0.01
-warmup_steps: 500  # ~5% of total steps
+warmup_steps: 200  # Short warmup, head trains during freeze phase
 lr_decay_steps: -1  # Use -1 to decay based on total training steps
 
 # Adam parameters

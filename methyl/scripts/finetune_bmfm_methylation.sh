@@ -22,8 +22,9 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
 # Pretrained checkpoint (from pretraining run)
+# Best checkpoint from pretraining (epoch 49, val_loss=6.6923)
 # UPDATE THIS PATH to point to your best pretrain checkpoint
-CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43987959/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt"
+CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43979054/pretrain/checkpoints/last.ckpt"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -80,12 +81,22 @@ print("matmul_precision:", torch.get_float32_matmul_precision())
 PY
 
 # -------------------------
-# Run Fine-tuning
+# Step 1: Run Ridge baseline (quick sanity check)
+# -------------------------
+echo "Running Ridge baseline..."
+python scripts/baseline_ridge.py "${DATA}" || true
+echo "============================================================"
+
+# -------------------------
+# Step 2: Run Fine-tuning
 # -------------------------
 python -m bmfm_methylation.finetune \
     data_path="${DATA}" \
-    "checkpoint_path='${CHECKPOINT}'" \
+    checkpoint_path="${CHECKPOINT}" \
     output_directory="${OUTDIR}" \
+    freeze_encoder=true \
+    unfreeze_encoder_epoch=5 \
+    use_huber_loss=false \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
