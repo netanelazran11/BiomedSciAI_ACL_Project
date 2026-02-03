@@ -65,12 +65,19 @@ class MethylationAgeRegressor(pl.LightningModule):
     """
     Lightning module for methylation age regression.
 
-    Uses pretrained SCBertModel encoder with a regression head.
+    Extracts raw beta values from the multi-field input and feeds them
+    through an MLP. The BMFM transformer encoder is NOT used for the
+    forward pass because it washes out per-sample beta value differences
+    (CpG site embeddings dominate and are identical across samples).
+
+    The encoder is kept for checkpoint loading compatibility but is not
+    part of the prediction pipeline.
     """
 
     def __init__(
         self,
         encoder,
+        num_cpg_sites: int = 8000,
         hidden_size: int = 512,
         head_hidden_size: int = 256,
         head_dropout: float = 0.1,
@@ -88,18 +95,23 @@ class MethylationAgeRegressor(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
 
+        # Keep encoder reference (not used in forward pass, but needed for
+        # checkpoint loading and potential future use)
         self.encoder = encoder
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
         self.age_mean = age_mean
         self.age_std = age_std
 
-        # Freeze encoder initially -- let head learn first, then unfreeze
-        if freeze_encoder:
-            for param in self.encoder.parameters():
-                param.requires_grad = False
-            logger.info(f"Encoder FROZEN. Will unfreeze at epoch {unfreeze_encoder_epoch}.")
-
-        # Regression head with LayerNorm (stable with any batch size)
-        self.regression_head = nn.Sequential(
+        # MLP that takes raw beta values (8000-dim) as input.
+        # This is what actually works -- Ridge regression on raw betas
+        # gets MAE=4.5yr, so a non-linear MLP should match or beat it.
+        self.mlp = nn.Sequential(
+            nn.Linear(num_cpg_sites, hidden_size),
+            nn.LayerNorm(hidden_size),
+            nn.GELU(),
+            nn.Dropout(head_dropout),
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
             nn.GELU(),
@@ -111,9 +123,6 @@ class MethylationAgeRegressor(pl.LightningModule):
             nn.Linear(head_hidden_size // 2, 1),
         )
 
-        # MSELoss by default: gives stronger gradients for large errors,
-        # helping the model escape the "predict the mean" trap.
-        # HuberLoss optional with configurable delta.
         if use_huber_loss:
             self.loss_fn = nn.HuberLoss(delta=huber_delta)
             logger.info(f"Using HuberLoss with delta={huber_delta}")
@@ -127,44 +136,28 @@ class MethylationAgeRegressor(pl.LightningModule):
         self._test_preds = []
         self._test_labels = []
 
+        mlp_params = sum(p.numel() for p in self.mlp.parameters())
+        logger.info(f"MLP parameters: {mlp_params:,} (encoder frozen, not used)")
+
     def forward(self, input_ids, attention_mask=None):
-        # Get encoder outputs
-        outputs = self.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
+        # input_ids shape: [batch, 2, seq_len]
+        # Field 0: CpG site token IDs (same for all samples -- useless)
+        # Field 1: beta values (different per sample -- the actual signal)
+        #
+        # Extract beta values directly, skip the transformer entirely.
+        # The transformer washes out per-sample differences because CpG
+        # site embeddings dominate after 6 layers of self-attention.
 
-        # Use MEAN POOLING over all non-padding positions
-        # Do NOT use pooler_output -- it's an untrained linear+tanh from
-        # pretraining (MLM never trains the pooler) and destroys signal.
-        # Do NOT use CLS token alone -- MLM doesn't train it to summarize.
-        hidden_states = outputs.last_hidden_state  # [batch, seq_len, hidden]
+        # Get beta values: field index 1, skip special tokens (CLS at pos 0, SEP at end)
+        beta_values = input_ids[:, 1, 1:-1]  # [batch, num_cpg_sites]
 
-        if attention_mask is not None:
-            # Expand mask to hidden dim: [batch, seq_len] -> [batch, seq_len, 1]
-            mask = attention_mask.unsqueeze(-1).float()
-            pooled = (hidden_states * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
-        else:
-            pooled = hidden_states.mean(dim=1)
+        # Replace special token values (negative) with 0
+        beta_values = beta_values.clamp(min=0.0, max=1.0)
 
-        # Predict age
-        age_pred = self.regression_head(pooled)
+        # MLP prediction
+        age_pred = self.mlp(beta_values)
 
         return age_pred
-
-    def on_train_epoch_start(self):
-        """Unfreeze encoder after warmup epochs."""
-        if (self.hparams.freeze_encoder
-                and self.current_epoch >= self.hparams.unfreeze_encoder_epoch):
-            # Check if already unfrozen
-            already_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
-            if not already_unfrozen:
-                for param in self.encoder.parameters():
-                    param.requires_grad = True
-                logger.info(
-                    f"Epoch {self.current_epoch}: Encoder UNFROZEN. "
-                    f"Fine-tuning all parameters now."
-                )
 
     def _shared_step(self, batch, stage: str):
         input_ids = batch["input_ids"]
@@ -292,41 +285,23 @@ class MethylationAgeRegressor(pl.LightningModule):
         self._test_labels.clear()
 
     def configure_optimizers(self):
-        # Discriminative learning rates: lower for encoder, higher for head
+        # Only optimize MLP parameters (encoder is frozen and unused)
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
 
-        # Separate encoder and head parameters with different learning rates
-        encoder_lr = self.hparams.learning_rate * 0.1  # 10x lower for pretrained encoder
-        head_lr = self.hparams.learning_rate * 1.0  # Same as base (encoder already lower)
-
         optimizer_grouped_parameters = [
-            # Encoder parameters with weight decay
+            # MLP parameters with weight decay
             {
-                "params": [p for n, p in self.encoder.named_parameters()
+                "params": [p for n, p in self.mlp.named_parameters()
                            if not any(nd in n for nd in no_decay)],
                 "weight_decay": self.hparams.weight_decay,
-                "lr": encoder_lr,
+                "lr": self.hparams.learning_rate,
             },
-            # Encoder parameters without weight decay
+            # MLP parameters without weight decay
             {
-                "params": [p for n, p in self.encoder.named_parameters()
+                "params": [p for n, p in self.mlp.named_parameters()
                            if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
-                "lr": encoder_lr,
-            },
-            # Regression head parameters with weight decay
-            {
-                "params": [p for n, p in self.regression_head.named_parameters()
-                           if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.hparams.weight_decay,
-                "lr": head_lr,
-            },
-            # Regression head parameters without weight decay
-            {
-                "params": [p for n, p in self.regression_head.named_parameters()
-                           if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0,
-                "lr": head_lr,
+                "lr": self.hparams.learning_rate,
             },
         ]
 
@@ -534,8 +509,13 @@ def main(cfg: DictConfig):
     logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
     logger.info(f"Loss: {'Huber(delta=' + str(huber_delta) + ')' if use_huber_loss else 'MSE'}")
 
+    # Number of CpG sites = seq_length - 2 (minus CLS and SEP tokens)
+    num_cpg_sites = cfg.data_module.max_length - 2
+    logger.info(f"Num CpG sites for MLP input: {num_cpg_sites}")
+
     model = MethylationAgeRegressor(
         encoder=encoder,
+        num_cpg_sites=num_cpg_sites,
         hidden_size=model_config.hidden_size,
         head_hidden_size=cfg.regression_head.hidden_size,
         head_dropout=cfg.regression_head.dropout,
