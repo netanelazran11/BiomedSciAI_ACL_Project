@@ -133,9 +133,20 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         head_params = sum(p.numel() for p in self.age_head.parameters())
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info(f"Age head params: {head_params:,}")
-        logger.info(f"Encoder params: {encoder_params:,}")
-        logger.info(f"Trainable params: {trainable:,}")
+        print("=" * 70)
+        print("[MODEL] TransformerValueOnlyAgeRegressor created")
+        print(f"  Encoder params:   {encoder_params:,}")
+        print(f"  Age head params:  {head_params:,}")
+        print(f"  Trainable params: {trainable:,}")
+        print(f"  Frozen params:    {encoder_params + head_params - trainable:,}")
+        print(f"  Freeze encoder:   {freeze_encoder}")
+        print(f"  Unfreeze epoch:   {unfreeze_encoder_epoch}")
+        print(f"  Hidden size:      {hidden_size}")
+        print(f"  Head hidden:      {head_hidden_size}")
+        print(f"  Head dropout:     {head_dropout}")
+        print(f"  Learning rate:    {learning_rate}")
+        print(f"  Loss function:    MSELoss")
+        print("=" * 70)
 
     def forward(self, input_ids, attention_mask=None):
         """
@@ -150,12 +161,25 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
           5. Run through the pretrained Transformer encoder layers
           6. Mean-pool and predict age
         """
+        if not hasattr(self, '_fwd_count'):
+            self._fwd_count = 0
+        self._fwd_count += 1
+        is_first = (self._fwd_count <= 2)
+
         embeddings_layer = self.encoder.embeddings
 
         # --- Step 1: Get β-value embeddings (field 1) ---
         beta_field = input_ids[:, 1, :].float()  # [batch, seq_len]
         beta_embeds = embeddings_layer.beta_values_embeddings(beta_field)
         # [batch, seq_len, hidden_size]
+
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 1: beta_values -> ContinuousValueEncoder")
+            print(f"  input_ids shape: {input_ids.shape}")
+            print(f"  beta_field min={beta_field.min():.4f}, max={beta_field.max():.4f}, "
+                  f"mean={beta_field.mean():.4f}")
+            print(f"  beta_embeds shape: {beta_embeds.shape}, "
+                  f"norm={beta_embeds[0].norm():.4f}")
 
         # --- Step 2: Add position embeddings ---
         seq_length = input_ids.size(2)
@@ -166,9 +190,17 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         else:
             hidden_states = beta_embeds
 
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 2: + position embeddings")
+            print(f"  hidden_states norm: {hidden_states[0].norm():.4f}")
+
         # --- Step 3: LayerNorm + dropout (from pretrained embeddings layer) ---
         hidden_states = embeddings_layer.LayerNorm(hidden_states)
         hidden_states = embeddings_layer.dropout(hidden_states)
+
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 3: LayerNorm + dropout")
+            print(f"  hidden_states norm after LN: {hidden_states[0].norm():.4f}")
 
         # --- Step 4: Build attention mask ---
         if attention_mask is None:
@@ -192,22 +224,40 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         sequence_output = encoder_outputs.last_hidden_state
         # [batch, seq_len, hidden_size]
 
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 5: Transformer encoder "
+                  f"({self.encoder.config.num_hidden_layers} layers)")
+            print(f"  encoder output norm: {sequence_output[0].norm():.4f}")
+
         # --- Step 6: Mean pooling (ignore padding if mask provided) ---
         mask_expanded = attention_mask.unsqueeze(-1)  # [batch, seq_len, 1]
         sum_hidden = (sequence_output * mask_expanded).sum(dim=1)
         count = mask_expanded.sum(dim=1).clamp(min=1e-9)
         pooled = sum_hidden / count  # [batch, hidden_size]
 
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 6: Mean pooling -> {pooled.shape}")
+            print(f"  pooled norm: {pooled[0].norm():.4f}")
+
         # --- Step 7: Age prediction head ---
         age_pred = self.age_head(pooled)  # [batch, 1]
+
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 7: Age head -> predictions")
+            print(f"  predictions (first 5): {age_pred[:5, 0].detach().tolist()}")
+            print(f"  (CpG ID embeddings were NOT used)")
+
         return age_pred
 
     def on_train_epoch_start(self):
         """Unfreeze encoder after N epochs."""
         epoch = self.current_epoch
+        print(f"\n[EPOCH {epoch}] Starting training epoch {epoch}")
         if (self.hparams.freeze_encoder and
                 epoch == self.hparams.unfreeze_encoder_epoch):
-            logger.info(f"Epoch {epoch}: Unfreezing encoder (except CpG ID embeddings)")
+            print("=" * 70)
+            print(f"[EPOCH {epoch}] UNFREEZING encoder (except CpG ID embeddings)")
+            print("=" * 70)
             for param in self.encoder.parameters():
                 param.requires_grad = True
             # Keep CpG ID embedding frozen -- it's not used
@@ -216,7 +266,8 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
                 param.requires_grad = False
             trainable = sum(p.numel() for p in self.parameters()
                             if p.requires_grad)
-            logger.info(f"Trainable params after unfreeze: {trainable:,}")
+            print(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
+            print("=" * 70)
 
     def _shared_step(self, batch, stage: str):
         input_ids = batch["input_ids"]
@@ -279,6 +330,10 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
             self.log("val/r2", r2, prog_bar=True)
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("val/mae_epoch", epoch_mae)
+            print(f"[VAL EPOCH {self.current_epoch}] "
+                  f"MAE={epoch_mae:.2f} years | R2={r2:.4f} | "
+                  f"pred range=[{all_preds.min():.1f}, {all_preds.max():.1f}] | "
+                  f"label range=[{all_labels.min():.1f}, {all_labels.max():.1f}]")
         self._val_preds.clear()
         self._val_labels.clear()
 
@@ -299,7 +354,15 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
             self.log("test/r2", r2)
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("test/mae_epoch", epoch_mae)
-            logger.info(f"Test MAE: {epoch_mae:.2f} years, R2: {r2:.4f}")
+            print("=" * 70)
+            print(f"[TEST RESULTS] MAE={epoch_mae:.2f} years | R2={r2:.4f}")
+            print(f"  Predictions: mean={all_preds.mean():.1f}, "
+                  f"std={all_preds.std():.1f}, "
+                  f"range=[{all_preds.min():.1f}, {all_preds.max():.1f}]")
+            print(f"  Labels:      mean={all_labels.mean():.1f}, "
+                  f"std={all_labels.std():.1f}, "
+                  f"range=[{all_labels.min():.1f}, {all_labels.max():.1f}]")
+            print("=" * 70)
         self._test_preds.clear()
         self._test_labels.clear()
 
@@ -460,21 +523,28 @@ def setup_wandb(cfg: DictConfig):
 )
 def main(cfg: DictConfig):
     """Main training function for value-only Transformer."""
-    logger.info("=" * 70)
-    logger.info("TRANSFORMER VALUE-ONLY AGE FINE-TUNING")
-    logger.info("=" * 70)
-    logger.info(f"\nConfiguration:\n{OmegaConf.to_yaml(cfg)}")
+    print("\n" + "=" * 70)
+    print("  TRANSFORMER VALUE-ONLY AGE FINE-TUNING")
+    print("  Architecture: beta_embed + pos_embed -> Transformer -> mean pool -> MLP -> age")
+    print("  CpG ID embeddings are NOT used")
+    print("=" * 70 + "\n")
 
     # Set seed
     if hasattr(cfg, 'seed') and cfg.seed:
         pl.seed_everything(cfg.seed.seed_value, workers=True)
+        print(f"[INIT] Random seed: {cfg.seed.seed_value}")
 
     # Setup output directory
     output_dir = Path(cfg.output_directory)
     output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[INIT] Output directory: {output_dir}")
 
-    # Setup tokenizer
+    # ---- STEP 1: Tokenizer ----
+    print("\n" + "-" * 70)
+    print("[STEP 1/6] Loading tokenizer...")
+    print("-" * 70)
     tokenizer = setup_tokenizer(cfg)
+    print(f"[STEP 1/6] Tokenizer ready")
 
     # Instantiate fields
     from bmfm_targets.config import FieldInfo
@@ -483,8 +553,13 @@ def main(cfg: DictConfig):
         field_dict = OmegaConf.to_container(field_cfg)
         field_dict.pop('_target_', None)
         fields.append(FieldInfo(**field_dict))
+    print(f"[STEP 1/6] Fields: {[f.field_name for f in fields]}")
 
-    # Setup data module
+    # ---- STEP 2: Data ----
+    print("\n" + "-" * 70)
+    print("[STEP 2/6] Loading data...")
+    print("-" * 70)
+    print(f"[STEP 2/6] Data path: {cfg.data_path}")
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -499,16 +574,35 @@ def main(cfg: DictConfig):
         collation_strategy="sequence_classification",
     )
     data_module.setup()
+    print(f"[STEP 2/6] Data loaded:")
+    print(f"  Train samples: {len(data_module.train_dataset):,}")
+    print(f"  Valid samples: {len(data_module.val_dataset):,}")
+    print(f"  Test samples:  {len(data_module.test_dataset):,}")
+    print(f"  CpG sites:     {data_module.train_dataset.num_cpg_sites:,}")
+    print(f"  Age stats:     mean={data_module.age_mean:.2f}, std={data_module.age_std:.2f}")
+    print(f"  Batch size:    {cfg.data_module.batch_size}")
 
-    # Setup model config
+    # ---- STEP 3: Model config ----
+    print("\n" + "-" * 70)
+    print("[STEP 3/6] Building model config...")
+    print("-" * 70)
     model_config_partial = hydra.utils.instantiate(cfg.model)
     model_config = model_config_partial(fields=fields)
+    print(f"[STEP 3/6] SCBert config:")
+    print(f"  Hidden size:      {model_config.hidden_size}")
+    print(f"  Num layers:       {model_config.num_hidden_layers}")
+    print(f"  Num heads:        {model_config.num_attention_heads}")
+    print(f"  FFN intermediate: {model_config.intermediate_size}")
+    print(f"  Max positions:    {model_config.max_position_embeddings}")
 
-    # Load pretrained encoder
+    # ---- STEP 4: Load checkpoint ----
+    print("\n" + "-" * 70)
+    print("[STEP 4/6] Loading pretrained encoder...")
+    print("-" * 70)
     from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
 
     if cfg.checkpoint_path and cfg.checkpoint_path != "null":
-        logger.info(f"Loading pretrained checkpoint: {cfg.checkpoint_path}")
+        print(f"[STEP 4/6] Checkpoint: {cfg.checkpoint_path}")
         from bmfm_targets.training.modules.masked_language_modeling import (
             MLMTrainingModule,
         )
@@ -526,6 +620,7 @@ def main(cfg: DictConfig):
             losses=[{"name": "cross_entropy"}],
         )
 
+        print(f"[STEP 4/6] Loading MLMTrainingModule from checkpoint...")
         pretrained_module = MLMTrainingModule.load_from_checkpoint(
             cfg.checkpoint_path,
             model_config=model_config,
@@ -534,12 +629,17 @@ def main(cfg: DictConfig):
             weights_only=False,
         )
         encoder = pretrained_module.model.scbert
-        logger.info("Loaded encoder from pretrained checkpoint")
+        print(f"[STEP 4/6] Encoder loaded from pretrained checkpoint")
+        print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
     else:
-        logger.info("Training from scratch (no pretraining)")
+        print(f"[STEP 4/6] No checkpoint - training from scratch!")
         encoder = SCBertModel(model_config)
+        print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
 
-    # Training schedule
+    # ---- STEP 5: Create model ----
+    print("\n" + "-" * 70)
+    print("[STEP 5/6] Creating TransformerValueOnlyAgeRegressor...")
+    print("-" * 70)
     freeze_encoder = cfg.get('freeze_encoder', True)
     unfreeze_encoder_epoch = cfg.get('unfreeze_encoder_epoch', 5)
 
@@ -547,14 +647,18 @@ def main(cfg: DictConfig):
     steps_per_epoch = len(data_module.train_dataset) // effective_batch
     total_steps = cfg.finetune_epochs * steps_per_epoch
 
-    logger.info(f"Dataset size: {len(data_module.train_dataset)} train samples")
-    logger.info(f"Effective batch size: {effective_batch}")
-    logger.info(f"Steps per epoch: {steps_per_epoch}")
-    logger.info(f"Total steps: {total_steps}")
-    logger.info(f"Age stats: mean={data_module.age_mean:.2f}, "
-                f"std={data_module.age_std:.2f}")
-    logger.info(f"Freeze encoder: {freeze_encoder}, "
-                f"unfreeze at epoch {unfreeze_encoder_epoch}")
+    print(f"[STEP 5/6] Training schedule:")
+    print(f"  Max epochs:          {cfg.finetune_epochs}")
+    print(f"  Effective batch:     {effective_batch} (batch={cfg.data_module.batch_size} x accum={cfg.accumulate_grad_batches})")
+    print(f"  Steps per epoch:     {steps_per_epoch}")
+    print(f"  Total steps:         {total_steps}")
+    print(f"  Freeze encoder:      {freeze_encoder} (unfreeze at epoch {unfreeze_encoder_epoch})")
+    print(f"  Early stop patience: {cfg.early_stopping.patience}")
+    print(f"  Accelerator:         {'GPU' if torch.cuda.is_available() else 'CPU'}")
+    if torch.cuda.is_available():
+        print(f"  GPU:                 {torch.cuda.get_device_name(0)}")
+        gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        print(f"  GPU memory:          {gpu_mem:.1f} GB")
 
     model = TransformerValueOnlyAgeRegressor(
         encoder=encoder,
@@ -570,9 +674,6 @@ def main(cfg: DictConfig):
         freeze_encoder=freeze_encoder,
         unfreeze_encoder_epoch=unfreeze_encoder_epoch,
     )
-
-    logger.info(f"Total model parameters: "
-                f"{sum(p.numel() for p in model.parameters()):,}")
 
     # Setup trainer
     wandb_logger = setup_wandb(cfg)
@@ -593,6 +694,7 @@ def main(cfg: DictConfig):
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
     ]
+    print(f"[STEP 5/6] Checkpoints: {output_dir / 'finetune_transformer' / 'checkpoints'}")
 
     trainer = pl.Trainer(
         max_epochs=cfg.finetune_epochs,
@@ -606,19 +708,33 @@ def main(cfg: DictConfig):
         log_every_n_steps=10,
     )
 
-    # Train
-    logger.info("Starting value-only Transformer fine-tuning...")
+    # ---- STEP 6: Train ----
+    print("\n" + "-" * 70)
+    print("[STEP 6/6] Starting training...")
+    print("-" * 70)
+    print("[STEP 6/6] Watch for:")
+    print("  - [FORWARD #1] messages  = model architecture is correct")
+    print("  - [VAL EPOCH] MAE going DOWN = model is learning")
+    print("  - [EPOCH N] UNFREEZING   = encoder starts training")
+    print("  - Compare with: MLP MAE=3.62, Ridge MAE=4.49")
+    print("-" * 70 + "\n")
+
     trainer.fit(model, data_module)
 
     # Test
-    logger.info("Running test evaluation...")
+    print("\n[TEST] Running test evaluation...")
     trainer.test(model, data_module)
 
     # Report results
     best_ckpt = trainer.checkpoint_callback.best_model_path
-    logger.info(f"\nFine-tuning complete!")
-    logger.info(f"Best checkpoint: {best_ckpt}")
-    logger.info(f"Best val/mae: {trainer.checkpoint_callback.best_model_score:.4f}")
+    print("\n" + "=" * 70)
+    print("  FINE-TUNING COMPLETE")
+    print("=" * 70)
+    print(f"  Best checkpoint: {best_ckpt}")
+    if trainer.checkpoint_callback.best_model_score is not None:
+        print(f"  Best val/mae:    {trainer.checkpoint_callback.best_model_score:.4f}")
+    print(f"  Baselines:       MLP MAE=3.62 | Ridge MAE=4.49")
+    print("=" * 70 + "\n")
 
     return best_ckpt
 
