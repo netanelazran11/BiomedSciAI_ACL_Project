@@ -80,6 +80,7 @@ def patch_embeddings_valueonly(scbert_model):
     print("[PATCH] BEFORE: h = CpG_ID_embed + beta_embed + pos_embed")
     print("[PATCH] AFTER:  h = beta_embed + pos_embed  (CpG ID SKIPPED)")
     print("=" * 70)
+    logger.info("Applying value-only embedding patch (skipping CpG ID embeddings)")
 
     embeddings = scbert_model.embeddings
 
@@ -87,7 +88,9 @@ def patch_embeddings_valueonly(scbert_model):
     cpg_embed = embeddings.cpg_sites_embeddings
     for param in cpg_embed.parameters():
         param.requires_grad = False
-    print(f"[PATCH] Frozen CpG ID embedding: {sum(p.numel() for p in cpg_embed.parameters()):,} params")
+    cpg_frozen = sum(p.numel() for p in cpg_embed.parameters())
+    print(f"[PATCH] Frozen CpG ID embedding: {cpg_frozen:,} params")
+    logger.info(f"Frozen CpG ID embedding: {cpg_frozen:,} params")
 
     # Store reference to the original forward for potential restoration
     embeddings._original_forward = embeddings.forward
@@ -151,6 +154,8 @@ def patch_embeddings_valueonly(scbert_model):
     print(f"[PATCH] Trainable params:    {trainable:,}")
     print("[PATCH] Value-only patch applied successfully")
     print("=" * 70)
+    logger.info(f"Patched SCEmbeddingsLayer: value-only mode (CpG ID embeddings skipped)")
+    logger.info(f"Total params: {total:,}, CpG embed frozen: {frozen:,}, Trainable: {trainable:,}")
 
 
 def setup_tokenizer(cfg: DictConfig):
@@ -207,16 +212,23 @@ def main(cfg: DictConfig):
     print("  Architecture: h = beta_embed + pos_embed (NO CpG ID embed)")
     print("  Training from SCRATCH (no checkpoint)")
     print("=" * 70 + "\n")
+    logger.info("=" * 70)
+    logger.info("VALUE-ONLY TRANSFORMER PRETRAINING (Masked Value Modeling)")
+    logger.info("Architecture: beta_value_embed + pos_embed (NO CpG ID embed)")
+    logger.info("=" * 70)
+    logger.info(f"\nConfiguration:\n{OmegaConf.to_yaml(cfg)}")
 
     # Set seed
     if hasattr(cfg, 'seed') and cfg.seed:
         pl.seed_everything(cfg.seed.seed_value, workers=True)
         print(f"[INIT] Random seed: {cfg.seed.seed_value}")
+        logger.info(f"Random seed: {cfg.seed.seed_value}")
 
     # Setup output directory
     output_dir = Path(cfg.output_directory)
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"[INIT] Output directory: {output_dir}")
+    logger.info(f"Output directory: {output_dir}")
 
     # ---- STEP 1: Tokenizer ----
     print("\n" + "-" * 70)
