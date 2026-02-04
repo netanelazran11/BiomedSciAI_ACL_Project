@@ -166,6 +166,13 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         self._fwd_count += 1
         is_first = (self._fwd_count <= 2)
 
+        # Validate input shape
+        if input_ids.dim() != 3 or input_ids.size(1) != 2:
+            raise ValueError(
+                f"[FORWARD ERROR] Expected input_ids shape [batch, 2, seq_len], "
+                f"got {input_ids.shape}. Field 0=cpg_ids, Field 1=beta_values"
+            )
+
         embeddings_layer = self.encoder.embeddings
 
         # --- Step 1: Get β-value embeddings (field 1) ---
@@ -203,14 +210,23 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
             print(f"  hidden_states norm after LN: {hidden_states[0].norm():.4f}")
 
         # --- Step 4: Build attention mask ---
+        batch_size = input_ids.size(0)
         if attention_mask is None:
-            batch_size = input_ids.size(0)
             attention_mask = torch.ones(
                 (batch_size, seq_length), device=input_ids.device
             )
+        # Ensure attention_mask is 2D [batch, seq_len] for get_extended_attention_mask
+        if attention_mask.dim() == 3:
+            # If mask is [batch, num_fields, seq_len], take first field or any field (they should be same)
+            attention_mask = attention_mask[:, 0, :]
         extended_attention_mask = self.encoder.get_extended_attention_mask(
-            attention_mask, (input_ids.size(0), input_ids.size(1), seq_length)
+            attention_mask, (batch_size, seq_length)
         )
+
+        if is_first:
+            print(f"[FORWARD #{self._fwd_count}] Step 4: Attention mask")
+            print(f"  attention_mask shape: {attention_mask.shape}")
+            print(f"  extended_attention_mask shape: {extended_attention_mask.shape}")
 
         # --- Step 5: Run through Transformer encoder ---
         head_mask = self.encoder.get_head_mask(
@@ -253,6 +269,12 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         """Unfreeze encoder after N epochs."""
         epoch = self.current_epoch
         print(f"\n[EPOCH {epoch}] Starting training epoch {epoch}")
+
+        # Print trainable parameter summary at start of each epoch
+        encoder_trainable = sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
+        head_trainable = sum(p.numel() for p in self.age_head.parameters() if p.requires_grad)
+        print(f"[EPOCH {epoch}] Trainable params: encoder={encoder_trainable:,}, head={head_trainable:,}")
+
         if (self.hparams.freeze_encoder and
                 epoch == self.hparams.unfreeze_encoder_epoch):
             print("=" * 70)
@@ -266,7 +288,9 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
                 param.requires_grad = False
             trainable = sum(p.numel() for p in self.parameters()
                             if p.requires_grad)
+            encoder_trainable_after = sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
             print(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
+            print(f"[EPOCH {epoch}] Encoder trainable: {encoder_trainable_after:,}")
             print("=" * 70)
 
     def _shared_step(self, batch, stage: str):
@@ -274,9 +298,45 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         attention_mask = batch.get("attention_mask")
         labels = batch["labels"].float().view(-1, 1)
 
+        # Validate batch data
+        if "labels" not in batch:
+            raise ValueError(f"[{stage.upper()} ERROR] Batch missing 'labels' key. "
+                             f"Available keys: {list(batch.keys())}")
+
+        # Check for NaN/Inf in inputs
+        if torch.isnan(input_ids).any() or torch.isinf(input_ids).any():
+            print(f"[{stage.upper()} WARNING] NaN or Inf detected in input_ids!")
+
+        if torch.isnan(labels).any() or torch.isinf(labels).any():
+            print(f"[{stage.upper()} WARNING] NaN or Inf detected in labels!")
+
         # Debug logging on first step
         if not hasattr(self, '_debug_printed') or not self._debug_printed:
             self._debug_printed = True
+            print("=" * 70)
+            print(f"[DEBUG {stage.upper()}] TRANSFORMER VALUE-ONLY BATCH INSPECTION")
+            print(f"  Batch keys: {list(batch.keys())}")
+            print(f"  input_ids shape: {input_ids.shape}")
+            print(f"  input_ids dtype: {input_ids.dtype}")
+            if input_ids.dim() == 3:
+                print(f"  Field 0 (cpg_sites) first 10: "
+                      f"{input_ids[0, 0, :10].tolist()}")
+                print(f"  Field 1 (beta_values) first 10: "
+                      f"{input_ids[0, 1, :10].tolist()}")
+                beta_field = input_ids[:, 1, :]
+                print(f"  Field 1 (beta) stats: min={beta_field.min():.4f}, "
+                      f"max={beta_field.max():.4f}, mean={beta_field.float().mean():.4f}")
+                # Check if beta values are in expected range [0, 1]
+                if beta_field.min() < -0.1 or beta_field.max() > 1.1:
+                    print(f"  [WARNING] Beta values outside expected range [0,1]!")
+            if attention_mask is not None:
+                print(f"  attention_mask shape: {attention_mask.shape}")
+            print(f"  labels shape: {labels.shape}")
+            print(f"  labels (first 5, normalized): {labels[:5, 0].tolist()}")
+            labels_denorm = labels * self.age_std + self.age_mean
+            print(f"  labels (first 5, denormalized): {labels_denorm[:5, 0].tolist()}")
+            print(f"  age_mean={self.age_mean:.2f}, age_std={self.age_std:.2f}")
+            print("=" * 70)
             logger.info("=" * 70)
             logger.info("DEBUG: TRANSFORMER VALUE-ONLY BATCH INSPECTION")
             logger.info(f"  input_ids shape: {input_ids.shape}")
@@ -299,6 +359,14 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         # Loss on normalized values
         loss = self.loss_fn(predictions, labels)
 
+        # Check for NaN/Inf in loss or predictions
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"[{stage.upper()} ERROR] NaN/Inf loss detected!")
+            print(f"  loss={loss.item()}")
+            print(f"  predictions range: [{predictions.min():.4f}, {predictions.max():.4f}]")
+            print(f"  labels range: [{labels.min():.4f}, {labels.max():.4f}]")
+            raise ValueError("Training stopped due to NaN/Inf loss")
+
         # Denormalize for metrics
         preds_denorm = predictions * self.age_std + self.age_mean
         labels_denorm = labels * self.age_std + self.age_mean
@@ -310,6 +378,34 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         loss, mae, _, _ = self._shared_step(batch, "train")
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/mae", mae, on_step=False, on_epoch=True, prog_bar=True)
+
+        # Log gradient stats periodically (every 100 batches)
+        if batch_idx % 100 == 0:
+            # Check head gradients
+            head_grad_norm = 0.0
+            head_grad_count = 0
+            for p in self.age_head.parameters():
+                if p.grad is not None:
+                    head_grad_norm += p.grad.norm().item() ** 2
+                    head_grad_count += 1
+            head_grad_norm = head_grad_norm ** 0.5 if head_grad_count > 0 else 0.0
+
+            # Check encoder gradients (should be 0 if frozen)
+            encoder_grad_norm = 0.0
+            encoder_grad_count = 0
+            for p in self.encoder.parameters():
+                if p.grad is not None:
+                    encoder_grad_norm += p.grad.norm().item() ** 2
+                    encoder_grad_count += 1
+            encoder_grad_norm = encoder_grad_norm ** 0.5 if encoder_grad_count > 0 else 0.0
+
+            self.log("debug/head_grad_norm", head_grad_norm)
+            self.log("debug/encoder_grad_norm", encoder_grad_norm)
+
+            if batch_idx == 0:
+                print(f"[TRAIN STEP {batch_idx}] loss={loss:.4f}, mae={mae:.2f}, "
+                      f"head_grad={head_grad_norm:.4f}, encoder_grad={encoder_grad_norm:.4f}")
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -326,14 +422,35 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
             all_labels = torch.cat(self._val_labels, dim=0)
             ss_res = torch.sum((all_labels - all_preds) ** 2)
             ss_tot = torch.sum((all_labels - all_labels.mean()) ** 2)
-            r2 = 1 - ss_res / (ss_tot + 1e-8)
+            # Robust R² calculation
+            r2 = 1 - ss_res / max(ss_tot, 1e-8)
             self.log("val/r2", r2, prog_bar=True)
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("val/mae_epoch", epoch_mae)
-            print(f"[VAL EPOCH {self.current_epoch}] "
-                  f"MAE={epoch_mae:.2f} years | R2={r2:.4f} | "
-                  f"pred range=[{all_preds.min():.1f}, {all_preds.max():.1f}] | "
-                  f"label range=[{all_labels.min():.1f}, {all_labels.max():.1f}]")
+
+            # Also log standard deviation of predictions (detect collapse)
+            pred_std = all_preds.std()
+            self.log("val/pred_std", pred_std)
+
+            print("=" * 70)
+            print(f"[VAL EPOCH {self.current_epoch}] SUMMARY")
+            print(f"  MAE:        {epoch_mae:.2f} years")
+            print(f"  R²:         {r2:.4f}")
+            print(f"  Pred range: [{all_preds.min():.1f}, {all_preds.max():.1f}] "
+                  f"(std={pred_std:.2f})")
+            print(f"  Label range:[{all_labels.min():.1f}, {all_labels.max():.1f}] "
+                  f"(std={all_labels.std():.2f})")
+            # Warning if predictions collapse to constant
+            if pred_std < 1.0:
+                print(f"  [WARNING] Prediction std={pred_std:.2f} is very low - "
+                      f"model may be collapsing to constant!")
+            # Compare to baselines
+            print(f"  Baselines:  MLP MAE=3.62 | Ridge MAE=4.49")
+            if epoch_mae < 3.62:
+                print(f"  [SUCCESS] Beating MLP baseline!")
+            elif epoch_mae < 4.49:
+                print(f"  [PROGRESS] Beating Ridge, approaching MLP...")
+            print("=" * 70)
         self._val_preds.clear()
         self._val_labels.clear()
 
@@ -631,6 +748,16 @@ def main(cfg: DictConfig):
         encoder = pretrained_module.model.scbert
         print(f"[STEP 4/6] Encoder loaded from pretrained checkpoint")
         print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
+
+        # Verify checkpoint compatibility
+        ckpt_path_str = str(cfg.checkpoint_path).lower()
+        if "valueonly" in ckpt_path_str or "value_only" in ckpt_path_str:
+            print(f"  [OK] Checkpoint appears to be from value-only pretraining")
+        else:
+            print(f"  [WARNING] Checkpoint path doesn't contain 'valueonly'.")
+            print(f"            Make sure this is from value-only pretraining!")
+            print(f"            Standard pretrained models train CpG ID embeddings,")
+            print(f"            which are not used in this fine-tuning script.")
     else:
         print(f"[STEP 4/6] No checkpoint - training from scratch!")
         encoder = SCBertModel(model_config)
@@ -723,7 +850,7 @@ def main(cfg: DictConfig):
 
     # Test
     print("\n[TEST] Running test evaluation...")
-    trainer.test(model, data_module)
+    test_results = trainer.test(model, data_module)
 
     # Report results
     best_ckpt = trainer.checkpoint_callback.best_model_path
@@ -732,8 +859,33 @@ def main(cfg: DictConfig):
     print("=" * 70)
     print(f"  Best checkpoint: {best_ckpt}")
     if trainer.checkpoint_callback.best_model_score is not None:
-        print(f"  Best val/mae:    {trainer.checkpoint_callback.best_model_score:.4f}")
-    print(f"  Baselines:       MLP MAE=3.62 | Ridge MAE=4.49")
+        best_mae = trainer.checkpoint_callback.best_model_score
+        print(f"  Best val/mae:    {best_mae:.4f}")
+        print(f"  Baselines:       MLP MAE=3.62 | Ridge MAE=4.49")
+        if best_mae < 3.62:
+            print(f"  [SUCCESS] Transformer beats MLP baseline! ({3.62 - best_mae:.2f} years better)")
+        elif best_mae < 4.49:
+            print(f"  [PROGRESS] Transformer beats Ridge but not MLP yet")
+        else:
+            print(f"  [NEEDS WORK] Transformer not beating baselines yet")
+            print(f"  Possible issues:")
+            print(f"    - Learning rate too high/low (current: {cfg.trainer.learning_rate})")
+            print(f"    - Unfreeze epoch too early/late (current: {unfreeze_encoder_epoch})")
+            print(f"    - Not enough pretraining")
+            print(f"    - Data normalization issues")
+    else:
+        print(f"  [WARNING] No best checkpoint score found")
+
+    print("=" * 70)
+    print("  TROUBLESHOOTING CHECKLIST")
+    print("=" * 70)
+    print("  If MAE is not improving:")
+    print("    1. Check [FORWARD #1] prints - are beta values in [0,1]?")
+    print("    2. Check [VAL EPOCH] pred_std - is it > 5? (otherwise collapse)")
+    print("    3. Check debug/head_grad_norm - should be > 0 always")
+    print("    4. Check debug/encoder_grad_norm - should be 0 before unfreeze,")
+    print("       then > 0 after unfreeze epoch")
+    print("    5. Run with different learning rates: 1e-4, 5e-4, 1e-3")
     print("=" * 70 + "\n")
 
     return best_ckpt

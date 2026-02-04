@@ -131,14 +131,27 @@ def patch_embeddings_valueonly(scbert_model):
             print("=" * 70)
             print("[PATCH VERIFY] First forward pass through value-only embeddings")
             print(f"  input_ids shape: {input_ids.shape}")
-            print(f"  beta field ([:, 1, :]) min={input_ids[:, 1, :].min():.4f}, "
-                  f"max={input_ids[:, 1, :].max():.4f}, "
-                  f"mean={input_ids[:, 1, :].float().mean():.4f}")
+            # Validate input shape
+            if input_ids.dim() != 3 or input_ids.size(1) < 2:
+                print(f"  [ERROR] Expected input_ids shape [batch, >=2, seq_len], got {input_ids.shape}")
+            beta_field = input_ids[:, 1, :]
+            print(f"  beta field ([:, 1, :]) min={beta_field.min():.4f}, "
+                  f"max={beta_field.max():.4f}, "
+                  f"mean={beta_field.float().mean():.4f}")
+            # Warn if beta values outside expected range
+            if beta_field.min() < -0.1 or beta_field.max() > 1.1:
+                print(f"  [WARNING] Beta values outside expected range [0, 1]!")
             print(f"  beta_embeds shape: {beta_embeds.shape}")
             print(f"  output shape: {updated_embeddings.shape}")
             print(f"  output norm (first sample): {updated_embeddings[0].norm():.4f}")
             print("[PATCH VERIFY] CpG ID field was NOT used (correct)")
             print("=" * 70)
+        elif embeddings._fwd_call_count % 1000 == 0:
+            # Periodic verification
+            print(f"[PATCH VERIFY] Forward #{embeddings._fwd_call_count}: "
+                  f"beta min={input_ids[:, 1, :].min():.4f}, "
+                  f"max={input_ids[:, 1, :].max():.4f}, "
+                  f"embed norm={updated_embeddings[0].norm():.4f}")
 
         return updated_embeddings
 
