@@ -64,13 +64,12 @@ class MethylationAgeRegressor(pl.LightningModule):
     """
     Lightning module for methylation age regression.
 
-    Extracts raw beta values from the multi-field input and feeds them
-    through an MLP. The BMFM transformer encoder is NOT used for the
-    forward pass because it washes out per-sample beta value differences
-    (CpG site embeddings dominate and are identical across samples).
+    Uses the pretrained BMFM SCBert encoder to produce per-token representations
+    from the multi-field input (CpG IDs + beta values), then mean-pools and
+    feeds through an MLP head for age prediction.
 
-    The encoder is kept for checkpoint loading compatibility but is not
-    part of the prediction pipeline.
+    Pipeline:
+        [CpG IDs + β-values] → Pretrained Encoder → mean pool → MLP head → age
     """
 
     def __init__(
@@ -94,23 +93,18 @@ class MethylationAgeRegressor(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
 
-        # Keep encoder reference (not used in forward pass, but needed for
-        # checkpoint loading and potential future use)
         self.encoder = encoder
-        for param in self.encoder.parameters():
-            param.requires_grad = False
-
         self.age_mean = age_mean
         self.age_std = age_std
 
-        # MLP that takes raw beta values (8000-dim) as input.
-        # This is what actually works -- Ridge regression on raw betas
-        # gets MAE=4.5yr, so a non-linear MLP should match or beat it.
-        self.mlp = nn.Sequential(
-            nn.Linear(num_cpg_sites, hidden_size),
-            nn.LayerNorm(hidden_size),
-            nn.GELU(),
-            nn.Dropout(head_dropout),
+        # Optionally freeze encoder (will be unfrozen at unfreeze_encoder_epoch)
+        if freeze_encoder:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+            logger.info(f"Encoder frozen (will unfreeze at epoch {unfreeze_encoder_epoch})")
+
+        # MLP head takes encoder output (hidden_size=512) as input
+        self.age_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
             nn.GELU(),
@@ -135,28 +129,91 @@ class MethylationAgeRegressor(pl.LightningModule):
         self._test_preds = []
         self._test_labels = []
 
-        mlp_params = sum(p.numel() for p in self.mlp.parameters())
-        logger.info(f"MLP parameters: {mlp_params:,} (encoder frozen, not used)")
+        head_params = sum(p.numel() for p in self.age_head.parameters())
+        encoder_params = sum(p.numel() for p in self.encoder.parameters())
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info(f"Encoder params: {encoder_params:,}")
+        logger.info(f"Age head params: {head_params:,}")
+        logger.info(f"Trainable params: {trainable:,}")
+        logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
 
     def forward(self, input_ids, attention_mask=None):
         # input_ids shape: [batch, 2, seq_len]
-        # Field 0: CpG site token IDs (same for all samples -- useless)
-        # Field 1: beta values (different per sample -- the actual signal)
+        # Field 0: CpG site token IDs (discrete)
+        # Field 1: beta values (continuous)
         #
-        # Extract beta values directly, skip the transformer entirely.
-        # The transformer washes out per-sample differences because CpG
-        # site embeddings dominate after 6 layers of self-attention.
+        # Pass through the pretrained encoder which computes:
+        #   h_i = CpG_embed(site_i) + beta_embed(β_i) + pos_embed(i)
+        # then runs through 6 transformer layers.
 
-        # Get beta values: field index 1, skip special tokens (CLS at pos 0, SEP at end)
-        beta_values = input_ids[:, 1, 1:-1]  # [batch, num_cpg_sites]
+        batch_size = input_ids.size(0)
+        seq_length = input_ids.size(2)
 
-        # Replace special token values (negative) with 0
-        beta_values = beta_values.clamp(min=0.0, max=1.0)
+        # Ensure attention_mask is 2D [batch, seq_len]
+        if attention_mask is not None and attention_mask.dim() == 3:
+            attention_mask = attention_mask[:, 0, :]
+        if attention_mask is None:
+            attention_mask = torch.ones(
+                (batch_size, seq_length), device=input_ids.device
+            )
 
-        # MLP prediction
-        age_pred = self.mlp(beta_values)
+        # Pass through pretrained encoder (uses CpG IDs + beta values)
+        encoder_output = self.encoder(input_ids, attention_mask=attention_mask)
+        sequence_output = encoder_output.last_hidden_state  # [batch, seq_len, hidden]
+
+        # Mean pooling (respecting attention mask)
+        mask_expanded = attention_mask.unsqueeze(-1)  # [batch, seq_len, 1]
+        sum_hidden = (sequence_output * mask_expanded).sum(dim=1)
+        count = mask_expanded.sum(dim=1).clamp(min=1e-9)
+        pooled = sum_hidden / count  # [batch, hidden_size]
+
+        # Age prediction head
+        age_pred = self.age_head(pooled)
 
         return age_pred
+
+    def on_train_epoch_start(self):
+        """Unfreeze encoder after N epochs and add params to optimizer."""
+        epoch = self.current_epoch
+        if (self.hparams.freeze_encoder and
+                epoch == self.hparams.unfreeze_encoder_epoch):
+            logger.info("=" * 70)
+            logger.info(f"[EPOCH {epoch}] UNFREEZING encoder")
+            logger.info("=" * 70)
+            for param in self.encoder.parameters():
+                param.requires_grad = True
+
+            # Add encoder params to optimizer (they were excluded at init)
+            optimizer = self.optimizers()
+            no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
+            encoder_decay = []
+            encoder_no_decay = []
+            for name, param in self.encoder.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if any(nd in name for nd in no_decay):
+                    encoder_no_decay.append(param)
+                else:
+                    encoder_decay.append(param)
+
+            encoder_lr = self.hparams.learning_rate * 0.1
+            if encoder_decay:
+                optimizer.add_param_group({
+                    "params": encoder_decay,
+                    "weight_decay": self.hparams.weight_decay,
+                    "lr": encoder_lr,
+                })
+            if encoder_no_decay:
+                optimizer.add_param_group({
+                    "params": encoder_no_decay,
+                    "weight_decay": 0.0,
+                    "lr": encoder_lr,
+                })
+
+            trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+            logger.info(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
+            logger.info(f"[EPOCH {epoch}] Encoder LR: {encoder_lr} (10x lower than head)")
+            logger.info("=" * 70)
 
     def _shared_step(self, batch, stage: str):
         input_ids = batch["input_ids"]
@@ -284,24 +341,46 @@ class MethylationAgeRegressor(pl.LightningModule):
         self._test_labels.clear()
 
     def configure_optimizers(self):
-        # Only optimize MLP parameters (encoder is frozen and unused)
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
 
+        # Start with age head params (always trainable)
+        # Encoder params are added later via on_train_epoch_start when unfrozen
         optimizer_grouped_parameters = [
-            # MLP parameters with weight decay
             {
-                "params": [p for n, p in self.mlp.named_parameters()
+                "params": [p for n, p in self.age_head.named_parameters()
                            if not any(nd in n for nd in no_decay)],
                 "weight_decay": self.hparams.weight_decay,
                 "lr": self.hparams.learning_rate,
             },
-            # MLP parameters without weight decay
             {
-                "params": [p for n, p in self.mlp.named_parameters()
+                "params": [p for n, p in self.age_head.named_parameters()
                            if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
                 "lr": self.hparams.learning_rate,
             },
+        ]
+
+        # If encoder is not frozen, include it from the start
+        if not self.hparams.freeze_encoder:
+            encoder_lr = self.hparams.learning_rate * 0.1
+            optimizer_grouped_parameters.extend([
+                {
+                    "params": [p for n, p in self.encoder.named_parameters()
+                               if p.requires_grad and not any(nd in n for nd in no_decay)],
+                    "weight_decay": self.hparams.weight_decay,
+                    "lr": encoder_lr,
+                },
+                {
+                    "params": [p for n, p in self.encoder.named_parameters()
+                               if p.requires_grad and any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0,
+                    "lr": encoder_lr,
+                },
+            ])
+
+        # Filter out empty groups
+        optimizer_grouped_parameters = [
+            g for g in optimizer_grouped_parameters if len(g["params"]) > 0
         ]
 
         optimizer = torch.optim.AdamW(
@@ -476,7 +555,8 @@ def main(cfg: DictConfig):
 
         # Extract the encoder (SCBertModel) from the MLMTrainingModule
         # The model structure is: MLMTrainingModule.model (SCBertForMaskedLM) -> .scbert (SCBertModel)
-        # Note: weights_only=False is needed for PyTorch 2.6+ to load checkpoints with custom classes
+        # Null out checkpoint to prevent SCBertForMaskedLM.__init__ from double-loading
+        model_config.checkpoint = None
         pretrained_module = MLMTrainingModule.load_from_checkpoint(
             cfg.checkpoint_path,
             model_config=model_config,
@@ -485,7 +565,7 @@ def main(cfg: DictConfig):
             weights_only=False,
         )
         encoder = pretrained_module.model.scbert
-        logger.info("Loaded encoder from pretrained MLMTrainingModule checkpoint")
+        logger.info("Loaded pretrained encoder (CpG IDs + beta values + transformer layers)")
     else:
         logger.info("Training from scratch (no pretraining)")
         encoder = SCBertModel(model_config)
@@ -508,9 +588,9 @@ def main(cfg: DictConfig):
     logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
     logger.info(f"Loss: {'Huber(delta=' + str(huber_delta) + ')' if use_huber_loss else 'MSE'}")
 
-    # Number of CpG sites = seq_length - 2 (minus CLS and SEP tokens)
     num_cpg_sites = cfg.data_module.max_length - 2
-    logger.info(f"Num CpG sites for MLP input: {num_cpg_sites}")
+    logger.info(f"Num CpG sites: {num_cpg_sites}")
+    logger.info(f"Pipeline: [CpG IDs + beta values] -> Encoder ({model_config.hidden_size}d) -> mean pool -> MLP head -> age")
 
     model = MethylationAgeRegressor(
         encoder=encoder,
