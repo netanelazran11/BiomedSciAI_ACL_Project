@@ -754,15 +754,14 @@ def main(cfg: DictConfig):
         print(f"[STEP 4/6] Encoder loaded from pretrained checkpoint")
         print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
 
-        # Verify checkpoint compatibility
+        # Log checkpoint type
         ckpt_path_str = str(cfg.checkpoint_path).lower()
         if "valueonly" in ckpt_path_str or "value_only" in ckpt_path_str:
-            print(f"  [OK] Checkpoint appears to be from value-only pretraining")
+            print(f"  [INFO] Checkpoint: value-only pretrained")
         else:
-            print(f"  [WARNING] Checkpoint path doesn't contain 'valueonly'.")
-            print(f"            Make sure this is from value-only pretraining!")
-            print(f"            Standard pretrained models train CpG ID embeddings,")
-            print(f"            which are not used in this fine-tuning script.")
+            print(f"  [INFO] Checkpoint: standard pretrained (trained with CpG IDs)")
+            print(f"         CpG ID embeddings will be loaded but NOT used in forward pass.")
+            print(f"         Transformer layers + beta embeddings + position embeddings are used.")
     else:
         print(f"[STEP 4/6] No checkpoint - training from scratch!")
         encoder = SCBertModel(model_config)
