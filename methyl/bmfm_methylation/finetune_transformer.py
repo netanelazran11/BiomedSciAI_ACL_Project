@@ -749,6 +749,9 @@ def main(cfg: DictConfig):
         )
 
         print(f"[STEP 4/6] Loading MLMTrainingModule from checkpoint...")
+        # Null out checkpoint in model_config to prevent SCBertForMaskedLM.__init__
+        # from trying to load the checkpoint a second time (Lightning handles it)
+        model_config.checkpoint = None
         pretrained_module = MLMTrainingModule.load_from_checkpoint(
             cfg.checkpoint_path,
             model_config=model_config,
