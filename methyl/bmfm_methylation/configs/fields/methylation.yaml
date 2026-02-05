@@ -17,5 +17,6 @@
   num_special_tokens: 5  # PAD, UNK, CLS, SEP, MASK
   encoder_kwargs:
     kind: "mlp_with_special_token_embedding"  # Handles mask tokens properly
+    zero_as_special_token: false  # 0.0 is a valid beta value, not a special token
   decode_modes:
     regression: {}  # Predict continuous methylation values with MSE/MAE

@@ -23,8 +23,7 @@ import torch.serialization
 
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
-    if 'weights_only' not in kwargs:
-        kwargs['weights_only'] = False
+    kwargs['weights_only'] = False
     return _original_torch_load(*args, **kwargs)
 
 torch.load = _patched_torch_load
@@ -52,7 +51,10 @@ from bmfm_methylation.data_module import MethylationDataModule
 
 # Import BMFM training modules
 from bmfm_targets.training.modules.masked_language_modeling import MLMTrainingModule
-from bmfm_targets.config import TrainerConfig
+from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
+
+# Register safe globals for PyTorch 2.6+ checkpoint loading
+torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
 
 logger = logging.getLogger(__name__)
 

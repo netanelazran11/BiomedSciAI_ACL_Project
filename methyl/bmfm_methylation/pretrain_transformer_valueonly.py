@@ -32,8 +32,7 @@ import torch.serialization
 
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
-    if 'weights_only' not in kwargs:
-        kwargs['weights_only'] = False
+    kwargs['weights_only'] = False
     return _original_torch_load(*args, **kwargs)
 
 torch.load = _patched_torch_load
@@ -61,7 +60,10 @@ from bmfm_methylation.data_module import MethylationDataModule
 
 # Import BMFM training modules
 from bmfm_targets.training.modules.masked_language_modeling import MLMTrainingModule
-from bmfm_targets.config import TrainerConfig
+from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
+
+# Register safe globals for PyTorch 2.6+ checkpoint loading
+torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +414,7 @@ def main(cfg: DictConfig):
         devices=1,
         precision=cfg.task[0].precision if isinstance(cfg.task, list) else "16-mixed",
         accumulate_grad_batches=cfg.accumulate_grad_batches,
+        gradient_clip_val=1.0,
         logger=wandb_logger,
         callbacks=callbacks,
         default_root_dir=str(output_dir / "pretrain_valueonly"),

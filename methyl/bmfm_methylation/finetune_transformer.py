@@ -32,8 +32,7 @@ import torch.serialization
 
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
-    if 'weights_only' not in kwargs:
-        kwargs['weights_only'] = False
+    kwargs['weights_only'] = False
     return _original_torch_load(*args, **kwargs)
 
 torch.load = _patched_torch_load
@@ -602,6 +601,14 @@ def setup_wandb(cfg: DictConfig):
             import wandb
             from pytorch_lightning.loggers import WandbLogger
 
+            # Determine if running from pretrained checkpoint or from scratch
+            has_pretrain = (
+                hasattr(cfg, 'checkpoint_path')
+                and cfg.checkpoint_path
+                and str(cfg.checkpoint_path).lower() != "null"
+            )
+            mode_tag = "pretrained" if has_pretrain else "from-scratch"
+
             if hasattr(cfg, 'track_wandb'):
                 project = cfg.track_wandb.get('project', 'methylation-age')
                 entity = cfg.track_wandb.get('entity', None)
@@ -610,6 +617,12 @@ def setup_wandb(cfg: DictConfig):
                 project = cfg.get('wandb_project', 'methylation-age')
                 entity = cfg.get('wandb_entity', None)
                 run_name = cfg.get('wandb_name', None)
+
+            # Append mode tag to run name
+            if run_name:
+                run_name = f"{run_name}-{mode_tag}"
+            else:
+                run_name = f"finetune-{mode_tag}"
 
             wandb_logger = WandbLogger(
                 project=project,
