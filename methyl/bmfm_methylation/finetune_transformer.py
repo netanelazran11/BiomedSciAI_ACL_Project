@@ -731,16 +731,14 @@ def main(cfg: DictConfig):
     print("-" * 70)
     from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
 
+    from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
+    import torch.serialization
+    torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
+
     if cfg.checkpoint_path and cfg.checkpoint_path != "null":
         print(f"[STEP 4/6] Checkpoint: {cfg.checkpoint_path}")
         from bmfm_targets.training.modules.masked_language_modeling import (
             MLMTrainingModule,
-        )
-        from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
-
-        import torch.serialization
-        torch.serialization.add_safe_globals(
-            [SCBertConfig, TrainerConfig, FieldInfo]
         )
 
         trainer_config = TrainerConfig(
