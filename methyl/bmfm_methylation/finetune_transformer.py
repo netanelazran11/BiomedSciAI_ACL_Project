@@ -378,34 +378,25 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/mae", mae, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Log gradient stats periodically (every 100 batches)
-        if batch_idx % 100 == 0:
-            # Check head gradients
+        return loss
+
+    def on_after_backward(self):
+        """Log gradient norms after backward pass (when gradients actually exist)."""
+        if self.global_step % 100 == 0:
             head_grad_norm = 0.0
-            head_grad_count = 0
             for p in self.age_head.parameters():
                 if p.grad is not None:
                     head_grad_norm += p.grad.norm().item() ** 2
-                    head_grad_count += 1
-            head_grad_norm = head_grad_norm ** 0.5 if head_grad_count > 0 else 0.0
+            head_grad_norm = head_grad_norm ** 0.5
 
-            # Check encoder gradients (should be 0 if frozen)
             encoder_grad_norm = 0.0
-            encoder_grad_count = 0
             for p in self.encoder.parameters():
                 if p.grad is not None:
                     encoder_grad_norm += p.grad.norm().item() ** 2
-                    encoder_grad_count += 1
-            encoder_grad_norm = encoder_grad_norm ** 0.5 if encoder_grad_count > 0 else 0.0
+            encoder_grad_norm = encoder_grad_norm ** 0.5
 
             self.log("debug/head_grad_norm", head_grad_norm)
             self.log("debug/encoder_grad_norm", encoder_grad_norm)
-
-            if batch_idx == 0:
-                print(f"[TRAIN STEP {batch_idx}] loss={loss:.4f}, mae={mae:.2f}, "
-                      f"head_grad={head_grad_norm:.4f}, encoder_grad={encoder_grad_norm:.4f}")
-
-        return loss
 
     def validation_step(self, batch, batch_idx):
         loss, mae, preds, labels = self._shared_step(batch, "val")
