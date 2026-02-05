@@ -173,7 +173,7 @@ class MethylationAgeRegressor(pl.LightningModule):
         return age_pred
 
     def on_train_epoch_start(self):
-        """Unfreeze encoder after N epochs and add params to optimizer."""
+        """Unfreeze encoder after N epochs."""
         epoch = self.current_epoch
         if (self.hparams.freeze_encoder and
                 epoch == self.hparams.unfreeze_encoder_epoch):
@@ -182,37 +182,11 @@ class MethylationAgeRegressor(pl.LightningModule):
             logger.info("=" * 70)
             for param in self.encoder.parameters():
                 param.requires_grad = True
-
-            # Add encoder params to optimizer (they were excluded at init)
-            optimizer = self.optimizers()
-            no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
-            encoder_decay = []
-            encoder_no_decay = []
-            for name, param in self.encoder.named_parameters():
-                if not param.requires_grad:
-                    continue
-                if any(nd in name for nd in no_decay):
-                    encoder_no_decay.append(param)
-                else:
-                    encoder_decay.append(param)
-
-            encoder_lr = self.hparams.learning_rate * 0.1
-            if encoder_decay:
-                optimizer.add_param_group({
-                    "params": encoder_decay,
-                    "weight_decay": self.hparams.weight_decay,
-                    "lr": encoder_lr,
-                })
-            if encoder_no_decay:
-                optimizer.add_param_group({
-                    "params": encoder_no_decay,
-                    "weight_decay": 0.0,
-                    "lr": encoder_lr,
-                })
-
+            # Encoder params are already in the optimizer (added at init with
+            # lower LR). While frozen, they had requires_grad=False so the
+            # optimizer skipped them (grad=None). Now they will get gradients.
             trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
             logger.info(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
-            logger.info(f"[EPOCH {epoch}] Encoder LR: {encoder_lr} (10x lower than head)")
             logger.info("=" * 70)
 
     def _shared_step(self, batch, stage: str):
@@ -342,9 +316,13 @@ class MethylationAgeRegressor(pl.LightningModule):
 
     def configure_optimizers(self):
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
+        encoder_lr = self.hparams.learning_rate * 0.1
 
-        # Start with age head params (always trainable)
-        # Encoder params are added later via on_train_epoch_start when unfrozen
+        # Include ALL params from the start (head + encoder).
+        # Encoder params start frozen (requires_grad=False), so optimizer
+        # skips them (grad=None). When unfrozen at unfreeze_encoder_epoch,
+        # gradients flow and optimizer updates them. This avoids LR scheduler
+        # mismatch when adding param groups later.
         optimizer_grouped_parameters = [
             {
                 "params": [p for n, p in self.age_head.named_parameters()
@@ -358,25 +336,19 @@ class MethylationAgeRegressor(pl.LightningModule):
                 "weight_decay": 0.0,
                 "lr": self.hparams.learning_rate,
             },
+            {
+                "params": [p for n, p in self.encoder.named_parameters()
+                           if not any(nd in n for nd in no_decay)],
+                "weight_decay": self.hparams.weight_decay,
+                "lr": encoder_lr,
+            },
+            {
+                "params": [p for n, p in self.encoder.named_parameters()
+                           if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+                "lr": encoder_lr,
+            },
         ]
-
-        # If encoder is not frozen, include it from the start
-        if not self.hparams.freeze_encoder:
-            encoder_lr = self.hparams.learning_rate * 0.1
-            optimizer_grouped_parameters.extend([
-                {
-                    "params": [p for n, p in self.encoder.named_parameters()
-                               if p.requires_grad and not any(nd in n for nd in no_decay)],
-                    "weight_decay": self.hparams.weight_decay,
-                    "lr": encoder_lr,
-                },
-                {
-                    "params": [p for n, p in self.encoder.named_parameters()
-                               if p.requires_grad and any(nd in n for nd in no_decay)],
-                    "weight_decay": 0.0,
-                    "lr": encoder_lr,
-                },
-            ])
 
         # Filter out empty groups
         optimizer_grouped_parameters = [
