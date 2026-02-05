@@ -265,7 +265,7 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         return age_pred
 
     def on_train_epoch_start(self):
-        """Unfreeze encoder after N epochs."""
+        """Unfreeze encoder after N epochs and reconfigure optimizer."""
         epoch = self.current_epoch
         print(f"\n[EPOCH {epoch}] Starting training epoch {epoch}")
 
@@ -285,11 +285,43 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
             cpg_embed = self.encoder.embeddings.cpg_sites_embeddings
             for param in cpg_embed.parameters():
                 param.requires_grad = False
+
+            # CRITICAL: Add newly unfrozen encoder params to the optimizer.
+            # configure_optimizers() ran at init when encoder was frozen,
+            # so encoder params were never added to the optimizer param groups.
+            optimizer = self.optimizers()
+            no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
+            encoder_decay = []
+            encoder_no_decay = []
+            for name, param in self.encoder.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if any(nd in name for nd in no_decay):
+                    encoder_no_decay.append(param)
+                else:
+                    encoder_decay.append(param)
+
+            encoder_lr = self.hparams.learning_rate * 0.1  # Lower LR for pretrained encoder
+            if encoder_decay:
+                optimizer.add_param_group({
+                    "params": encoder_decay,
+                    "weight_decay": self.hparams.weight_decay,
+                    "lr": encoder_lr,
+                })
+            if encoder_no_decay:
+                optimizer.add_param_group({
+                    "params": encoder_no_decay,
+                    "weight_decay": 0.0,
+                    "lr": encoder_lr,
+                })
+
             trainable = sum(p.numel() for p in self.parameters()
                             if p.requires_grad)
             encoder_trainable_after = sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
             print(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
             print(f"[EPOCH {epoch}] Encoder trainable: {encoder_trainable_after:,}")
+            print(f"[EPOCH {epoch}] Encoder LR: {encoder_lr} (10x lower than head)")
+            print(f"[EPOCH {epoch}] Optimizer param groups: {len(optimizer.param_groups)}")
             print("=" * 70)
 
     def _shared_step(self, batch, stage: str):
