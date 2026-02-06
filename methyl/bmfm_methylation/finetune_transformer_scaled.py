@@ -201,7 +201,8 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # =================================================================
         # Step 3: Get position embeddings
         # =================================================================
-        position_ids = embeddings_layer.position_ids[:, :seq_length]
+        # Create position_ids manually [0, 1, 2, ..., seq_length-1]
+        position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
         position_embeds = embeddings_layer.position_embeddings(position_ids)
 
         # =================================================================
