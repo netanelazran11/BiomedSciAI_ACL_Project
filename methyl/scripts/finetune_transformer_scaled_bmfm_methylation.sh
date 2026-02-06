@@ -25,13 +25,16 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 # This checkpoint has learned representations for both CpG IDs and beta values
 CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43987959/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt}"
 
-# Initial CpG scale (0.1 means CpG embeddings start at 10% of original)
+# Combine style: "multiply" (scGPT style) or "add" (scaled CpG)
+COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
+
+# Initial CpG scale (only used in "add" mode)
 INITIAL_CPG_SCALE="${INITIAL_CPG_SCALE:-0.1}"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="transformer-scaled-cpg-finetune-bmfm-rna-methylation-8k"
-WANDB_RUN_NAME="scaled-cpg-${INITIAL_CPG_SCALE}-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="${COMBINE_STYLE}-${SLURM_JOB_ID}"
 
 # Output directory (unique per run)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -41,15 +44,19 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "TRANSFORMER FINE-TUNING WITH SCALED CpG EMBEDDINGS"
+echo "TRANSFORMER FINE-TUNING"
 echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "Node(s): ${SLURM_NODELIST}"
 echo "============================================================"
-echo "Architecture: h_i = α * CpG_embed + β_embed + pos_embed"
-echo "              α is LEARNABLE, initialized to ${INITIAL_CPG_SCALE}"
+echo "Combine style: ${COMBINE_STYLE}"
+if [ "${COMBINE_STYLE}" = "multiply" ]; then
+    echo "Architecture: h = CpG_embed * β_value (scGPT style)"
+else
+    echo "Architecture: h = α * CpG_embed + β_embed (α=${INITIAL_CPG_SCALE})"
+fi
 echo "============================================================"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
@@ -94,18 +101,23 @@ python scripts/baseline_ridge.py "${DATA}" || true
 echo "============================================================"
 
 # -------------------------
-# Step 2: Run Transformer Fine-tuning with Scaled CpG Embeddings
+# Step 2: Run Transformer Fine-tuning
 # -------------------------
 echo ""
-echo "Starting Transformer fine-tuning with scaled CpG embeddings..."
-echo "  - CpG scale initialized to: ${INITIAL_CPG_SCALE}"
-echo "  - CpG scale is LEARNABLE (model will adjust it)"
+echo "Starting Transformer fine-tuning..."
+echo "  - Combine style: ${COMBINE_STYLE}"
+if [ "${COMBINE_STYLE}" = "multiply" ]; then
+    echo "  - h = CpG_embed * β_value (scGPT style)"
+else
+    echo "  - h = α * CpG_embed + β_embed (α starts at ${INITIAL_CPG_SCALE})"
+fi
 echo ""
 
 python -m bmfm_methylation.finetune_transformer_scaled \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
+    combine_style="${COMBINE_STYLE}" \
     initial_cpg_scale=${INITIAL_CPG_SCALE} \
     freeze_encoder=true \
     unfreeze_encoder_epoch=5 \

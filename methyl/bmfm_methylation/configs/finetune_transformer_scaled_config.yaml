@@ -96,10 +96,11 @@ checkpoint_path: ???  # Required - path to pretrained checkpoint
 finetune_epochs: 100
 accumulate_grad_batches: 2
 
-# Scaled CpG settings
+# Embedding combination settings
+combine_style: multiply  # "multiply" (scGPT style) or "add" (BMFM style)
 freeze_encoder: true
 unfreeze_encoder_epoch: 5
-initial_cpg_scale: 0.1  # Start with CpG IDs scaled to 10%
+initial_cpg_scale: 0.1  # Only used in "add" mode
 
 # Loss settings
 use_huber_loss: false

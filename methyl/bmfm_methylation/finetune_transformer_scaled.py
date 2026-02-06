@@ -69,14 +69,14 @@ logger = logging.getLogger(__name__)
 
 class TransformerScaledCpGAgeRegressor(pl.LightningModule):
     """
-    Transformer-based age regressor with scaled CpG ID embeddings.
+    Transformer-based age regressor with configurable embedding combination.
 
-    The key innovation is a learnable scale factor for CpG ID embeddings:
-        h_i = α * CpG_embed + β_embed + pos_embed
+    Supports two modes:
+    1. ADD mode:      h_i = α * CpG_embed + β_embed
+    2. MULTIPLY mode: h_i = CpG_embed * β_value (scGPT style)
 
-    where α starts at 0.1 and is learned during fine-tuning. This allows the
-    model to reduce CpG ID influence (which dominates and washes out per-sample
-    beta signal) while keeping the full pretrained transformer architecture.
+    MULTIPLY mode scales the CpG embedding by the raw beta value, which
+    means different methylation levels produce very different embeddings.
     """
 
     def __init__(
@@ -97,6 +97,7 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         initial_cpg_scale: float = 0.1,
         use_huber_loss: bool = False,
         huber_delta: float = 2.0,
+        combine_style: str = "multiply",  # "add" or "multiply"
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
@@ -107,11 +108,21 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         self.age_std = age_std
         self.freeze_encoder = freeze_encoder
         self.unfreeze_encoder_epoch = unfreeze_encoder_epoch
+        self.combine_style = combine_style
 
         # =====================================================================
-        # LEARNABLE CpG SCALE - This is the key innovation
+        # EMBEDDING COMBINATION STYLE
         # =====================================================================
-        # Initialize to small value so beta values dominate initially
+        logger.info(f"Combine style: {combine_style}")
+        print(f"[INIT] Combine style: {combine_style}")
+        if combine_style == "multiply":
+            print(f"[INIT] Using MULTIPLY: h = CpG_embed * β_value (scGPT style)")
+        else:
+            print(f"[INIT] Using ADD: h = α * CpG_embed + β_embed")
+
+        # =====================================================================
+        # LEARNABLE CpG SCALE (only used in ADD mode)
+        # =====================================================================
         self.cpg_scale = nn.Parameter(torch.tensor(initial_cpg_scale))
         logger.info(f"Initial CpG scale: {initial_cpg_scale}")
         print(f"[INIT] CpG scale parameter initialized to: {initial_cpg_scale}")
@@ -209,46 +220,48 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
             print("=" * 70 + "\n")
 
         # =================================================================
-        # Step 1: Get CpG ID embeddings (Field 0) and SCALE them
+        # Step 1: Get CpG ID embeddings (Field 0)
         # =================================================================
         cpg_ids = input_ids[:, 0, :].long()  # [batch, seq_len]
         cpg_embeds = embeddings_layer.cpg_sites_embeddings(cpg_ids)  # [batch, seq_len, 512]
 
-        # SCALE DOWN CpG embeddings
-        scaled_cpg_embeds = self.cpg_scale * cpg_embeds
-
         # =================================================================
-        # Step 2: Get beta value embeddings (Field 1)
+        # Step 2: Get beta values (Field 1)
         # =================================================================
         beta_values = input_ids[:, 1, :].float()  # [batch, seq_len]
-        beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
-        # Step 3: Check position embedding type and add if needed
+        # Step 3: Combine embeddings based on style
         # =================================================================
-        # Debug: print position embedding type once
-        if not hasattr(self, '_pos_type_printed'):
-            self._pos_type_printed = True
-            pos_type = getattr(embeddings_layer, 'position_embedding_type', None)
-            print(f"[DEBUG] position_embedding_type = {pos_type}")
+        if self.combine_style == "multiply":
+            # MULTIPLY mode (scGPT style): h = CpG_embed * β_value
+            # Beta values are scaled so the embedding strength depends on methylation level
 
-        # CpG IDs already encode position (site i = CpG ID i), so position
-        # embeddings may be redundant. Only add if the model was trained with them.
-        pos_type = getattr(embeddings_layer, 'position_embedding_type', None)
+            # Handle special tokens (negative values like -3 for CLS, -4 for PAD)
+            # Set them to 1.0 so they keep full embedding
+            beta_for_scaling = beta_values.clone()
+            special_mask = beta_values < 0
+            beta_for_scaling[special_mask] = 1.0  # Special tokens get full embedding
 
-        if pos_type == "sinusoidal":
-            # Model uses sinusoidal - create them
-            hidden_size = beta_embeds.size(-1)
-            position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
-            position_embeds = position_embeds.unsqueeze(0)
-            hidden_states = scaled_cpg_embeds + beta_embeds + position_embeds
-        elif pos_type is not None and hasattr(embeddings_layer, 'position_embeddings'):
-            # Model uses learned position embeddings
-            position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
-            position_embeds = embeddings_layer.position_embeddings(position_ids)
-            hidden_states = scaled_cpg_embeds + beta_embeds + position_embeds
+            # Clamp real values to [0, 1]
+            beta_for_scaling = torch.clamp(beta_for_scaling, 0.0, 1.0)
+
+            # Expand to match embedding dimension: [batch, seq, 1]
+            beta_scale = beta_for_scaling.unsqueeze(-1)
+
+            # Multiply: CpG embedding scaled by beta value
+            hidden_states = cpg_embeds * beta_scale
+
+            if not hasattr(self, '_multiply_debug_printed'):
+                self._multiply_debug_printed = True
+                print(f"[MULTIPLY] beta_values range: [{beta_values.min():.2f}, {beta_values.max():.2f}]")
+                print(f"[MULTIPLY] beta_for_scaling range: [{beta_for_scaling.min():.2f}, {beta_for_scaling.max():.2f}]")
+                print(f"[MULTIPLY] cpg_embeds norm: {cpg_embeds[0, 0].norm():.4f}")
+                print(f"[MULTIPLY] hidden_states norm: {hidden_states[0, 0].norm():.4f}")
         else:
-            # No position embeddings - CpG IDs provide position info
+            # ADD mode: h = α * CpG_embed + β_embed
+            scaled_cpg_embeds = self.cpg_scale * cpg_embeds
+            beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
             hidden_states = scaled_cpg_embeds + beta_embeds
 
         # Apply LayerNorm and dropout
@@ -680,8 +693,10 @@ def main(cfg: DictConfig):
     print(f"[TRAIN] Steps per epoch: {steps_per_epoch}")
     print(f"[TRAIN] Total steps: {max_steps}")
 
-    # Create model with scaled CpG embeddings
+    # Create model
     initial_cpg_scale = cfg.get('initial_cpg_scale', 0.1)
+    combine_style = cfg.get('combine_style', 'multiply')
+    print(f"[MODEL] Combine style: {combine_style}")
     print(f"[MODEL] Initial CpG scale: {initial_cpg_scale}")
 
     model = TransformerScaledCpGAgeRegressor(
@@ -701,10 +716,15 @@ def main(cfg: DictConfig):
         initial_cpg_scale=initial_cpg_scale,
         use_huber_loss=cfg.get('use_huber_loss', False),
         huber_delta=cfg.get('huber_delta', 2.0),
+        combine_style=combine_style,
     )
 
-    print(f"[MODEL] Architecture: h_i = α*CpG_embed + β_embed + pos_embed → Transformer → MLP → age")
-    print(f"[MODEL] α (CpG scale) is LEARNABLE, initialized to {initial_cpg_scale}")
+    if combine_style == "multiply":
+        print(f"[MODEL] Architecture: h = CpG_embed * β_value → Transformer → MLP → age")
+        print(f"[MODEL] (scGPT style - beta value SCALES the embedding)")
+    else:
+        print(f"[MODEL] Architecture: h = α*CpG_embed + β_embed → Transformer → MLP → age")
+        print(f"[MODEL] α (CpG scale) is LEARNABLE, initialized to {initial_cpg_scale}")
 
     # Setup logger
     exp_logger = setup_wandb(cfg)
