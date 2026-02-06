@@ -34,9 +34,11 @@ import logging
 import os
 import sys
 from pathlib import Path
+from functools import partial
 
 import hydra
 import pytorch_lightning as pl
+import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
 # Add parent to path for imports
@@ -57,6 +59,60 @@ from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
 torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
 
 logger = logging.getLogger(__name__)
+
+
+def create_multiply_forward(embeddings_layer):
+    """
+    Create a MULTIPLY mode forward method for the embeddings layer.
+
+    MULTIPLY mode (scGPT style): h = CpG_embed * β_value
+    Instead of ADD mode: h = CpG_embed + β_embed
+    """
+    original_layer = embeddings_layer
+
+    def multiply_forward(
+        input_ids: torch.Tensor,
+        position_ids=None,
+        inputs_embeds=None,
+    ):
+        if inputs_embeds is not None:
+            return inputs_embeds
+
+        batch_size, num_fields, seq_length = input_ids.shape
+
+        # Get CpG ID embeddings (field 0)
+        cpg_ids = input_ids[:, 0, :].long()
+        cpg_embeds = original_layer.cpg_sites_embeddings(cpg_ids)
+
+        # Get raw beta values (field 1) - NOT embeddings!
+        beta_values = input_ids[:, 1, :].float()
+
+        # Handle special tokens (negative values like -3 CLS, -4 PAD)
+        beta_for_scaling = beta_values.clone()
+        special_mask = beta_values < 0
+        beta_for_scaling[special_mask] = 1.0
+
+        # Clamp real values to [0, 1]
+        beta_for_scaling = torch.clamp(beta_for_scaling, 0.0, 1.0)
+
+        # MULTIPLY: CpG embedding scaled by beta value
+        beta_scale = beta_for_scaling.unsqueeze(-1)
+        hidden_states = cpg_embeds * beta_scale
+
+        # Add position embeddings if available
+        if original_layer.position_embedding_type is not None:
+            if position_ids is None:
+                position_ids = original_layer.position_ids[:, :seq_length]
+            position_embeddings = original_layer.position_embeddings(position_ids)
+            hidden_states = hidden_states + position_embeddings
+
+        # LayerNorm and dropout
+        hidden_states = original_layer.LayerNorm(hidden_states)
+        hidden_states = original_layer.dropout(hidden_states)
+
+        return hidden_states
+
+    return multiply_forward
 
 
 def setup_tokenizer(cfg: DictConfig):
@@ -192,6 +248,27 @@ def main(cfg: DictConfig):
         trainer_config=trainer_config,
         tokenizer=tokenizer,
     )
+
+    # Apply MULTIPLY mode if configured
+    combine_style = cfg.get('combine_style', 'add')
+    if combine_style == 'multiply':
+        logger.info("=" * 70)
+        logger.info("APPLYING MULTIPLY MODE (scGPT style)")
+        logger.info("Embedding: h = CpG_embed * β_value")
+        logger.info("=" * 70)
+        print("\n" + "=" * 70)
+        print("MULTIPLY MODE ENABLED")
+        print("Embedding: h = CpG_embed * β_value")
+        print("(High methylation = strong embedding, low = weak)")
+        print("=" * 70 + "\n")
+
+        # Get the embeddings layer and patch its forward method
+        embeddings_layer = model.model.scbert.embeddings
+        embeddings_layer.forward = create_multiply_forward(embeddings_layer)
+        logger.info("Embeddings layer patched for MULTIPLY mode")
+    else:
+        logger.info(f"Using ADD mode (standard): h = CpG_embed + β_embed")
+        print(f"[MODE] ADD (standard): h = CpG_embed + β_embed")
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 

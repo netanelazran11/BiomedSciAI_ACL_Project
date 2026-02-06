@@ -20,9 +20,14 @@ tokenizer_path: ./tokenizer  # Will be created if doesn't exist
 checkpoint_path: null  # No checkpoint for pretraining from scratch
 
 # Training settings
-pretrain_epochs: 300  # Value-only needs longer to learn position→site mapping
+pretrain_epochs: 300  # May need longer for good representations
 accumulate_grad_batches: 4  # Effective batch = 32 × 4 = 128
-early_stop_patience: 60  # Value-only has long plateaus before breakthroughs
+early_stop_patience: 60  # Patience for early stopping
+
+# Embedding combination style
+# "add" (default): h = CpG_embed + β_embed (standard BMFM)
+# "multiply": h = CpG_embed * β_value (scGPT style)
+combine_style: add
 
 # MLM settings
 mlm_enabled: true

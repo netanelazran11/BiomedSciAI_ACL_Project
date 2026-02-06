@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pretrain-bmfm-rna-methylation-8k
+#SBATCH --job-name=pretrain-multiply-bmfm-8k
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
@@ -17,14 +17,17 @@ set -euo pipefail
 # Paths
 # -------------------------
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
-LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/bmfm_methylation/bmfm_logs"
+LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
+# Combine style: "add" (standard) or "multiply" (scGPT style)
+COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
+
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="pretrain-bmfm-rna-methylation-8k"
-WANDB_RUN_NAME="bmfm-methyl-8k-${SLURM_JOB_ID}"
+WANDB_PROJECT="pretrain-${COMBINE_STYLE}-bmfm-rna-methylation-8k"
+WANDB_RUN_NAME="${COMBINE_STYLE}-${SLURM_JOB_ID}"
 
 # Output directory (unique per run to avoid overwriting checkpoints)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -34,10 +37,21 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
+echo "METHYLATION PRETRAINING"
+echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "Node(s): ${SLURM_NODELIST}"
+echo "============================================================"
+echo "Combine style: ${COMBINE_STYLE}"
+if [ "${COMBINE_STYLE}" = "multiply" ]; then
+    echo "Architecture: h = CpG_embed * β_value (scGPT style)"
+    echo "  - High methylation = strong embedding"
+    echo "  - Low methylation = weak embedding"
+else
+    echo "Architecture: h = CpG_embed + β_embed (standard BMFM)"
+fi
 echo "============================================================"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
@@ -80,6 +94,7 @@ PY
 python -m bmfm_methylation.pretrain \
     data_path="${DATA}" \
     output_directory="${OUTDIR}" \
+    combine_style="${COMBINE_STYLE}" \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \

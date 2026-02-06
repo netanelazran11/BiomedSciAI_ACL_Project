@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=transformer-valueonly-finetune-8k
+#SBATCH --job-name=transformer-valueonly-sinpos-8k
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
@@ -21,10 +21,10 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
-# Pretrained checkpoint from value-only pretraining
-# UPDATE THIS after running pretrain_transformer_valueonly_bmfm_methylation.sh
-# Find the best checkpoint in: outputs/pretrain-valueonly-bmfm-rna-methylation-8k/<run>/pretrain_valueonly/checkpoints/
-CHECKPOINT="${CHECKPOINT:-PLEASE_SET_VALUEONLY_PRETRAINED_CHECKPOINT_PATH}"
+# Pretrained checkpoint (standard pretraining with CpG IDs + beta values)
+# The value-only approach will use the beta value encoder + transformer layers
+# but ignore the CpG ID embeddings (using sinusoidal position embeddings instead)
+CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43987959/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt}"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -39,10 +39,18 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
+echo "VALUE-ONLY TRANSFORMER FINE-TUNING"
+echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "Node(s): ${SLURM_NODELIST}"
+echo "============================================================"
+echo "Architecture: h = β_embed + sin_pos_embed → Transformer → MLP → age"
+echo "  - Uses pretrained beta value encoder (Linear→LeakyReLU→Linear→512)"
+echo "  - Uses sinusoidal position embeddings (replaces CpG IDs)"
+echo "  - Uses pretrained transformer encoder (6 layers, 8 heads)"
+echo "  - CpG ID embeddings are IGNORED"
 echo "============================================================"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
@@ -89,6 +97,17 @@ echo "============================================================"
 # -------------------------
 # Step 2: Run Value-Only Transformer Fine-tuning
 # -------------------------
+# Architecture: h = β_embed + sinusoidal_pos_embed → Transformer → MLP → age
+# This uses the pretrained beta value encoder and transformer layers,
+# but replaces CpG ID embeddings with sinusoidal position embeddings.
+# The pretrained encoder was trained with ADD style (CpG + beta), so the
+# input distribution (ADD of two embeddings) should be familiar.
+echo ""
+echo "Starting Value-Only Transformer fine-tuning..."
+echo "  Architecture: h = β_embed + sin_pos_embed → Transformer → MLP → age"
+echo "  (CpG ID embeddings are NOT used - replaced with sinusoidal positions)"
+echo ""
+
 python -m bmfm_methylation.finetune_transformer \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \

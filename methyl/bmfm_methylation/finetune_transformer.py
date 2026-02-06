@@ -40,12 +40,14 @@ torch.serialization.load = _patched_torch_load
 # =============================================================================
 
 import logging
+import math
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import hydra
+import numpy as np
 import pytorch_lightning as pl
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
@@ -129,6 +131,17 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         self._test_preds = []
         self._test_labels = []
 
+        # Create sinusoidal position embeddings for when pretrained model has none
+        # IMPORTANT: The pretrained BMFM model has position_embedding_type=None
+        # because CpG IDs serve as position identifiers. Without CpG IDs, we need
+        # explicit position embeddings so the model knows which CpG is at which position.
+        max_position = 8192  # larger than max_length to be safe
+        self.register_buffer(
+            'sinusoidal_pos_embeddings',
+            self._create_sinusoidal_embeddings(max_position, hidden_size)
+        )
+        print(f"[MODEL] Created sinusoidal position embeddings: {self.sinusoidal_pos_embeddings.shape}")
+
         head_params = sum(p.numel() for p in self.age_head.parameters())
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -146,6 +159,23 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
         print(f"  Learning rate:    {learning_rate}")
         print(f"  Loss function:    MSELoss")
         print("=" * 70)
+
+    def _create_sinusoidal_embeddings(self, max_position: int, hidden_size: int) -> torch.Tensor:
+        """
+        Create sinusoidal position embeddings (Vaswani et al., 2017).
+
+        These provide positional information when the pretrained model
+        doesn't have learned position embeddings (position_embedding_type=None).
+        """
+        position = torch.arange(max_position, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, hidden_size, 2, dtype=torch.float)
+            * (-math.log(10000.0) / hidden_size)
+        )
+        pe = torch.zeros(max_position, hidden_size)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe  # [max_position, hidden_size]
 
     def forward(self, input_ids, attention_mask=None):
         """
@@ -188,16 +218,26 @@ class TransformerValueOnlyAgeRegressor(pl.LightningModule):
                   f"norm={beta_embeds[0].norm():.4f}")
 
         # --- Step 2: Add position embeddings ---
+        # CRITICAL: The pretrained model has position_embedding_type=None (CpG IDs
+        # served as position identifiers). Without CpG IDs, we MUST add position
+        # embeddings so the model knows which CpG site is at which position.
         seq_length = input_ids.size(2)
         if embeddings_layer.position_embedding_type is not None:
+            # Use pretrained learned position embeddings if available
             position_ids = embeddings_layer.position_ids[:, :seq_length]
             position_embeds = embeddings_layer.position_embeddings(position_ids)
             hidden_states = beta_embeds + position_embeds
+            pos_type = "pretrained"
         else:
-            hidden_states = beta_embeds
+            # Use our sinusoidal position embeddings
+            position_embeds = self.sinusoidal_pos_embeddings[:seq_length, :]  # [seq_length, hidden]
+            position_embeds = position_embeds.unsqueeze(0)  # [1, seq_length, hidden]
+            hidden_states = beta_embeds + position_embeds
+            pos_type = "sinusoidal"
 
         if is_first:
-            print(f"[FORWARD #{self._fwd_count}] Step 2: + position embeddings")
+            print(f"[FORWARD #{self._fwd_count}] Step 2: + position embeddings ({pos_type})")
+            print(f"  position_embeds norm: {position_embeds[0, 0].norm():.4f}")
             print(f"  hidden_states norm: {hidden_states[0].norm():.4f}")
 
         # --- Step 3: LayerNorm + dropout (from pretrained embeddings layer) ---
