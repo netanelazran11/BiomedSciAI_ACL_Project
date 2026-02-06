@@ -224,18 +224,32 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
-        # Step 3: Get position embeddings (sinusoidal)
+        # Step 3: Check position embedding type and add if needed
         # =================================================================
-        # Create sinusoidal position embeddings directly
-        hidden_size = beta_embeds.size(-1)
-        position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
-        position_embeds = position_embeds.unsqueeze(0)  # [1, seq_len, hidden]
+        # Debug: print position embedding type once
+        if not hasattr(self, '_pos_type_printed'):
+            self._pos_type_printed = True
+            pos_type = getattr(embeddings_layer, 'position_embedding_type', None)
+            print(f"[DEBUG] position_embedding_type = {pos_type}")
 
-        # =================================================================
-        # Step 4: Combine embeddings with SCALED CpG IDs
-        # =================================================================
-        # h_i = α * CpG_embed + β_embed + pos_embed
-        hidden_states = scaled_cpg_embeds + beta_embeds + position_embeds
+        # CpG IDs already encode position (site i = CpG ID i), so position
+        # embeddings may be redundant. Only add if the model was trained with them.
+        pos_type = getattr(embeddings_layer, 'position_embedding_type', None)
+
+        if pos_type == "sinusoidal":
+            # Model uses sinusoidal - create them
+            hidden_size = beta_embeds.size(-1)
+            position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
+            position_embeds = position_embeds.unsqueeze(0)
+            hidden_states = scaled_cpg_embeds + beta_embeds + position_embeds
+        elif pos_type is not None and hasattr(embeddings_layer, 'position_embeddings'):
+            # Model uses learned position embeddings
+            position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
+            position_embeds = embeddings_layer.position_embeddings(position_ids)
+            hidden_states = scaled_cpg_embeds + beta_embeds + position_embeds
+        else:
+            # No position embeddings - CpG IDs provide position info
+            hidden_states = scaled_cpg_embeds + beta_embeds
 
         # Apply LayerNorm and dropout
         hidden_states = embeddings_layer.LayerNorm(hidden_states)
