@@ -183,6 +183,19 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # Get the embeddings layer
         embeddings_layer = self.encoder.embeddings
 
+        # Debug: Print available attributes on first forward pass
+        if not hasattr(self, '_debug_embeddings_printed'):
+            self._debug_embeddings_printed = True
+            print("\n" + "=" * 70)
+            print("DEBUG: SCEmbeddingsLayer structure")
+            print("=" * 70)
+            print(f"Type: {type(embeddings_layer)}")
+            print(f"Attributes: {[a for a in dir(embeddings_layer) if not a.startswith('_')]}")
+            print(f"Named children:")
+            for name, child in embeddings_layer.named_children():
+                print(f"  {name}: {type(child).__name__}")
+            print("=" * 70 + "\n")
+
         # =================================================================
         # Step 1: Get CpG ID embeddings (Field 0) and SCALE them
         # =================================================================
@@ -199,11 +212,29 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
-        # Step 3: Get position embeddings
+        # Step 3: Get position embeddings (if available)
         # =================================================================
-        # Create position_ids manually [0, 1, 2, ..., seq_length-1]
+        # Try different attribute names for position embeddings
+        position_embeds = None
         position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
-        position_embeds = embeddings_layer.position_embeddings(position_ids)
+
+        if hasattr(embeddings_layer, 'position_embeddings'):
+            position_embeds = embeddings_layer.position_embeddings(position_ids)
+        elif hasattr(embeddings_layer, 'pos_embeddings'):
+            position_embeds = embeddings_layer.pos_embeddings(position_ids)
+        elif hasattr(embeddings_layer, 'positional_embeddings'):
+            position_embeds = embeddings_layer.positional_embeddings(position_ids)
+        else:
+            # Try to find any embedding layer with 'position' in the name
+            for name, module in embeddings_layer.named_modules():
+                if 'position' in name.lower() and isinstance(module, nn.Embedding):
+                    position_embeds = module(position_ids)
+                    print(f"[DEBUG] Found position embeddings at: {name}")
+                    break
+
+        if position_embeds is None:
+            print("[WARNING] No position embeddings found - using zeros")
+            position_embeds = torch.zeros_like(beta_embeds)
 
         # =================================================================
         # Step 4: Combine embeddings with SCALED CpG IDs
