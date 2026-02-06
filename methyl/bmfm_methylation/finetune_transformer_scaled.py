@@ -224,23 +224,12 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
-        # Step 3: Get position embeddings
+        # Step 3: Get position embeddings (sinusoidal)
         # =================================================================
-        position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
-
-        # The SCEmbeddingsLayer uses sinusoidal_position_embeddings
-        if hasattr(embeddings_layer, 'sinusoidal_position_embeddings'):
-            # Sinusoidal embeddings take the hidden states and add position info
-            # They typically work on the sequence length dimension
-            position_embeds = embeddings_layer.sinusoidal_position_embeddings(position_ids)
-        elif hasattr(embeddings_layer, 'position_embeddings'):
-            position_embeds = embeddings_layer.position_embeddings(position_ids)
-        else:
-            # Fallback: create sinusoidal embeddings manually
-            print("[INFO] Creating sinusoidal position embeddings manually")
-            hidden_size = beta_embeds.size(-1)
-            position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
-            position_embeds = position_embeds.unsqueeze(0)  # [1, seq_len, hidden]
+        # Create sinusoidal position embeddings directly
+        hidden_size = beta_embeds.size(-1)
+        position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
+        position_embeds = position_embeds.unsqueeze(0)  # [1, seq_len, hidden]
 
         # =================================================================
         # Step 4: Combine embeddings with SCALED CpG IDs
