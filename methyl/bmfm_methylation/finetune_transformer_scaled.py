@@ -249,28 +249,31 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # =================================================================
         # Step 5: Pass through transformer encoder
         # =================================================================
-        # Create attention mask in the format expected by the encoder
-        if attention_mask is not None:
-            # [batch, seq_len] -> [batch, 1, 1, seq_len]
-            extended_attention_mask = attention_mask[:, None, None, :]
-            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
-        else:
-            extended_attention_mask = None
+        # Create attention mask using the encoder's helper method
+        if attention_mask is None:
+            attention_mask = torch.ones((batch_size, seq_length), device=input_ids.device)
 
-        # Create head mask (None = no masking)
-        head_mask = [None] * self.encoder.config.num_hidden_layers
+        # Handle 3D attention mask (multi-field)
+        if attention_mask.dim() == 3:
+            attention_mask = attention_mask[:, 0, :]
+
+        extended_attention_mask = self.encoder.get_extended_attention_mask(
+            attention_mask, (batch_size, seq_length)
+        )
+
+        # Create head mask
+        head_mask = self.encoder.get_head_mask(
+            None, self.encoder.config.num_hidden_layers
+        )
 
         # Pass through encoder layers
         encoder_outputs = self.encoder.encoder(
             hidden_states,
             attention_mask=extended_attention_mask,
             head_mask=head_mask,
-            output_attentions=False,
-            output_hidden_states=False,
-            return_dict=True,
         )
 
-        sequence_output = encoder_outputs.last_hidden_state  # [batch, seq_len, 512]
+        sequence_output = encoder_outputs[0]  # [batch, seq_len, 512]
 
         # =================================================================
         # Step 6: Mean pooling (exclude padding)
