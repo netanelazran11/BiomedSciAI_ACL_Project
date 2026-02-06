@@ -187,7 +187,7 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # Step 1: Get CpG ID embeddings (Field 0) and SCALE them
         # =================================================================
         cpg_ids = input_ids[:, 0, :].long()  # [batch, seq_len]
-        cpg_embeds = embeddings_layer.word_embeddings[0](cpg_ids)  # [batch, seq_len, 512]
+        cpg_embeds = embeddings_layer.cpg_sites_embeddings(cpg_ids)  # [batch, seq_len, 512]
 
         # SCALE DOWN CpG embeddings
         scaled_cpg_embeds = self.cpg_scale * cpg_embeds
@@ -196,22 +196,7 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # Step 2: Get beta value embeddings (Field 1)
         # =================================================================
         beta_values = input_ids[:, 1, :].float()  # [batch, seq_len]
-
-        # Use the continuous value encoder (handles special tokens)
-        # The encoder name might vary - try common names
-        if hasattr(embeddings_layer, 'beta_values_embeddings'):
-            beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
-        elif hasattr(embeddings_layer, 'continuous_value_embeddings'):
-            beta_embeds = embeddings_layer.continuous_value_embeddings[0](beta_values)
-        else:
-            # Fallback: find any continuous encoder
-            for name, module in embeddings_layer.named_modules():
-                if 'continuous' in name.lower() or 'value' in name.lower():
-                    if hasattr(module, 'forward'):
-                        beta_embeds = module(beta_values)
-                        break
-            else:
-                raise RuntimeError("Could not find continuous value encoder in embeddings layer")
+        beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
         # Step 3: Get position embeddings
