@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=pretrain-multiply-bmfm-8k
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
