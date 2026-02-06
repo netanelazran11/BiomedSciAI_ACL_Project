@@ -165,6 +165,18 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         print(f"[INIT] Age head params: {head_params:,}")
         print(f"[INIT] Trainable params: {trainable_params:,}")
 
+    def _create_sinusoidal_embeddings(self, seq_length, hidden_size, device):
+        """Create sinusoidal position embeddings (Vaswani et al., 2017)."""
+        position = torch.arange(seq_length, dtype=torch.float, device=device).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, hidden_size, 2, dtype=torch.float, device=device)
+            * (-np.log(10000.0) / hidden_size)
+        )
+        pe = torch.zeros(seq_length, hidden_size, device=device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+
     def forward(self, input_ids, attention_mask=None):
         """
         Forward pass with scaled CpG ID embeddings.
@@ -212,29 +224,23 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         beta_embeds = embeddings_layer.beta_values_embeddings(beta_values)
 
         # =================================================================
-        # Step 3: Get position embeddings (if available)
+        # Step 3: Get position embeddings
         # =================================================================
-        # Try different attribute names for position embeddings
-        position_embeds = None
         position_ids = torch.arange(seq_length, device=input_ids.device).unsqueeze(0)
 
-        if hasattr(embeddings_layer, 'position_embeddings'):
+        # The SCEmbeddingsLayer uses sinusoidal_position_embeddings
+        if hasattr(embeddings_layer, 'sinusoidal_position_embeddings'):
+            # Sinusoidal embeddings take the hidden states and add position info
+            # They typically work on the sequence length dimension
+            position_embeds = embeddings_layer.sinusoidal_position_embeddings(position_ids)
+        elif hasattr(embeddings_layer, 'position_embeddings'):
             position_embeds = embeddings_layer.position_embeddings(position_ids)
-        elif hasattr(embeddings_layer, 'pos_embeddings'):
-            position_embeds = embeddings_layer.pos_embeddings(position_ids)
-        elif hasattr(embeddings_layer, 'positional_embeddings'):
-            position_embeds = embeddings_layer.positional_embeddings(position_ids)
         else:
-            # Try to find any embedding layer with 'position' in the name
-            for name, module in embeddings_layer.named_modules():
-                if 'position' in name.lower() and isinstance(module, nn.Embedding):
-                    position_embeds = module(position_ids)
-                    print(f"[DEBUG] Found position embeddings at: {name}")
-                    break
-
-        if position_embeds is None:
-            print("[WARNING] No position embeddings found - using zeros")
-            position_embeds = torch.zeros_like(beta_embeds)
+            # Fallback: create sinusoidal embeddings manually
+            print("[INFO] Creating sinusoidal position embeddings manually")
+            hidden_size = beta_embeds.size(-1)
+            position_embeds = self._create_sinusoidal_embeddings(seq_length, hidden_size, input_ids.device)
+            position_embeds = position_embeds.unsqueeze(0)  # [1, seq_len, hidden]
 
         # =================================================================
         # Step 4: Combine embeddings with SCALED CpG IDs
