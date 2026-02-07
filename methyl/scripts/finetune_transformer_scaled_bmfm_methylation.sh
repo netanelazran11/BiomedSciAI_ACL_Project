@@ -23,8 +23,7 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 
 # Pretrained checkpoint - USE MULTIPLY MODE CHECKPOINT!
 # IMPORTANT: Must match combine_style (multiply checkpoint for multiply finetuning)
-# Find your best checkpoint in: outputs/pretrain-multiply-bmfm-rna-methylation-8k/<run>/pretrain/checkpoints/
-CHECKPOINT="${CHECKPOINT:-PLEASE_SET_MULTIPLY_PRETRAINED_CHECKPOINT}"
+CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-multiply-bmfm-rna-methylation-8k/multiply-44032612/pretrain/checkpoints/epoch=epoch=2-val_loss=validation/loss=0.0151.ckpt}"
 
 # Combine style: "multiply" (scGPT style) or "add" (scaled CpG)
 COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
