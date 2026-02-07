@@ -22,7 +22,7 @@ checkpoint_path: null  # No checkpoint for pretraining from scratch
 # Training settings
 pretrain_epochs: 300  # May need longer for good representations
 accumulate_grad_batches: 4  # Effective batch = 32 × 4 = 128
-early_stop_patience: 60  # Patience for early stopping
+early_stop_patience: 15  # Stop after 15 epochs without improvement
 
 # Embedding combination style
 # "add" (default): h = CpG_embed + β_embed (standard BMFM)
