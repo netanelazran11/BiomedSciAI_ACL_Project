@@ -1,7 +1,9 @@
-# Configuration for Transformer fine-tuning with scaled CpG embeddings
+# Configuration for Transformer fine-tuning with MULTIPLY mode embeddings
 #
-# Architecture: h_i = α * CpG_embed + β_embed + pos_embed → Transformer → MLP → age
-# where α is learnable and initialized to initial_cpg_scale (default 0.1)
+# MULTIPLY mode (default): h_i = CpG_embed * β_value → Transformer → MLP → age
+# ADD mode (alternative):  h_i = α * CpG_embed + β_embed → Transformer → MLP → age
+#
+# IMPORTANT: Use checkpoint pretrained with matching combine_style!
 
 defaults:
   - _self_

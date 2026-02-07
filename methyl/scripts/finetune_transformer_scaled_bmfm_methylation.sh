@@ -21,9 +21,10 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
-# Pretrained checkpoint (standard pretraining with CpG IDs + beta values)
-# This checkpoint has learned representations for both CpG IDs and beta values
-CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-bmfm-rna-methylation-8k/bmfm-methyl-8k-43987959/pretrain/checkpoints/epoch=epoch=5-val_loss=validation/loss=0.0149.ckpt}"
+# Pretrained checkpoint - USE MULTIPLY MODE CHECKPOINT!
+# IMPORTANT: Must match combine_style (multiply checkpoint for multiply finetuning)
+# Find your best checkpoint in: outputs/pretrain-multiply-bmfm-rna-methylation-8k/<run>/pretrain/checkpoints/
+CHECKPOINT="${CHECKPOINT:-PLEASE_SET_MULTIPLY_PRETRAINED_CHECKPOINT}"
 
 # Combine style: "multiply" (scGPT style) or "add" (scaled CpG)
 COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
