@@ -67,6 +67,11 @@ def create_multiply_forward(embeddings_layer):
 
     MULTIPLY mode (scGPT style): h = CpG_embed * β_value
     Instead of ADD mode: h = CpG_embed + β_embed
+
+    For MLM training, MASK tokens (β = -1) need special handling:
+    - We use the beta_values_embeddings for MASK tokens to give the model
+      a learnable mask representation (not just a fixed scalar)
+    - This allows the model to learn to predict masked values
     """
     original_layer = embeddings_layer
 
@@ -84,20 +89,68 @@ def create_multiply_forward(embeddings_layer):
         cpg_ids = input_ids[:, 0, :].long()
         cpg_embeds = original_layer.cpg_sites_embeddings(cpg_ids)
 
-        # Get raw beta values (field 1) - NOT embeddings!
+        # Get raw beta values (field 1)
         beta_values = input_ids[:, 1, :].float()
 
-        # Handle special tokens (negative values like -3 CLS, -4 PAD)
-        beta_for_scaling = beta_values.clone()
-        special_mask = beta_values < 0
-        beta_for_scaling[special_mask] = 1.0
+        # Identify different token types
+        mask_token_mask = (beta_values == -1)  # MASK tokens
+        other_special_mask = (beta_values < 0) & ~mask_token_mask  # CLS, PAD, SEP, UNK
+        real_value_mask = (beta_values >= 0)  # Real beta values
 
-        # Clamp real values to [0, 1]
-        beta_for_scaling = torch.clamp(beta_for_scaling, 0.0, 1.0)
+        # Initialize hidden states
+        hidden_states = torch.zeros_like(cpg_embeds)
 
-        # MULTIPLY: CpG embedding scaled by beta value
-        beta_scale = beta_for_scaling.unsqueeze(-1)
-        hidden_states = cpg_embeds * beta_scale
+        # Debug logging (first call only)
+        if not hasattr(multiply_forward, '_debug_logged'):
+            multiply_forward._debug_logged = True
+            n_mask = mask_token_mask.sum().item()
+            n_special = other_special_mask.sum().item()
+            n_real = real_value_mask.sum().item()
+            print(f"\n[MULTIPLY FORWARD DEBUG]")
+            print(f"  Batch shape: {input_ids.shape}")
+            print(f"  MASK tokens: {n_mask} ({100*n_mask/(batch_size*seq_length):.1f}%)")
+            print(f"  Other special: {n_special}")
+            print(f"  Real values: {n_real}")
+            print(f"  Strategy: MASK→CpG+mask_embed, Special→CpG, Real→CpG*β\n")
+
+        # For MASK tokens: use beta_values_embeddings to get a learnable mask representation
+        # The ContinuousValueEncoderWithSpecialTokenEmbeddings handles -1 (MASK) with special embeddings
+        # Then ADD it to CpG embedding (so model knows position but can learn mask pattern)
+        if mask_token_mask.any():
+            # Create a tensor of just the mask values for the masked positions
+            # We need to reshape for the embeddings layer
+            mask_positions = mask_token_mask.nonzero(as_tuple=False)
+            batch_indices = mask_positions[:, 0]
+            seq_indices = mask_positions[:, 1]
+
+            # Get beta values for masked positions and embed them
+            # beta_values_embeddings handles -1 as a special token
+            masked_beta_vals = beta_values[batch_indices, seq_indices]
+
+            # Create a 2D tensor [n_masked, 1] as embeddings layer expects [batch, seq]
+            masked_beta_2d = masked_beta_vals.unsqueeze(0)  # [1, n_masked]
+            mask_embeds = original_layer.beta_values_embeddings(masked_beta_2d)  # [1, n_masked, 512]
+            mask_embeds = mask_embeds.squeeze(0)  # [n_masked, 512]
+
+            # For masked positions: use CpG + mask_embed (ADD style for masks only)
+            hidden_states[batch_indices, seq_indices] = (
+                cpg_embeds[batch_indices, seq_indices] + mask_embeds
+            )
+
+        # For other special tokens (CLS, PAD, etc.): use full CpG embedding (scale = 1.0)
+        if other_special_mask.any():
+            special_positions = other_special_mask.nonzero(as_tuple=False)
+            batch_idx = special_positions[:, 0]
+            seq_idx = special_positions[:, 1]
+            hidden_states[batch_idx, seq_idx] = cpg_embeds[batch_idx, seq_idx]
+
+        # For real beta values: use MULTIPLY mode
+        if real_value_mask.any():
+            real_positions = real_value_mask.nonzero(as_tuple=False)
+            batch_idx = real_positions[:, 0]
+            seq_idx = real_positions[:, 1]
+            beta_scale = torch.clamp(beta_values[batch_idx, seq_idx], 0.0, 1.0).unsqueeze(-1)
+            hidden_states[batch_idx, seq_idx] = cpg_embeds[batch_idx, seq_idx] * beta_scale
 
         # Add position embeddings if available
         if original_layer.position_embedding_type is not None:
