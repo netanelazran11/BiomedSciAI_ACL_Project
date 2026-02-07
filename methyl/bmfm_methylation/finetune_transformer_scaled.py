@@ -370,10 +370,16 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # Debug predictions on first few steps
         if not hasattr(self, '_debug_pred_count'):
             self._debug_pred_count = 0
-        if self._debug_pred_count < 3:
+        if self._debug_pred_count < 5:
             self._debug_pred_count += 1
-            logger.info(f"DEBUG step {self._debug_pred_count}: preds={predictions[:5, 0].tolist()}, labels={labels[:5, 0].tolist()}")
-            print(f"DEBUG step {self._debug_pred_count}: preds_std={predictions.std().item():.4f}, cpg_scale={self.cpg_scale.item():.6f}")
+            preds_denorm_sample = predictions[:5, 0] * self.age_std + self.age_mean
+            labels_denorm_sample = labels[:5, 0] * self.age_std + self.age_mean
+            print(f"\n[DEBUG STEP {self._debug_pred_count}]")
+            print(f"  Predictions (normalized): {predictions[:5, 0].tolist()}")
+            print(f"  Predictions (denorm age): {preds_denorm_sample.tolist()}")
+            print(f"  Labels (denorm age):      {labels_denorm_sample.tolist()}")
+            print(f"  Preds std: {predictions.std().item():.6f}")
+            print(f"  Labels std: {labels.std().item():.6f}")
 
         # Loss (on normalized values)
         loss = self.loss_fn(predictions, labels)
@@ -674,6 +680,13 @@ def main(cfg: DictConfig):
         encoder = pretrained_module.model.scbert
         print("[MODEL] Loaded pretrained encoder successfully")
         logger.info("Loaded pretrained encoder (CpG IDs + beta values + transformer layers)")
+
+        # Debug: Check encoder weights
+        cpg_embed_weight = encoder.embeddings.cpg_sites_embeddings.weight
+        print(f"[DEBUG] CpG embeddings shape: {cpg_embed_weight.shape}")
+        print(f"[DEBUG] CpG embeddings norm: {cpg_embed_weight.norm():.4f}")
+        print(f"[DEBUG] CpG embeddings mean: {cpg_embed_weight.mean():.6f}")
+        print(f"[DEBUG] CpG embeddings std: {cpg_embed_weight.std():.6f}")
     else:
         print("[MODEL] Training from scratch (no checkpoint)")
         encoder = SCBertModel(model_config)
