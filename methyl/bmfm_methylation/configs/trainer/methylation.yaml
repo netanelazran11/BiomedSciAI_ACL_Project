@@ -3,7 +3,7 @@
 _target_: bmfm_targets.config.TrainerConfig
 
 # Optimizer settings
-learning_rate: 5.0e-4  # MLP from scratch can use higher LR
+learning_rate: 1.0e-3  # Higher LR for fine-tuning head
 weight_decay: 0.01
 warmup_steps: 200  # Short warmup, head trains during freeze phase
 lr_decay_steps: -1  # Use -1 to decay based on total training steps

@@ -155,11 +155,8 @@ class MethylationAgeRegressor(pl.LightningModule):
         encoder_output = self.encoder(input_ids, attention_mask=attention_mask)
         sequence_output = encoder_output.last_hidden_state  # [batch, seq_len, hidden]
 
-        # Mean pooling (respecting attention mask)
-        mask_expanded = attention_mask.unsqueeze(-1)  # [batch, seq_len, 1]
-        sum_hidden = (sequence_output * mask_expanded).sum(dim=1)
-        count = mask_expanded.sum(dim=1).clamp(min=1e-9)
-        pooled = sum_hidden / count  # [batch, hidden_size]
+        # CLS pooling (BMFM default)
+        pooled = sequence_output[:, 0, :]  # [batch, hidden_size]
 
         # Age prediction head
         age_pred = self.age_head(pooled)
@@ -214,6 +211,19 @@ class MethylationAgeRegressor(pl.LightningModule):
             logger.info(f"  labels std: {labels.std():.4f}")
             logger.info(f"  age_mean={self.age_mean:.2f}, age_std={self.age_std:.2f}")
             logger.info("=" * 70)
+
+        # DEBUG: Verify Option-B subset changes across consecutive batches
+        if not hasattr(self, "_debug_batch_count"):
+            self._debug_batch_count = 0
+            self._prev_cpg_ids = None
+        if self._debug_batch_count < 2:
+            self._debug_batch_count += 1
+            if self._prev_cpg_ids is not None:
+                prev = self._prev_cpg_ids[0, 1:]
+                curr = cpg_ids[0, 1:]
+                diff = int((prev != curr).sum().item())
+                logger.info(f"DEBUG subset diff (batch-1 vs batch): {diff}")
+            self._prev_cpg_ids = cpg_ids.detach().clone()
 
         # Forward pass
         predictions = self(cpg_ids, beta_values, attention_mask)
