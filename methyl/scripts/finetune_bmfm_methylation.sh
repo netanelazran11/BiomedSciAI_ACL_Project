@@ -83,7 +83,7 @@ PY
 # -------------------------
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
-    checkpoint_path="${CHECKPOINT}" \
+    checkpoint_path="'${CHECKPOINT}'" \
     output_directory=./outputs_finetune \
     finetune_epochs=100 \
     data_module.batch_size=32 \
