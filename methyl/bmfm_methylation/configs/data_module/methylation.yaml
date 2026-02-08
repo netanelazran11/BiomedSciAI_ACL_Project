@@ -25,7 +25,7 @@ normalize_age: true
 # MLM settings (for pretraining)
 mlm: ${mlm_enabled}
 change_ratio: 0.25  # 25% of values masked (higher for regression)
-mask_ratio: 0.9     # 90% of candidates are replaced with [MASK]
+mask_ratio: 0.3     # 30% of candidates are replaced with [MASK]
 switch_ratio: 0.0   # No random switching for continuous values
 
 # Collation strategy
