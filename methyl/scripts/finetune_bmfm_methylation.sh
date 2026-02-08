@@ -21,10 +21,13 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
+# Pretrained checkpoint
+CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs_pretrain/pretrain/checkpoints/epoch=epoch=3-val_loss=validation/loss=0.0152.ckpt"
+
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="finetune-bmfm-rna-methylation-8k"
-WANDB_RUN_NAME="bmfm-methyl-pretrain-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="bmfm-methyl-finetune-${SLURM_JOB_ID}"
 
 # Output directory (unique per run to avoid overwriting checkpoints)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -42,6 +45,7 @@ echo "============================================================"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
 echo "Data:        ${DATA}"
+echo "Checkpoint:  ${CHECKPOINT}"
 echo "Output dir:  ${OUTDIR}"
 echo "============================================================"
 
@@ -75,12 +79,13 @@ print("matmul_precision:", torch.get_float32_matmul_precision())
 PY
 
 # -------------------------
-# Pretrain
+# Fine-tuning
 # -------------------------
-python3 -m bmfm_methylation.pretrain \
+python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
-    output_directory=./outputs_pretrain \
-    pretrain_epochs=300 \
+    checkpoint_path="${CHECKPOINT}" \
+    output_directory=./outputs_finetune \
+    finetune_epochs=100 \
     data_module.batch_size=32 \
     data_module.num_workers=0
 
