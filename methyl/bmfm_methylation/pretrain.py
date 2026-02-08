@@ -260,6 +260,53 @@ def main(cfg: DictConfig):
         switch_ratio=cfg.data_module.switch_ratio,
         collation_strategy="language_modeling",
     )
+    def _wrap_collator():
+        base_collator = data_module.collator
+
+        def _collate_for_mlm(examples):
+            batch = base_collator(examples)
+            # Build BMFM-style input_ids: [B, 2, L]
+            input_ids = torch.stack(
+                [batch["cpg_ids"].float(), batch["beta_values"]],
+                dim=1,
+            )
+            # Labels: use labels_beta where masked, else -100
+            labels_beta = batch["labels_beta"].clone()
+            loss_mask = batch["loss_mask_beta"]
+            labels_beta[loss_mask == 0] = -100.0
+            if not hasattr(_collate_for_mlm, "_debug_logged"):
+                _collate_for_mlm._debug_logged = True
+                cpg_ids = batch["cpg_ids"]
+                beta_values = batch["beta_values"]
+                attn = batch["attention_mask"]
+                mask_count = int(loss_mask.sum().item())
+                total_count = int(loss_mask.numel())
+                mask_density = mask_count / max(total_count, 1)
+                diff_count = int((cpg_ids[0, 1:] != cpg_ids[1, 1:]).sum().item()) if cpg_ids.shape[0] > 1 else 0
+                print("\n[DEBUG] Option-B Collator Batch")
+                print(f"  input_ids shape: {tuple(input_ids.shape)}")
+                print(f"  cpg_ids shape: {tuple(cpg_ids.shape)}, beta_values shape: {tuple(beta_values.shape)}")
+                print(f"  attention_mask shape: {tuple(attn.shape)}, non-pad tokens: {int(attn[0].sum().item())}")
+                print(f"  mask_count: {mask_count} / {total_count} ({mask_density:.4f})")
+                if cpg_ids.shape[0] > 1:
+                    print(f"  subset diff count (sample0 vs sample1): {diff_count}")
+                print(f"  labels_beta masked example (first 10): {labels_beta[0, :10].tolist()}")
+            return {
+                "input_ids": input_ids,
+                "attention_mask": batch["attention_mask"],
+                "labels": {"beta_values": labels_beta},
+            }
+
+        data_module.collator = _collate_for_mlm
+
+    # Setup data module and ensure collator is wrapped after each setup
+    original_setup = data_module.setup
+
+    def _setup_with_wrap(stage=None):
+        original_setup(stage)
+        _wrap_collator()
+
+    data_module.setup = _setup_with_wrap
     data_module.setup()
 
     # Setup model config

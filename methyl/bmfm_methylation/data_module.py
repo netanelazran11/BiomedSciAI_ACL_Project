@@ -408,6 +408,7 @@ class MethylationCollator:
         self.cls_beta = cls_beta
         self.pad_beta = pad_beta
         self.mask_beta = mask_beta
+        self._call_count = 0
 
         # Use CpG tokenizer from MultiFieldTokenizer
         self.cpg_tokenizer = self.tokenizer.tokenizers["cpg_sites"]
@@ -427,7 +428,8 @@ class MethylationCollator:
         labels_beta = torch.zeros((batch_size, self.seq_len), dtype=torch.float32)
         loss_mask_beta = torch.zeros((batch_size, self.seq_len), dtype=torch.float32)
 
-        seed = torch.initial_seed() % (2**32)
+        seed = (torch.initial_seed() + self._call_count) % (2**32)
+        self._call_count += 1
         rng = np.random.default_rng(seed)
 
         for i, ex in enumerate(examples):

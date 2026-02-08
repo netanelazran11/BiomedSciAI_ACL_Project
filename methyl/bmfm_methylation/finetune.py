@@ -137,15 +137,9 @@ class MethylationAgeRegressor(pl.LightningModule):
         logger.info(f"Trainable params: {trainable:,}")
         logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
 
-    def forward(self, input_ids, attention_mask=None):
-        # input_ids shape: [batch, 2, seq_len]
-        # Field 0: CpG site token IDs (discrete)
-        # Field 1: beta values (continuous)
-        #
-        # Pass through the pretrained encoder which computes:
-        #   h_i = CpG_embed(site_i) + beta_embed(β_i) + pos_embed(i)
-        # then runs through 6 transformer layers.
-
+    def forward(self, cpg_ids, beta_values, attention_mask=None):
+        # Build BMFM-style input_ids: [batch, 2, seq_len]
+        input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
         batch_size = input_ids.size(0)
         seq_length = input_ids.size(2)
 
@@ -190,7 +184,8 @@ class MethylationAgeRegressor(pl.LightningModule):
             logger.info("=" * 70)
 
     def _shared_step(self, batch, stage: str):
-        input_ids = batch["input_ids"]
+        cpg_ids = batch["cpg_ids"]
+        beta_values = batch["beta_values"]
         attention_mask = batch.get("attention_mask")
         labels = batch["labels"].float().view(-1, 1)
 
@@ -199,23 +194,19 @@ class MethylationAgeRegressor(pl.LightningModule):
             self._debug_printed = True
             logger.info("=" * 70)
             logger.info("DEBUG: BATCH INSPECTION")
-            logger.info(f"  input_ids shape: {input_ids.shape}")
-            logger.info(f"  input_ids dtype: {input_ids.dtype}")
+            logger.info(f"  cpg_ids shape: {cpg_ids.shape}")
+            logger.info(f"  beta_values shape: {beta_values.shape}")
+            logger.info(f"  cpg_ids dtype: {cpg_ids.dtype}")
             logger.info(f"  batch keys: {list(batch.keys())}")
-            if input_ids.dim() == 3:
-                # Multi-field: [batch, num_fields, seq_len]
-                logger.info(f"  Field 0 (cpg_sites) - first 10 values: {input_ids[0, 0, :10].tolist()}")
-                logger.info(f"  Field 1 (beta_values) - first 10 values: {input_ids[0, 1, :10].tolist()}")
-                # Check if field 1 varies between samples
-                f1_sample0 = input_ids[0, 1, :10].tolist()
-                f1_sample1 = input_ids[1, 1, :10].tolist() if input_ids.shape[0] > 1 else f1_sample0
-                logger.info(f"  Field 1 sample 0: {f1_sample0}")
-                logger.info(f"  Field 1 sample 1: {f1_sample1}")
-                logger.info(f"  Field 1 same across samples? {f1_sample0 == f1_sample1}")
-                logger.info(f"  Field 1 min={input_ids[:, 1, :].min():.4f}, max={input_ids[:, 1, :].max():.4f}, std={input_ids[:, 1, :].std():.4f}")
-            elif input_ids.dim() == 2:
-                logger.info(f"  WARNING: input_ids is 2D! Shape: {input_ids.shape}")
-                logger.info(f"  First 10 values: {input_ids[0, :10].tolist()}")
+            logger.info(f"  cpg_ids first 10: {cpg_ids[0, :10].tolist()}")
+            logger.info(f"  beta_values first 10: {beta_values[0, :10].tolist()}")
+            if beta_values.shape[0] > 1:
+                b0 = beta_values[0, :10].tolist()
+                b1 = beta_values[1, :10].tolist()
+                logger.info(f"  beta_values sample0: {b0}")
+                logger.info(f"  beta_values sample1: {b1}")
+                logger.info(f"  beta_values same across samples? {b0 == b1}")
+            logger.info(f"  beta_values min={beta_values.min():.4f}, max={beta_values.max():.4f}, std={beta_values.std():.4f}")
             if attention_mask is not None:
                 logger.info(f"  attention_mask shape: {attention_mask.shape}")
                 logger.info(f"  attention_mask sum (non-pad tokens): {attention_mask[0].sum().item()}")
@@ -225,7 +216,7 @@ class MethylationAgeRegressor(pl.LightningModule):
             logger.info("=" * 70)
 
         # Forward pass
-        predictions = self(input_ids, attention_mask)
+        predictions = self(cpg_ids, beta_values, attention_mask)
 
         # DEBUG: Check predictions on first few steps
         if not hasattr(self, '_debug_pred_count'):
