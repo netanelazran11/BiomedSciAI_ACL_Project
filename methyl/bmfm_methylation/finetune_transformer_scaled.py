@@ -71,12 +71,16 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
     """
     Transformer-based age regressor with configurable embedding combination.
 
-    Supports two modes:
+    Supports three modes:
     1. ADD mode:      h_i = α * CpG_embed + β_embed
-    2. MULTIPLY mode: h_i = CpG_embed * β_value (scGPT style)
+    2. MULTIPLY mode: h_i = CpG_embed * (β + offset) (scGPT style, with offset fix)
+    3. BINNED mode:   h_i = CpG_embed + bin_embed(β) (like scGPT category mode)
 
-    MULTIPLY mode scales the CpG embedding by the raw beta value, which
-    means different methylation levels produce very different embeddings.
+    MULTIPLY mode scales the CpG embedding by the beta value + offset to prevent
+    vanishing gradients for low methylation sites.
+
+    BINNED mode discretizes beta values into N bins and uses learned embeddings
+    for each bin, similar to scGPT's category value encoder.
     """
 
     def __init__(
@@ -97,7 +101,9 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         initial_cpg_scale: float = 0.1,
         use_huber_loss: bool = False,
         huber_delta: float = 2.0,
-        combine_style: str = "multiply",  # "add" or "multiply"
+        combine_style: str = "multiply",  # "add", "multiply", or "binned"
+        n_bins: int = 51,  # Number of bins for "binned" mode (like scGPT)
+        beta_offset: float = 0.5,  # Offset for multiply mode: β→β+offset
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
@@ -109,6 +115,8 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         self.freeze_encoder = freeze_encoder
         self.unfreeze_encoder_epoch = unfreeze_encoder_epoch
         self.combine_style = combine_style
+        self.n_bins = n_bins
+        self.beta_offset = beta_offset
 
         # =====================================================================
         # EMBEDDING COMBINATION STYLE
@@ -116,9 +124,22 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         logger.info(f"Combine style: {combine_style}")
         print(f"[INIT] Combine style: {combine_style}")
         if combine_style == "multiply":
-            print(f"[INIT] Using MULTIPLY: h = CpG_embed * β_value (scGPT style)")
+            print(f"[INIT] Using MULTIPLY: h = CpG_embed * (β + {beta_offset}) (scGPT style with offset)")
+        elif combine_style == "binned":
+            print(f"[INIT] Using BINNED: h = CpG_embed + bin_embed(β) (scGPT category style, {n_bins} bins)")
         else:
             print(f"[INIT] Using ADD: h = α * CpG_embed + β_embed")
+
+        # =====================================================================
+        # BINNED MODE: Create bin embeddings (like scGPT category encoder)
+        # =====================================================================
+        if combine_style == "binned":
+            # Bins: 0 = special (MASK, etc.), 1-50 = quantized beta values
+            # This is exactly like scGPT's n_input_bins=51
+            self.bin_embeddings = nn.Embedding(n_bins, hidden_size)
+            nn.init.normal_(self.bin_embeddings.weight, mean=0, std=0.02)
+            self.bin_layer_norm = nn.LayerNorm(hidden_size)
+            print(f"[INIT] Created bin embeddings: {n_bins} bins × {hidden_size} dim")
 
         # =====================================================================
         # LEARNABLE CpG SCALE (only used in ADD mode)
@@ -235,29 +256,112 @@ class TransformerScaledCpGAgeRegressor(pl.LightningModule):
         # =================================================================
         if self.combine_style == "multiply":
             # MULTIPLY mode (scGPT style): h = CpG_embed * β_value
-            # Beta values are scaled so the embedding strength depends on methylation level
+            #
+            # IMPORTANT FIX: Match pretraining behavior exactly!
+            # - MASK tokens (β = -1): CpG_embed + mask_embed (ADD style)
+            # - Special tokens (CLS, PAD, etc.): Full CpG_embed (scale = 1.0)
+            # - Real values (0-1): CpG_embed * β (MULTIPLY style)
+            #
+            # Additional improvement: Use (β + offset) to prevent near-zero embeddings
+            # for low methylation sites. β=0.1 → (0.1 + 0.5) = 0.6 scale factor
 
-            # Handle special tokens (negative values like -3 for CLS, -4 for PAD)
-            # Set them to 1.0 so they keep full embedding
-            beta_for_scaling = beta_values.clone()
-            special_mask = beta_values < 0
-            beta_for_scaling[special_mask] = 1.0  # Special tokens get full embedding
+            # Use instance beta_offset: β=0→offset, β=1→1+offset, then clamp to [0.3, 1.5]
 
-            # Clamp real values to [0, 1]
-            beta_for_scaling = torch.clamp(beta_for_scaling, 0.0, 1.0)
+            # Identify token types
+            mask_token_mask = (beta_values == -1)  # MASK tokens
+            other_special_mask = (beta_values < 0) & ~mask_token_mask  # CLS, PAD, etc.
+            real_value_mask = (beta_values >= 0)  # Real beta values
 
-            # Expand to match embedding dimension: [batch, seq, 1]
-            beta_scale = beta_for_scaling.unsqueeze(-1)
+            # Initialize hidden states
+            hidden_states = torch.zeros_like(cpg_embeds)
 
-            # Multiply: CpG embedding scaled by beta value
-            hidden_states = cpg_embeds * beta_scale
+            # For MASK tokens: use CpG + beta_embed (ADD style, matching pretraining)
+            if mask_token_mask.any():
+                mask_positions = mask_token_mask.nonzero(as_tuple=False)
+                batch_idx = mask_positions[:, 0]
+                seq_idx = mask_positions[:, 1]
+                masked_beta_vals = beta_values[batch_idx, seq_idx]
+                # Get mask embedding from the continuous encoder
+                masked_beta_2d = masked_beta_vals.unsqueeze(0)
+                mask_embeds = embeddings_layer.beta_values_embeddings(masked_beta_2d).squeeze(0)
+                hidden_states[batch_idx, seq_idx] = cpg_embeds[batch_idx, seq_idx] + mask_embeds
+
+            # For other special tokens: use full CpG embedding
+            if other_special_mask.any():
+                special_positions = other_special_mask.nonzero(as_tuple=False)
+                batch_idx = special_positions[:, 0]
+                seq_idx = special_positions[:, 1]
+                hidden_states[batch_idx, seq_idx] = cpg_embeds[batch_idx, seq_idx]
+
+            # For real beta values: use MULTIPLY with offset to prevent vanishing
+            if real_value_mask.any():
+                real_positions = real_value_mask.nonzero(as_tuple=False)
+                batch_idx = real_positions[:, 0]
+                seq_idx = real_positions[:, 1]
+                beta_vals = beta_values[batch_idx, seq_idx]
+                # Apply offset and clamp: β=0→offset, β=1→1+offset, clamp to [0.3, 1.5]
+                beta_scale = torch.clamp(beta_vals + self.beta_offset, 0.3, 1.5).unsqueeze(-1)
+                hidden_states[batch_idx, seq_idx] = cpg_embeds[batch_idx, seq_idx] * beta_scale
 
             if not hasattr(self, '_multiply_debug_printed'):
                 self._multiply_debug_printed = True
-                print(f"[MULTIPLY] beta_values range: [{beta_values.min():.2f}, {beta_values.max():.2f}]")
-                print(f"[MULTIPLY] beta_for_scaling range: [{beta_for_scaling.min():.2f}, {beta_for_scaling.max():.2f}]")
-                print(f"[MULTIPLY] cpg_embeds norm: {cpg_embeds[0, 0].norm():.4f}")
-                print(f"[MULTIPLY] hidden_states norm: {hidden_states[0, 0].norm():.4f}")
+                n_mask = mask_token_mask.sum().item()
+                n_special = other_special_mask.sum().item()
+                n_real = real_value_mask.sum().item()
+                print(f"\n[MULTIPLY MODE - FIXED]")
+                print(f"  Token breakdown: MASK={n_mask}, Special={n_special}, Real={n_real}")
+                print(f"  Beta offset: {self.beta_offset} (so β=0→{self.beta_offset} scale, β=1→{1+self.beta_offset} scale)")
+                print(f"  MASK handling: CpG + mask_embed (matching pretraining)")
+                print(f"  Real beta scaling: clamp(β+{self.beta_offset}, 0.3, 1.5)")
+                print(f"  cpg_embeds norm: {cpg_embeds[0, 0].norm():.4f}")
+
+        elif self.combine_style == "binned":
+            # BINNED mode (like scGPT category encoder)
+            # Discretize beta values into bins and use learned embeddings
+            #
+            # Binning scheme (like scGPT):
+            # - Bin 0: Special tokens (MASK, CLS, PAD, etc.)
+            # - Bins 1-50: Quantized beta values (0-1 range divided into 50 bins)
+
+            # Create bin indices
+            bin_indices = torch.zeros_like(beta_values, dtype=torch.long)
+
+            # Identify token types
+            special_mask = (beta_values < 0)  # All special tokens
+            real_mask = (beta_values >= 0)  # Real beta values
+
+            # Special tokens → bin 0
+            bin_indices[special_mask] = 0
+
+            # Real values → bins 1 to n_bins-1
+            if real_mask.any():
+                real_betas = beta_values[real_mask]
+                # Clamp to [0, 1] and scale to [1, n_bins-1]
+                clamped = torch.clamp(real_betas, 0.0, 1.0)
+                # Map 0-1 to 1-(n_bins-1): β=0→1, β=1→(n_bins-1)
+                bin_idx = (clamped * (self.n_bins - 2) + 1).long()
+                bin_idx = torch.clamp(bin_idx, 1, self.n_bins - 1)
+                bin_indices[real_mask] = bin_idx
+
+            # Get bin embeddings
+            bin_embeds = self.bin_embeddings(bin_indices)  # [batch, seq, hidden]
+            bin_embeds = self.bin_layer_norm(bin_embeds)
+
+            # Combine: CpG embedding + bin embedding (ADD style like scGPT)
+            hidden_states = cpg_embeds + bin_embeds
+
+            if not hasattr(self, '_binned_debug_printed'):
+                self._binned_debug_printed = True
+                n_special = special_mask.sum().item()
+                n_real = real_mask.sum().item()
+                print(f"\n[BINNED MODE]")
+                print(f"  Token breakdown: Special={n_special}, Real={n_real}")
+                print(f"  Number of bins: {self.n_bins}")
+                print(f"  Bin index range: [{bin_indices.min().item()}, {bin_indices.max().item()}]")
+                print(f"  cpg_embeds norm: {cpg_embeds[0, 0].norm():.4f}")
+                print(f"  bin_embeds norm: {bin_embeds[0, 0].norm():.4f}")
+                print(f"  hidden_states norm: {hidden_states[0, 0].norm():.4f}")
+
         else:
             # ADD mode: h = α * CpG_embed + β_embed
             scaled_cpg_embeds = self.cpg_scale * cpg_embeds
@@ -709,8 +813,15 @@ def main(cfg: DictConfig):
     # Create model
     initial_cpg_scale = cfg.get('initial_cpg_scale', 0.1)
     combine_style = cfg.get('combine_style', 'multiply')
+    n_bins = cfg.get('n_bins', 51)  # Number of bins for binned mode (like scGPT)
+    beta_offset = cfg.get('beta_offset', 0.5)  # Offset for multiply mode
+
     print(f"[MODEL] Combine style: {combine_style}")
     print(f"[MODEL] Initial CpG scale: {initial_cpg_scale}")
+    if combine_style == "binned":
+        print(f"[MODEL] Number of bins: {n_bins}")
+    if combine_style == "multiply":
+        print(f"[MODEL] Beta offset: {beta_offset}")
 
     model = TransformerScaledCpGAgeRegressor(
         encoder=encoder,
@@ -730,11 +841,16 @@ def main(cfg: DictConfig):
         use_huber_loss=cfg.get('use_huber_loss', False),
         huber_delta=cfg.get('huber_delta', 2.0),
         combine_style=combine_style,
+        n_bins=n_bins,
+        beta_offset=beta_offset,
     )
 
     if combine_style == "multiply":
-        print(f"[MODEL] Architecture: h = CpG_embed * β_value → Transformer → MLP → age")
-        print(f"[MODEL] (scGPT style - beta value SCALES the embedding)")
+        print(f"[MODEL] Architecture: h = CpG_embed * (β + {beta_offset}) → Transformer → MLP → age")
+        print(f"[MODEL] (scGPT style with offset - β=0→{beta_offset}, β=1→{1+beta_offset})")
+    elif combine_style == "binned":
+        print(f"[MODEL] Architecture: h = CpG_embed + bin_embed(β) → Transformer → MLP → age")
+        print(f"[MODEL] (scGPT category style - {n_bins} bins)")
     else:
         print(f"[MODEL] Architecture: h = α*CpG_embed + β_embed → Transformer → MLP → age")
         print(f"[MODEL] α (CpG scale) is LEARNABLE, initialized to {initial_cpg_scale}")

@@ -99,10 +99,20 @@ finetune_epochs: 100
 accumulate_grad_batches: 2
 
 # Embedding combination settings
-combine_style: multiply  # "multiply" (scGPT style) or "add" (BMFM style)
+# Options: "multiply" (scGPT scaling), "add" (BMFM style), "binned" (scGPT category)
+combine_style: multiply
 freeze_encoder: false  # Try unfrozen from start - pretrained MLM may not have age-relevant features
 unfreeze_encoder_epoch: 0
 initial_cpg_scale: 0.1  # Only used in "add" mode
+
+# MULTIPLY mode settings (scGPT scaling style)
+# beta_offset shifts values: β=0→offset, β=1→1+offset, clamped to [0.3, 1.5]
+# This prevents vanishing embeddings for low methylation sites
+beta_offset: 0.5
+
+# BINNED mode settings (scGPT category style)
+# Discretizes beta values into N bins with learned embeddings
+n_bins: 51  # Same as scGPT default (bin 0 = special, bins 1-50 = values)
 
 # Loss settings
 use_huber_loss: false

@@ -33,7 +33,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from bmfm_targets.config import FieldInfo, LabelColumnInfo
-from bmfm_targets.tokenization import MultiFieldCollator, MultiFieldTokenizer
+from bmfm_targets.tokenization import MultiFieldTokenizer
 from bmfm_targets.tokenization.multifield_instance import MultiFieldInstance
 from bmfm_targets.training.masking import MaskingStrategy
 
@@ -115,13 +115,14 @@ class MethylationDataset(Dataset):
         Get a sample as a MultiFieldInstance.
 
         Returns:
-            MultiFieldInstance with cpg_sites (names) and beta_values (continuous)
+            MultiFieldInstance with beta_values (continuous) and optional valid_mask
         """
         # Get beta values
         beta_values = self.adata.X[idx]
         if hasattr(beta_values, 'toarray'):
             beta_values = beta_values.toarray().flatten()
         beta_values = beta_values.astype(np.float32)
+        valid_mask = np.isfinite(beta_values)
 
         # Get age (normalized if requested)
         age = self.ages[idx]
@@ -132,8 +133,8 @@ class MethylationDataset(Dataset):
         # Labels go in metadata, not data (data is for model inputs)
         mfi = MultiFieldInstance(
             data={
-                "cpg_sites": self.cpg_sites,  # CpG site names/indices
                 "beta_values": beta_values.tolist(),  # Continuous values
+                "valid_mask": valid_mask.tolist(),
             },
             metadata={
                 "labels": float(age),
@@ -178,6 +179,8 @@ class MethylationDataModule(pl.LightningDataModule):
             "language_modeling",
             "sequence_classification",
         ] = "sequence_classification",
+        use_subset_collator: bool = True,
+        subset_k: int = 2048,
     ):
         """
         Args:
@@ -228,6 +231,8 @@ class MethylationDataModule(pl.LightningDataModule):
         self.masking_strategy = masking_strategy
         self.normalize_age = normalize_age
         self.collation_strategy = collation_strategy
+        self.use_subset_collator = use_subset_collator
+        self.subset_k = subset_k
 
         # Will be set during setup
         self.train_dataset = None
@@ -272,28 +277,47 @@ class MethylationDataModule(pl.LightningDataModule):
                 self.test_dataset.age_mean = self.train_dataset.age_mean
                 self.test_dataset.age_std = self.train_dataset.age_std
 
-        # Create masker if MLM is enabled
-        masker = None
-        if self.mlm:
-            from bmfm_targets.training.masking import Masker
-            masker = Masker(
-                tokenizer=self.tokenizer,
-                change_ratio=self.change_ratio,
-                mask_ratio=self.mask_ratio,
-                switch_ratio=self.switch_ratio,
-            )
-
         # Create collator
-        self.collator = MultiFieldCollator(
-            tokenizer=self.tokenizer,
-            fields=self.fields,
-            max_length=self.max_length,
-            padding=self.padding,
-            truncation=self.truncation,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            masker=masker,
-            collation_strategy=self.collation_strategy,
-        )
+        if self.use_subset_collator:
+            cpg_sites = None
+            if self.train_dataset is not None:
+                cpg_sites = self.train_dataset.cpg_sites
+            elif self.val_dataset is not None:
+                cpg_sites = self.val_dataset.cpg_sites
+            elif self.test_dataset is not None:
+                cpg_sites = self.test_dataset.cpg_sites
+
+            if cpg_sites is None:
+                raise ValueError("No CpG site list available for collator.")
+
+            self.collator = MethylationCollator(
+                tokenizer=self.tokenizer,
+                cpg_sites=cpg_sites,
+                k=self.subset_k,
+                mask_ratio=self.mask_ratio if self.mlm else 0.0,
+            )
+        else:
+            # Fallback to BMFM MultiFieldCollator if needed
+            masker = None
+            if self.mlm:
+                from bmfm_targets.training.masking import Masker
+                masker = Masker(
+                    tokenizer=self.tokenizer,
+                    change_ratio=self.change_ratio,
+                    mask_ratio=self.mask_ratio,
+                    switch_ratio=self.switch_ratio,
+                )
+            from bmfm_targets.tokenization import MultiFieldCollator
+            self.collator = MultiFieldCollator(
+                tokenizer=self.tokenizer,
+                fields=self.fields,
+                max_length=self.max_length,
+                padding=self.padding,
+                truncation=self.truncation,
+                pad_to_multiple_of=self.pad_to_multiple_of,
+                masker=masker,
+                collation_strategy=self.collation_strategy,
+            )
 
         # For finetuning (non-MLM), wrap collator to include age labels
         if not self.mlm:
@@ -356,3 +380,103 @@ class MethylationDataModule(pl.LightningDataModule):
         if self.train_dataset is not None:
             return self.train_dataset.age_std
         return 1.0
+
+
+class MethylationCollator:
+    """
+    Collator for methylation data with variable subsets.
+
+    Builds sequences of length K+1: [CLS] + K sampled CpG sites.
+    Pads to fixed length and applies masking on beta values.
+    """
+
+    def __init__(
+        self,
+        tokenizer: MultiFieldTokenizer,
+        cpg_sites: List[str],
+        k: int = 2048,
+        mask_ratio: float = 0.3,
+        cls_beta: float = -2.0,
+        pad_beta: float = -3.0,
+        mask_beta: float = -1.0,
+    ):
+        self.tokenizer = tokenizer
+        self.cpg_sites = cpg_sites
+        self.k = k
+        self.seq_len = k + 1
+        self.mask_ratio = mask_ratio
+        self.cls_beta = cls_beta
+        self.pad_beta = pad_beta
+        self.mask_beta = mask_beta
+
+        # Use CpG tokenizer from MultiFieldTokenizer
+        self.cpg_tokenizer = self.tokenizer.tokenizers["cpg_sites"]
+        self.vocab = self.cpg_tokenizer.get_vocab()
+        self.unk_id = self.cpg_tokenizer.unk_token_id
+        self.cls_id = self.cpg_tokenizer.cls_token_id
+        self.pad_id = self.cpg_tokenizer.pad_token_id
+
+    def _token_to_id(self, token: str) -> int:
+        return self.vocab.get(token, self.unk_id)
+
+    def __call__(self, examples: List[MultiFieldInstance]) -> Dict[str, torch.Tensor]:
+        batch_size = len(examples)
+        cpg_ids = torch.full((batch_size, self.seq_len), self.pad_id, dtype=torch.long)
+        beta_values = torch.full((batch_size, self.seq_len), self.pad_beta, dtype=torch.float32)
+        attention_mask = torch.zeros((batch_size, self.seq_len), dtype=torch.long)
+        labels_beta = torch.zeros((batch_size, self.seq_len), dtype=torch.float32)
+        loss_mask_beta = torch.zeros((batch_size, self.seq_len), dtype=torch.float32)
+
+        seed = torch.initial_seed() % (2**32)
+        rng = np.random.default_rng(seed)
+
+        for i, ex in enumerate(examples):
+            betas = np.asarray(ex.data["beta_values"], dtype=np.float32)
+            valid_mask = np.asarray(
+                ex.data.get("valid_mask", np.ones_like(betas, dtype=bool)),
+                dtype=bool,
+            )
+
+            candidate = np.where(valid_mask)[0]
+
+            if len(candidate) == 0:
+                subset_idx = np.array([], dtype=int)
+            elif len(candidate) <= self.k:
+                subset_idx = candidate
+            else:
+                subset_idx = rng.choice(candidate, size=self.k, replace=False)
+
+            subset_idx = np.sort(subset_idx)
+
+            # Build tokens and beta values
+            ids = [self.cls_id] + [self._token_to_id(self.cpg_sites[j]) for j in subset_idx]
+            vals = [self.cls_beta] + betas[subset_idx].tolist()
+
+            length = len(ids)
+            cpg_ids[i, :length] = torch.tensor(ids, dtype=torch.long)
+            beta_values[i, :length] = torch.tensor(vals, dtype=torch.float32)
+            attention_mask[i, :length] = 1
+
+            # Mask beta values (exclude CLS at position 0)
+            if self.mask_ratio > 0 and len(subset_idx) > 0:
+                n_mask = int(self.mask_ratio * len(subset_idx))
+                if n_mask > 0:
+                    candidate_positions = np.arange(1, length)
+                    mask_pos = rng.choice(candidate_positions, size=n_mask, replace=False)
+                    labels_beta[i, mask_pos] = beta_values[i, mask_pos]
+                    loss_mask_beta[i, mask_pos] = 1.0
+                    beta_values[i, mask_pos] = self.mask_beta
+
+        assert cpg_ids.shape[1] == self.seq_len
+        assert beta_values.shape == cpg_ids.shape
+        assert attention_mask.shape == cpg_ids.shape
+        if self.mask_ratio > 0:
+            assert loss_mask_beta.sum().item() > 0
+
+        return {
+            "cpg_ids": cpg_ids,
+            "beta_values": beta_values,
+            "attention_mask": attention_mask,
+            "labels_beta": labels_beta,
+            "loss_mask_beta": loss_mask_beta,
+        }

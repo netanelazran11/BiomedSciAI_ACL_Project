@@ -116,11 +116,13 @@ class MethylationDataset(Dataset):
         return len(self.ages)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        beta_values = self.beta_values[idx]
+        valid_mask = torch.isfinite(beta_values)
         return {
-            "cpg_ids": self.cpg_ids,
-            "beta_values": self.beta_values[idx],
+            "beta_values": beta_values,
+            "valid_mask": valid_mask,
             "age": self.ages[idx],
-            "age_normalized": self.ages_normalized[idx]
+            "age_normalized": self.ages_normalized[idx],
         }
 
     def denormalize_age(self, normalized_age: torch.Tensor) -> torch.Tensor:

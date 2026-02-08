@@ -25,11 +25,18 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 # IMPORTANT: Must match combine_style (multiply checkpoint for multiply finetuning)
 CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-multiply-bmfm-rna-methylation-8k/multiply-44032612/pretrain/checkpoints/epoch=epoch=2-val_loss=validation/loss=0.0151.ckpt}"
 
-# Combine style: "multiply" (scGPT style) or "add" (scaled CpG)
+# Combine style: "multiply" (scGPT scaling), "add" (scaled CpG), or "binned" (scGPT category)
 COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
 
 # Initial CpG scale (only used in "add" mode)
 INITIAL_CPG_SCALE="${INITIAL_CPG_SCALE:-0.1}"
+
+# Beta offset for multiply mode (prevents vanishing embeddings for low methylation)
+# β=0→offset, β=1→1+offset, clamped to [0.3, 1.5]
+BETA_OFFSET="${BETA_OFFSET:-0.5}"
+
+# Number of bins for binned mode (like scGPT's 51 bins)
+N_BINS="${N_BINS:-51}"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -53,7 +60,11 @@ echo "Node(s): ${SLURM_NODELIST}"
 echo "============================================================"
 echo "Combine style: ${COMBINE_STYLE}"
 if [ "${COMBINE_STYLE}" = "multiply" ]; then
-    echo "Architecture: h = CpG_embed * β_value (scGPT style)"
+    echo "Architecture: h = CpG_embed * (β + ${BETA_OFFSET}) (scGPT scaling style)"
+    echo "Beta offset: ${BETA_OFFSET} (β=0→${BETA_OFFSET}, β=1→$((1+BETA_OFFSET)))"
+elif [ "${COMBINE_STYLE}" = "binned" ]; then
+    echo "Architecture: h = CpG_embed + bin_embed(β) (scGPT category style)"
+    echo "Number of bins: ${N_BINS}"
 else
     echo "Architecture: h = α * CpG_embed + β_embed (α=${INITIAL_CPG_SCALE})"
 fi
@@ -107,7 +118,9 @@ echo ""
 echo "Starting Transformer fine-tuning..."
 echo "  - Combine style: ${COMBINE_STYLE}"
 if [ "${COMBINE_STYLE}" = "multiply" ]; then
-    echo "  - h = CpG_embed * β_value (scGPT style)"
+    echo "  - h = CpG_embed * (β + ${BETA_OFFSET}) (scGPT scaling style)"
+elif [ "${COMBINE_STYLE}" = "binned" ]; then
+    echo "  - h = CpG_embed + bin_embed(β) (scGPT category, ${N_BINS} bins)"
 else
     echo "  - h = α * CpG_embed + β_embed (α starts at ${INITIAL_CPG_SCALE})"
 fi
@@ -119,6 +132,8 @@ python -m bmfm_methylation.finetune_transformer_scaled \
     output_directory="${OUTDIR}" \
     combine_style="${COMBINE_STYLE}" \
     initial_cpg_scale=${INITIAL_CPG_SCALE} \
+    beta_offset=${BETA_OFFSET} \
+    n_bins=${N_BINS} \
     freeze_encoder=true \
     unfreeze_encoder_epoch=5 \
     track_wandb.enabled=true \

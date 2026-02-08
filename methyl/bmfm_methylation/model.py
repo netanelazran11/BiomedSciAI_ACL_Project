@@ -13,6 +13,47 @@ from bmfm_targets.config import SCBertConfig
 from .config import create_methylation_config
 
 
+def patch_embeddings_add_stabilized(scbert_model: SCBertModel, initial_cpg_scale: float = 0.1):
+    """
+    Patch SCBert embeddings to use ADD fusion with learnable CpG scaling.
+
+    h = alpha * CpG_embed + beta_embed (+ pos) -> LayerNorm -> Dropout
+    """
+    embeddings_layer = scbert_model.embeddings
+    embeddings_layer.cpg_scale = nn.Parameter(torch.tensor(float(initial_cpg_scale)))
+
+    def add_forward(input_ids, position_ids=None, inputs_embeds=None):
+        if inputs_embeds is not None:
+            return inputs_embeds
+
+        batch_size, num_fields, seq_length = input_ids.shape
+
+        # Field 0: CpG IDs
+        cpg_ids = input_ids[:, 0, :].long()
+        cpg_embeds = embeddings_layer.cpg_sites_embeddings(cpg_ids)
+
+        # Field 1: beta values
+        beta_values = input_ids[:, 1, :].float()
+        # Replace special sentinels with neutral value before encoding
+        beta_values_clean = beta_values.clone()
+        beta_values_clean[beta_values_clean < 0] = 0.0
+        beta_embeds = embeddings_layer.beta_values_embeddings(beta_values_clean)
+
+        hidden_states = embeddings_layer.cpg_scale * cpg_embeds + beta_embeds
+
+        if embeddings_layer.position_embedding_type is not None:
+            if position_ids is None:
+                position_ids = embeddings_layer.position_ids[:, :seq_length]
+            position_embeddings = embeddings_layer.position_embeddings(position_ids)
+            hidden_states = hidden_states + position_embeddings
+
+        hidden_states = embeddings_layer.LayerNorm(hidden_states)
+        hidden_states = embeddings_layer.dropout(hidden_states)
+        return hidden_states
+
+    embeddings_layer.forward = add_forward
+
+
 class MethylationEncoder(nn.Module):
     """
     Wrapper around the original BMFM SCBertModel for methylation data.
@@ -21,7 +62,13 @@ class MethylationEncoder(nn.Module):
     just configured for methylation inputs.
     """
 
-    def __init__(self, config: SCBertConfig, add_pooling_layer: bool = True):
+    def __init__(
+        self,
+        config: SCBertConfig,
+        add_pooling_layer: bool = True,
+        use_add_stabilizer: bool = True,
+        initial_cpg_scale: float = 0.1,
+    ):
         """
         Args:
             config: SCBertConfig configured for methylation (use create_methylation_config)
@@ -32,6 +79,13 @@ class MethylationEncoder(nn.Module):
 
         # Use the ORIGINAL BMFM SCBertModel
         self.encoder = SCBertModel(config, add_pooling_layer=add_pooling_layer)
+
+        # Optional: stabilize ADD fusion so beta contributes meaningfully
+        if use_add_stabilizer:
+            patch_embeddings_add_stabilized(
+                self.encoder,
+                initial_cpg_scale=initial_cpg_scale,
+            )
 
     def forward(
         self,
@@ -97,6 +151,8 @@ class MethylationAgeModel(nn.Module):
         num_cpg_sites: int = 8000,
         head_hidden_size: int = 256,
         head_dropout: float = 0.1,
+        use_add_stabilizer: bool = True,
+        initial_cpg_scale: float = 0.1,
         **config_kwargs
     ):
         """
@@ -118,7 +174,12 @@ class MethylationAgeModel(nn.Module):
         self.config = config
 
         # BMFM Encoder (original code)
-        self.encoder = MethylationEncoder(config, add_pooling_layer=True)
+        self.encoder = MethylationEncoder(
+            config,
+            add_pooling_layer=True,
+            use_add_stabilizer=use_add_stabilizer,
+            initial_cpg_scale=initial_cpg_scale,
+        )
 
         # Age prediction head
         self.age_head = nn.Sequential(

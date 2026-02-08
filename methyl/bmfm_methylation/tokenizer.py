@@ -45,15 +45,18 @@ def create_cpg_vocabulary(
 
     vocab = []
 
-    # Add special tokens first (they get IDs 0-4)
+    # Add special tokens first in BMFM order:
+    # 0: [UNK], 1: [SEP], 2: [PAD], 3: [CLS], 4: [MASK]
     if add_special_tokens:
-        vocab.extend([
-            SPECIAL_TOKENS["pad_token"],  # ID 0
-            SPECIAL_TOKENS["unk_token"],  # ID 1
-            SPECIAL_TOKENS["cls_token"],  # ID 2
-            SPECIAL_TOKENS["sep_token"],  # ID 3
-            SPECIAL_TOKENS["mask_token"], # ID 4
-        ])
+        vocab.extend(
+            [
+                SPECIAL_TOKENS["unk_token"],  # ID 0
+                SPECIAL_TOKENS["sep_token"],  # ID 1
+                SPECIAL_TOKENS["pad_token"],  # ID 2
+                SPECIAL_TOKENS["cls_token"],  # ID 3
+                SPECIAL_TOKENS["mask_token"], # ID 4
+            ]
+        )
 
     # Add CpG sites
     vocab.extend(cpg_sites)
@@ -112,9 +115,10 @@ def create_methylation_multifield_tokenizer(
     """
     Create a MultiFieldTokenizer for methylation data.
 
-    This creates a tokenizer with two fields:
+    This creates a tokenizer with a single discrete field:
     - cpg_sites: discrete tokens for CpG site IDs
-    - beta_values: continuous values (handled by ContinuousValueEncoder)
+
+    Continuous beta values are handled by the collator/encoder (no HF tokenizer).
 
     Args:
         cpg_sites: List of CpG site names
@@ -128,25 +132,24 @@ def create_methylation_multifield_tokenizer(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create CpG sites tokenizer
-    cpg_tokenizer = create_methylation_tokenizer(
+    # Create CpG sites tokenizer only
+    create_methylation_tokenizer(
         cpg_sites=cpg_sites,
         output_dir=output_dir,
         tokenizer_name="cpg_sites",
-    )
-
-    # For beta_values, we use the same tokenizer structure
-    # (the actual values are replaced by ContinuousValueEncoder)
-    beta_tokenizer = create_methylation_tokenizer(
-        cpg_sites=cpg_sites,  # Same vocab, values will be replaced
-        output_dir=output_dir,
-        tokenizer_name="beta_values",
     )
 
     # Create MultiFieldTokenizer
     multifield_tokenizer = MultiFieldTokenizer.from_pretrained(
         name_or_path=str(output_dir),
     )
+
+    tok = multifield_tokenizer.tokenizers["cpg_sites"]
+    assert tok.unk_token_id == 0, f"UNK id mismatch: {tok.unk_token_id}"
+    assert tok.sep_token_id == 1, f"SEP id mismatch: {tok.sep_token_id}"
+    assert tok.pad_token_id == 2, f"PAD id mismatch: {tok.pad_token_id}"
+    assert tok.cls_token_id == 3, f"CLS id mismatch: {tok.cls_token_id}"
+    assert tok.mask_token_id == 4, f"MASK id mismatch: {tok.mask_token_id}"
 
     return multifield_tokenizer
 
