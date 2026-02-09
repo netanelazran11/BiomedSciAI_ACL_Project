@@ -23,7 +23,7 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 
 # Pretrained checkpoint - UPDATE THIS after pretraining!
 # Should point to the checkpoint from pretrain with SAME fixed subset settings
-CHECKPOINT=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/REPLACE_WITH_PRETRAIN_RUN/checkpoints/best.ckpt
+CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=240-val_loss=validation/loss=0.0013.ckpt"
 
 # CpG subset settings - MUST MATCH PRETRAINING!
 SUBSET_K="${SUBSET_K:-2048}"
