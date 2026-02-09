@@ -369,13 +369,17 @@ class MethylationAgeRegressor(pl.LightningModule):
             eps=1e-8,
         )
 
-        # Learning rate scheduler with warmup
+        # Learning rate scheduler with warmup + cosine decay
+        # min_lr_ratio prevents LR from going to absolute zero
+        min_lr_ratio = 0.01  # LR won't go below 1% of initial
         def lr_lambda(current_step):
             if current_step < self.hparams.warmup_steps:
                 return float(current_step) / float(max(1, self.hparams.warmup_steps))
             progress = float(current_step - self.hparams.warmup_steps) / \
                        float(max(1, self.hparams.max_steps - self.hparams.warmup_steps))
-            return max(0.0, 0.5 * (1.0 + torch.cos(torch.tensor(3.14159 * progress)).item()))
+            cosine_decay = 0.5 * (1.0 + torch.cos(torch.tensor(3.14159 * progress)).item())
+            # Scale between min_lr_ratio and 1.0
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
