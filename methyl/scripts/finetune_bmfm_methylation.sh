@@ -96,7 +96,7 @@ python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
-    finetune_epochs=100 \
+    finetune_epochs=300 \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
