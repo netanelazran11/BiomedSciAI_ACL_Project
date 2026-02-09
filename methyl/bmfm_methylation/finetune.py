@@ -503,6 +503,10 @@ def main(cfg: DictConfig):
         max_length=cfg.data_module.max_length,
         mlm=False,  # Disable MLM for fine-tuning
         collation_strategy="sequence_classification",
+        # Fixed subset settings - MUST match pretraining!
+        subset_k=cfg.data_module.get('subset_k', 2048),
+        fixed_subset=cfg.data_module.get('fixed_subset', True),
+        fixed_subset_seed=cfg.data_module.get('fixed_subset_seed', 42),
     )
     data_module.setup()
 
@@ -568,7 +572,10 @@ def main(cfg: DictConfig):
     logger.info(f"Loss: {'Huber(delta=' + str(huber_delta) + ')' if use_huber_loss else 'MSE'}")
 
     num_cpg_sites = cfg.data_module.max_length - 2
+    subset_k = cfg.data_module.get('subset_k', 2048)
+    fixed_subset = cfg.data_module.get('fixed_subset', True)
     logger.info(f"Num CpG sites: {num_cpg_sites}")
+    logger.info(f"Subset settings: k={subset_k}, fixed={fixed_subset}")
     logger.info(f"Pipeline: [CpG IDs + beta values] -> Encoder ({model_config.hidden_size}d) -> mean pool -> MLP head -> age")
 
     model = MethylationAgeRegressor(
