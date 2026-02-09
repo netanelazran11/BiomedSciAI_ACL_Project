@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=pretrain-multiply-bmfm-8k
+#SBATCH --job-name=pretrain-fixed2k-bmfm
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
@@ -22,12 +22,17 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
 # Combine style: "add" (standard) or "multiply" (scGPT style)
-COMBINE_STYLE="${COMBINE_STYLE:-multiply}"
+COMBINE_STYLE="${COMBINE_STYLE:-add}"
+
+# CpG subset settings (FIXED subset - same CpGs for all samples)
+SUBSET_K="${SUBSET_K:-2048}"
+FIXED_SUBSET="true"
+FIXED_SUBSET_SEED="42"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="pretrain-${COMBINE_STYLE}-bmfm-rna-methylation-8k"
-WANDB_RUN_NAME="${COMBINE_STYLE}-${SLURM_JOB_ID}"
+WANDB_PROJECT="pretrain-fixed${SUBSET_K}-bmfm-rna-methylation"
+WANDB_RUN_NAME="${COMBINE_STYLE}-fixed${SUBSET_K}-${SLURM_JOB_ID}"
 
 # Output directory (unique per run to avoid overwriting checkpoints)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -37,18 +42,18 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "METHYLATION PRETRAINING"
+echo "METHYLATION PRETRAINING (FIXED SUBSET)"
 echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "Node(s): ${SLURM_NODELIST}"
 echo "============================================================"
+echo "CpG Subset:  FIXED ${SUBSET_K} CpGs (same for all samples)"
+echo "Seed:        ${FIXED_SUBSET_SEED}"
 echo "Combine style: ${COMBINE_STYLE}"
 if [ "${COMBINE_STYLE}" = "multiply" ]; then
     echo "Architecture: h = CpG_embed * β_value (scGPT style)"
-    echo "  - High methylation = strong embedding"
-    echo "  - Low methylation = weak embedding"
 else
     echo "Architecture: h = CpG_embed + β_embed (standard BMFM)"
 fi
@@ -95,6 +100,10 @@ python -m bmfm_methylation.pretrain \
     data_path="${DATA}" \
     output_directory="${OUTDIR}" \
     combine_style="${COMBINE_STYLE}" \
+    data_module.subset_k="${SUBSET_K}" \
+    data_module.fixed_subset="${FIXED_SUBSET}" \
+    data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
+    data_module.max_length=$((SUBSET_K + 2)) \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \

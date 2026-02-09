@@ -3,9 +3,9 @@
 _target_: bmfm_targets.config.TrainerConfig
 
 # Optimizer settings
-learning_rate: 1.0e-3  # Higher LR for fine-tuning head
+learning_rate: 5.0e-4  # Moderate LR for fine-tuning (encoder gets 0.1x = 5e-5)
 weight_decay: 0.01
-warmup_steps: 200  # Short warmup, head trains during freeze phase
+warmup_steps: 100  # Short warmup
 lr_decay_steps: -1  # Use -1 to decay based on total training steps
 
 # Adam parameters

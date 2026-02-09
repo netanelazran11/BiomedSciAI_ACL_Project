@@ -14,10 +14,10 @@ split_column: "split"
 # Data loading
 batch_size: 32  # Flash Attention enabled - can use larger batches on H200
 num_workers: 0  # MUST be 0 to avoid subprocess issues with PyTorch 2.6 checkpoint loading
-max_length: 8002  # 8000 CpG + [CLS] + [SEP]
+max_length: 2050  # subset_k + [CLS] + padding (2048 + 1 + 1 = 2050)
 padding: "max_length"
 truncation: true
-pad_to_multiple_of: 2  # 8002 is divisible by 2
+pad_to_multiple_of: 2  # Must be divisible by 2
 
 # Age normalization
 normalize_age: true
@@ -30,3 +30,12 @@ switch_ratio: 0.0   # No random switching for continuous values
 
 # Collation strategy
 collation_strategy: ${collation_strategy}
+
+# CpG subset selection
+# Options:
+#   subset_k: 8000, fixed_subset: true  → Use ALL 8000 CpGs
+#   subset_k: 2048, fixed_subset: true  → Use FIXED 2048 CpGs (recommended for testing)
+#   subset_k: 2048, fixed_subset: false → Use RANDOM 2048 per sample (NOT recommended)
+subset_k: 2048  # Number of CpGs to use (2048 for faster training)
+fixed_subset: true  # IMPORTANT: Use SAME CpGs for all samples
+fixed_subset_seed: 42  # Seed for selecting fixed subset (for reproducibility)

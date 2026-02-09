@@ -181,6 +181,8 @@ class MethylationDataModule(pl.LightningDataModule):
         ] = "sequence_classification",
         use_subset_collator: bool = True,
         subset_k: int = 2048,
+        fixed_subset: bool = True,  # NEW: Use fixed CpG subset (not random)
+        fixed_subset_seed: int = 42,  # Seed for selecting fixed subset
     ):
         """
         Args:
@@ -233,6 +235,8 @@ class MethylationDataModule(pl.LightningDataModule):
         self.collation_strategy = collation_strategy
         self.use_subset_collator = use_subset_collator
         self.subset_k = subset_k
+        self.fixed_subset = fixed_subset
+        self.fixed_subset_seed = fixed_subset_seed
 
         # Will be set during setup
         self.train_dataset = None
@@ -295,6 +299,8 @@ class MethylationDataModule(pl.LightningDataModule):
                 cpg_sites=cpg_sites,
                 k=self.subset_k,
                 mask_ratio=self.mask_ratio if self.mlm else 0.0,
+                fixed_subset=self.fixed_subset,
+                fixed_subset_seed=self.fixed_subset_seed,
             )
         else:
             # Fallback to BMFM MultiFieldCollator if needed
@@ -384,10 +390,16 @@ class MethylationDataModule(pl.LightningDataModule):
 
 class MethylationCollator:
     """
-    Collator for methylation data with variable subsets.
+    Collator for methylation data with fixed or variable subsets.
 
-    Builds sequences of length K+1: [CLS] + K sampled CpG sites.
-    Pads to fixed length and applies masking on beta values.
+    Builds sequences of length K+1: [CLS] + K CpG sites.
+
+    Subset selection modes:
+    - fixed_subset=True (default): Select K CpGs ONCE at init, use same for all samples
+    - fixed_subset=False: Random K CpGs per sample (original Option-B behavior)
+
+    Fixed subset is selected by taking the first K CpG sites (sorted by name).
+    This ensures reproducibility and allows the model to learn CpG-age associations.
     """
 
     def __init__(
@@ -399,6 +411,8 @@ class MethylationCollator:
         cls_beta: float = -2.0,
         pad_beta: float = -3.0,
         mask_beta: float = -1.0,
+        fixed_subset: bool = True,  # NEW: use fixed subset by default
+        fixed_subset_seed: int = 42,  # Seed for selecting fixed subset
     ):
         self.tokenizer = tokenizer
         self.cpg_sites = cpg_sites
@@ -408,6 +422,7 @@ class MethylationCollator:
         self.cls_beta = cls_beta
         self.pad_beta = pad_beta
         self.mask_beta = mask_beta
+        self.fixed_subset = fixed_subset
         self._call_count = 0
 
         # Use CpG tokenizer from MultiFieldTokenizer
@@ -416,6 +431,28 @@ class MethylationCollator:
         self.unk_id = self.cpg_tokenizer.unk_token_id
         self.cls_id = self.cpg_tokenizer.cls_token_id
         self.pad_id = self.cpg_tokenizer.pad_token_id
+
+        # Pre-select fixed subset of CpG indices if using fixed mode
+        if self.fixed_subset:
+            n_cpgs = len(self.cpg_sites)
+            if self.k <= 0 or n_cpgs <= self.k:
+                # Use ALL CpGs if k<=0 or fewer than K available
+                self.fixed_cpg_indices = np.arange(n_cpgs)
+                logger.info(f"Using ALL {n_cpgs} CpGs (no subset)")
+            else:
+                # Select K CpGs randomly but FIXED (same for all samples/epochs)
+                rng = np.random.default_rng(fixed_subset_seed)
+                self.fixed_cpg_indices = np.sort(rng.choice(n_cpgs, size=self.k, replace=False))
+                logger.info(f"Using FIXED subset of {len(self.fixed_cpg_indices)} CpGs (same for all samples)")
+
+            # Pre-compute token IDs for fixed subset
+            self.fixed_cpg_ids = [self._token_to_id(self.cpg_sites[j]) for j in self.fixed_cpg_indices]
+            # Update seq_len to match actual number of CpGs
+            self.seq_len = len(self.fixed_cpg_indices) + 1  # +1 for CLS
+        else:
+            self.fixed_cpg_indices = None
+            self.fixed_cpg_ids = None
+            logger.info(f"Using RANDOM subset of {self.k} CpGs per sample (Option-B)")
 
     def _token_to_id(self, token: str) -> int:
         return self.vocab.get(token, self.unk_id)
@@ -439,19 +476,26 @@ class MethylationCollator:
                 dtype=bool,
             )
 
-            candidate = np.where(valid_mask)[0]
-
-            if len(candidate) == 0:
-                subset_idx = np.array([], dtype=int)
-            elif len(candidate) <= self.k:
-                subset_idx = candidate
+            # Select CpG subset: FIXED or RANDOM
+            if self.fixed_subset and self.fixed_cpg_indices is not None:
+                # FIXED SUBSET: Use pre-selected CpGs, filter by valid_mask
+                subset_idx = self.fixed_cpg_indices[valid_mask[self.fixed_cpg_indices]]
+                # Use pre-computed token IDs for valid positions
+                valid_positions = valid_mask[self.fixed_cpg_indices]
+                ids = [self.cls_id] + [self.fixed_cpg_ids[j] for j in range(len(self.fixed_cpg_indices)) if valid_positions[j]]
             else:
-                subset_idx = rng.choice(candidate, size=self.k, replace=False)
+                # RANDOM SUBSET: Original Option-B behavior
+                candidate = np.where(valid_mask)[0]
+                if len(candidate) == 0:
+                    subset_idx = np.array([], dtype=int)
+                elif len(candidate) <= self.k:
+                    subset_idx = candidate
+                else:
+                    subset_idx = rng.choice(candidate, size=self.k, replace=False)
+                subset_idx = np.sort(subset_idx)
+                ids = [self.cls_id] + [self._token_to_id(self.cpg_sites[j]) for j in subset_idx]
 
-            subset_idx = np.sort(subset_idx)
-
-            # Build tokens and beta values
-            ids = [self.cls_id] + [self._token_to_id(self.cpg_sites[j]) for j in subset_idx]
+            # Build beta values for selected CpGs
             vals = [self.cls_beta] + betas[subset_idx].tolist()
 
             length = len(ids)
@@ -459,7 +503,7 @@ class MethylationCollator:
             beta_values[i, :length] = torch.tensor(vals, dtype=torch.float32)
             attention_mask[i, :length] = 1
 
-            # Mask beta values (exclude CLS at position 0)
+            # Mask beta values for MLM (exclude CLS at position 0)
             if self.mask_ratio > 0 and len(subset_idx) > 0:
                 n_mask = int(self.mask_ratio * len(subset_idx))
                 if n_mask > 0:

@@ -65,11 +65,14 @@ class MethylationAgeRegressor(pl.LightningModule):
     Lightning module for methylation age regression.
 
     Uses the pretrained BMFM SCBert encoder to produce per-token representations
-    from the multi-field input (CpG IDs + beta values), then mean-pools and
+    from the multi-field input (CpG IDs + beta values), then pools and
     feeds through an MLP head for age prediction.
 
+    Uses mean pooling over content tokens (skip CLS) since MLM pretraining
+    doesn't train CLS to aggregate information.
+
     Pipeline:
-        [CpG IDs + β-values] → Pretrained Encoder → mean pool → MLP head → age
+        [CpG IDs + β-values] → Pretrained Encoder → Mean Pool → MLP head → age
     """
 
     def __init__(
@@ -103,7 +106,7 @@ class MethylationAgeRegressor(pl.LightningModule):
                 param.requires_grad = False
             logger.info(f"Encoder frozen (will unfreeze at epoch {unfreeze_encoder_epoch})")
 
-        # MLP head takes encoder output (hidden_size=512) as input
+        # MLP head for age prediction: 512 -> 256 -> 128 -> 1
         self.age_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
@@ -155,8 +158,11 @@ class MethylationAgeRegressor(pl.LightningModule):
         encoder_output = self.encoder(input_ids, attention_mask=attention_mask)
         sequence_output = encoder_output.last_hidden_state  # [batch, seq_len, hidden]
 
-        # CLS pooling (BMFM default)
-        pooled = sequence_output[:, 0, :]  # [batch, hidden_size]
+        # Mean pooling over content tokens (skip CLS at position 0)
+        # CLS pooling doesn't work after MLM pretrain since CLS wasn't trained to aggregate
+        content = sequence_output[:, 1:, :]  # [batch, seq_len-1, hidden]
+        mask = attention_mask[:, 1:].unsqueeze(-1).float()  # [batch, seq_len-1, 1]
+        pooled = (content * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
 
         # Age prediction head
         age_pred = self.age_head(pooled)
