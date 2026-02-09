@@ -108,7 +108,8 @@ python3 -m bmfm_methylation.finetune \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    early_stopping.patience=100
 
 echo "============================================================"
 echo "Job finished: $(date)"
