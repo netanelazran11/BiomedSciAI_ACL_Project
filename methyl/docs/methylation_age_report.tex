@@ -109,6 +109,20 @@ We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. 
 \item \textbf{Code:} \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{GitHub Repository}}
 \end{itemize}
 
+\subsection{Tokenizer Adaptation}
+
+BMFM-RNA uses a \texttt{MultiFieldTokenizer} that handles multiple input fields (e.g., gene IDs and expression values). We adapt this for methylation by creating a custom tokenizer:
+
+\textbf{Vocabulary construction.} We extract the 8{,}000 CpG site names (e.g., \texttt{cg00000029}, \texttt{cg00000108}) from the h5ad data file and build a vocabulary with 5 special tokens: \texttt{[UNK]}=0, \texttt{[SEP]}=1, \texttt{[PAD]}=2, \texttt{[CLS]}=3, \texttt{[MASK]}=4, followed by CpG site tokens (IDs 5--8004). Total vocab size: 8{,}005.
+
+\textbf{Two-field input.} Each sample is represented as two parallel sequences:
+\begin{enumerate}
+\item \textbf{cpg\_sites}: Discrete token IDs $[3, s_1, s_2, \ldots, s_n, 2, 2, \ldots]$ where 3=[CLS], $s_i$ are CpG IDs, and 2=[PAD]
+\item \textbf{beta\_values}: Continuous $\beta$-values $[0, \beta_1, \beta_2, \ldots, \beta_n, 0, 0, \ldots]$ in range $[0,1]$
+\end{enumerate}
+
+\textbf{Embedding combination.} The model combines both fields: $\mathbf{h}_i = \texttt{CpG\_embed}(s_i) + \texttt{Beta\_embed}(\beta_i) + \texttt{Pos\_embed}(i)$, where \texttt{Beta\_embed} is a learned MLP that projects continuous values to the hidden dimension.
+
 \subsection{Architecture Comparison}
 
 \begin{table}[h]
