@@ -141,7 +141,7 @@ Head dimension & 64 & 64 & 16 \\
 Parameters (encoder) & $\sim$110M & $\sim$23M & $\sim$2M \\
 Vocab size & $\sim$20K (genes) & 8{,}005 & $\sim$8K \\
 Max positions & varies & 8{,}002 & varies \\
-CpG subset & -- & 2{,}048 (fixed) & 8{,}000 \\
+CpG subset & -- & 8{,}000 & 8{,}000 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -160,7 +160,7 @@ where $\mathbf{e}_{\text{cpg}}(s_i) \in \mathbb{R}^{512}$ is a learned CpG site 
 The pretrained encoder (MLM loss = 0.0013, PCC = 0.997 after 240 epochs) is fine-tuned for age regression:
 \begin{itemize}[leftmargin=1.5em]
 \item \textbf{Pooling:} Mean pooling over token outputs (skip CLS)
-\item \textbf{Age head:} MLP (512 $\to$ 256 $\to$ 128 $\to$ 1) with LayerNorm, GELU, Dropout(0.1)
+\item \textbf{Age head:} MLP (512 $\to$ 256 $\to$ 128 $\to$ 1) with LayerNorm, GELU, Dropout(0.2)
 \item \textbf{Freeze strategy:} Encoder frozen epochs 0--4, unfrozen epoch 5+ with 10$\times$ lower LR
 \item \textbf{Loss:} MSE on $z$-score normalized ages
 \end{itemize}
@@ -201,9 +201,9 @@ Learning rate & $5 \times 10^{-4}$ \\
 Weight decay & 0.01 \\
 LR schedule & Cosine decay with 200-step linear warmup \\
 Batch size & 32 (effective 64 with gradient accumulation $\times$2) \\
-Max epochs & 100 \\
+Max epochs & 300 \\
 Precision & 16-bit mixed \\
-Early stopping & Patience = 20 epochs on val/MAE \\
+Early stopping & Patience = 60 epochs on val/MAE \\
 Checkpoint & Best validation MAE (top-3 saved) \\
 \bottomrule
 \end{tabular}
