@@ -380,6 +380,21 @@ def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -
     # Check for collapse
     collapsed, collapse_epoch = identify_collapse(df)
 
+    # Format helper
+    def fmt(val, decimals=4):
+        if val is None or val == 'N/A':
+            return 'N/A'
+        try:
+            return f"{float(val):.{decimals}f}"
+        except (ValueError, TypeError):
+            return 'N/A'
+
+    # Pre-compute formatted values
+    best_loss = fmt(best.get('best_loss'))
+    best_mae = fmt(best.get('best_beta_values_mae'))
+    best_pcc = fmt(best.get('best_beta_values_pcc'))
+    best_epoch = best.get('best_epoch', 'N/A')
+
     # Calculate statistics
     report = f"""# Pretraining Analysis Report
 
@@ -395,9 +410,9 @@ def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -
 
 | Metric | Best Value | At Epoch |
 |--------|------------|----------|
-| Validation Loss | {best.get('best_loss', 'N/A'):.4f if best.get('best_loss') else 'N/A'} | {best.get('best_epoch', 'N/A')} |
-| Validation MAE | {best.get('best_beta_values_mae', 'N/A'):.4f if best.get('best_beta_values_mae') else 'N/A'} | {best.get('best_epoch', 'N/A')} |
-| Validation PCC | {best.get('best_beta_values_pcc', 'N/A'):.4f if best.get('best_beta_values_pcc') else 'N/A'} | {best.get('best_epoch', 'N/A')} |
+| Validation Loss | {best_loss} | {best_epoch} |
+| Validation MAE | {best_mae} | {best_epoch} |
+| Validation PCC | {best_pcc} | {best_epoch} |
 
 ## Training Stability
 
@@ -438,7 +453,7 @@ Training appeared stable throughout the run.
 
 ## Best Checkpoint for Fine-tuning
 
-Based on this analysis, use the checkpoint at **epoch {best.get('best_epoch', 'N/A')}** with validation loss **{best.get('best_loss', 'N/A'):.4f if best.get('best_loss') else 'N/A'}**.
+Based on this analysis, use the checkpoint at **epoch {best_epoch}** with validation loss **{best_loss}**.
 """
 
     path = os.path.join(outdir, "analysis_report.md")
