@@ -13,7 +13,7 @@
 DNA methylation provides strong signals for age prediction, but the data are high-dimensional and noisy. We use a Transformer-based foundation model (MethylGPT) to learn sample-level representations from CpG tokens and establish a stable 8K-CpG baseline. This baseline serves as the reference point for evaluating a proposed BMFM-RNA architecture.
 \begin{itemize}[leftmargin=1.5em]
 \item \textbf{Article paper:} \href{https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2}{\textbf{MethylGPT (bioRxiv 2024)}}
-\item \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{BiomedSciAI ACL Project (GitHub)}}
+\item \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project/tree/main/methyl}{\textbf{BiomedSciAI ACL Project (GitHub)}}
 \end{itemize}
 
 \section{Data Description}
@@ -95,7 +95,7 @@ Test Spearman & 0.958 & -- & -- \\
 Test metrics are computed from the best checkpoint (selected by validation MAE). Validation MAE is averaged across all 100 training epochs.
 For visual tracking and seed-level curves, see:
 \begin{itemize}[leftmargin=1.5em]
-\item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/finetune-methylGPT-8k-cpgs-Baseline/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
+\item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/ft8k_seeds_43622436_20260107_233307/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Results}}
 \end{itemize}
 
 
@@ -105,7 +105,7 @@ We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. 
 
 \begin{itemize}[leftmargin=1.5em]
 \item \textbf{Reference:} \href{https://research.ibm.com/projects/biomedical-foundation-models}{\textbf{BMFM-RNA (IBM Research Project)}}
-\item \textbf{Code:} \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{GitHub Repository}}
+\item \textbf{Code:} \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project/tree/main/methyl}{\textbf{GitHub Repository}}
 \end{itemize}
 
 \subsection{Tokenizer and Multi-Field Representation}
@@ -169,6 +169,7 @@ Test & 0.00133 & 0.00087 & 0.0195 & 0.997 \\
 \end{table}
 
 The encoder achieves strong reconstruction performance: Test PCC (Pearson correlation) = 0.997 indicates the model accurately predicts masked $\beta$-values from surrounding context. The low test MAE (0.0195) on the [0,1] scale demonstrates precise value reconstruction. Figure~\ref{fig:pretrain_loss} shows the training dynamics.
+For detailed pretraining metrics, see: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/pretrain-fixed2048-bmfm-rna-methylation/workspace?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Pretraining W\&B}}.
 
 \begin{figure}[h]
 \centering
@@ -231,7 +232,7 @@ Checkpoint & Best validation MAE  \\
 \end{tabular}
 \end{table}
 
-Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k/runs/v4yn0u15/overview}{\textbf{W\&B run (finetune-fixed2048-44045989)}}.
+Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-fixed2048-bmfm-rna-methylation/runs/ycap9s0f?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Fine-tuning W\&B}}.
 
 \section{Comparisons}
 
