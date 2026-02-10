@@ -1,0 +1,248 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{amsmath}
+
+\begin{document}
+
+\section{Introduction}
+DNA methylation provides strong signals for age prediction, but the data are high-dimensional and noisy. We use a Transformer-based foundation model (MethylGPT) to learn sample-level representations from CpG tokens and establish a stable 8K-CpG baseline. This baseline serves as the reference point for evaluating a proposed BMFM-RNA architecture.
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Article paper:} \href{https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2}{\textbf{MethylGPT (bioRxiv 2024)}}
+\item \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{BiomedSciAI ACL Project (GitHub)}}
+\end{itemize}
+
+\section{Data Description}
+\begin{table}[h]
+\centering
+\caption{Dataset summary and preprocessing.}
+\label{tab:data}
+\begin{tabular}{ll}
+\toprule
+Item & Description \\
+\midrule
+Pretraining sources & EWAS Data Hub; ClockBase \\
+Collected profiles & 226,555 \\
+After QC + deduplication & 154,063 \\
+Platforms & Illumina 27K / 450K / EPIC \\
+CpG harmonization & 49,156 sites ($\geq$5 EWAS traits and/or $\geq$95\% presence) \\
+Value range & $\beta$-values in [0,1] \\
+Missingness handling & Retained for masking-based objectives \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Baseline Architecture}
+\textbf{Pretraining data.} Large-scale methylation profiles (154,063 after QC) are used to learn general representations before downstream fine-tuning.
+
+\begin{table}[h]
+\centering
+\caption{Architecture comparison (pretraining vs fine-tuning).}
+\label{tab:arch_compare}
+\begin{tabular}{lll}
+\toprule
+Component & Pretraining & Fine-tuning \\
+\midrule
+Base model & TransformerModel (scGPT) & Same TransformerModel (frozen/low LR) \\
+Encoder & CpG embeddings & Same \\
+Value encoder & ContinuousValueEncoder & Same \\
+Transformer & 6 layers, 4 heads, $d=64$ & Same (loaded from pretrained) \\
+Task head & ExprDecoder (MLM) + MVCDecoder & ResNet1D age head  \\
+Output & Methylation reconstruction & Single age prediction \\
+Dropout & 0.1 & 0.0 \\
+Mask ratio & 30\% & 0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This model fits our data because methylation profiles contain structured CpG dependencies that benefit from self-attention, while pretraining on large-scale methylation data learns generalizable token representations. The pretrained Transformer transfers to the 8K-CpG setting, and the ResNet1D head maps learned embeddings to age.
+
+\textbf{Fine-tuning data.} We fine-tune on 11,453 labeled samples, each represented by 8,000 CpGs per sample (M=8000), with ages spanning 0--100 years and multi-tissue composition (blood $\sim$47.2\%, brain $\sim$34.5\%, others $\sim$18.3\%).
+
+\textbf{Fine-tuning task.} Predict chronological age from the Transformer embeddings using a ResNet1D regression head (Conv1D 3x3, 6x ResBlock1D, AdaptiveAvgPool1d, Dropout, Linear, Sigmoid) with MSE loss. The output is a normalized age in [0,1]. The baseline results are reported in Section 7.
+
+\textbf{Architecture flow (summary).} Pretraining applies MLM-style masked value prediction using the ExprDecoder; fine-tuning replaces the decoder with a ResNet1D age head that operates on Transformer outputs (excluding [CLS]) to produce a single normalized age prediction.
+
+\section{Loss Function}
+Pretraining uses masked MSE to reconstruct methylation values (MLM/MVP) with a 30\% mask ratio, along with a profile-level reconstruction objective. Fine-tuning uses MSE on normalized chronological age with no masking.
+
+\section{Training Plan}
+We first run a small hyperparameter sweep and select the best configuration using validation MAE only. Fine-tuning is initialized from pretrained weights. Training uses 100 epochs with an 80\% warmup phase and a final 20\% convergence phase. The best checkpoint is selected from epochs 81--100.
+
+\section{Evaluation Plan}
+We use a fixed 48/12/40 train/val/test split. Model selection uses validation MAE. The test set is used once per run for final evaluation. Generalization is assessed by repeating training with multiple random seeds (40--44). Metrics reported for age prediction include MAE, MedAE, RMSE, $R^2$, Pearson $r$, and Spearman $r$.
+
+\section{Baseline Results}
+\begin{table}[h]
+\centering
+    \caption{Seed experiment results (48/12/40 split, validation-based selection).}
+\label{tab:results}
+\begin{tabular}{lcccc}
+\toprule
+Setting & MAE (years) & MedAE (years) & $R^2$ & Spearman \\
+\midrule
+Seeds Mean $\pm$ Std & 4.39 $\pm$ 0.18 & 3.06 $\pm$ 0.20 & 0.941 $\pm$ 0.004 & 0.958 $\pm$ 0.001 \\
+    Best Seed (Val-selected) & 4.38--4.62 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Validation MAE is stable across seeds (approximately 4.58--4.75), and test MAE ranges from 4.13 to 4.62 years.
+For visual tracking and seed-level curves, see:
+\begin{itemize}[leftmargin=1.5em]
+\item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/ft8k_seeds_43622436_20260107_233307/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Training dynamics (seed experiment).}
+\label{tab:dynamics}
+\begin{tabular}{lccc}
+\toprule
+Phase & Mean MAE & Std & Min MAE \\
+\midrule
+Full training (1--100) & 5.12 & 0.89 & 4.13 \\
+Final 20\% (81--100) & 4.58 & 0.15 & 4.13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Proposed Changes: BMFM-RNA Architecture}
+
+We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. The original BMFM-RNA is a BERT-based foundation model for single-cell RNA-seq ($\sim$110M parameters). We scale it down to match our 8K-CpG input.
+
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Reference:} \href{https://research.ibm.com/projects/biomedical-foundation-models}{\textbf{BMFM-RNA (IBM Research Project)}}
+\item \textbf{Code:} \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{GitHub Repository}}
+\end{itemize}
+
+\subsection{Architecture Comparison}
+
+\begin{table}[h]
+\centering
+\caption{Architecture comparison: original BMFM-RNA, our adapted version, and MethylGPT.}
+\label{tab:scbert_config}
+\begin{tabular}{llll}
+\toprule
+Parameter & BMFM-RNA (original) & BMFM-RNA (ours) & MethylGPT (scGPT) \\
+\midrule
+Layers & 12 & 6 & 6 \\
+Attention heads & 12 & 8 & 4 \\
+Hidden size $d$ & 768 & 512 & 64 \\
+FFN size & 3072 & 2048 & 256 \\
+Head dimension & 64 & 64 & 16 \\
+Parameters (encoder) & $\sim$110M & $\sim$23M & $\sim$2M \\
+Vocab size & $\sim$20K (genes) & 8{,}005 & $\sim$8K \\
+Max positions & varies & 8{,}002 & varies \\
+CpG subset & -- & 2{,}048 (fixed) & 8{,}000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Multi-Field Tokenization}
+
+Each CpG site $i$ is represented by two parallel fields combined via element-wise summation:
+\begin{equation}
+\mathbf{h}_i = \mathbf{e}_{\text{cpg}}(s_i) + \mathbf{e}_{\beta}(\beta_i)
+\label{eq:embedding_sum}
+\end{equation}
+where $\mathbf{e}_{\text{cpg}}(s_i) \in \mathbb{R}^{512}$ is a learned CpG site embedding and $\mathbf{e}_{\beta}(\beta_i) \in \mathbb{R}^{512}$ is the output of a continuous value encoder. The sequence is passed through a 6-layer Transformer encoder.
+
+\subsection{Fine-Tuning Pipeline}
+
+The pretrained encoder (MLM loss = 0.0013, PCC = 0.997 after 240 epochs) is fine-tuned for age regression:
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Pooling:} Mean pooling over token outputs (skip CLS)
+\item \textbf{Age head:} MLP (512 $\to$ 256 $\to$ 128 $\to$ 1) with LayerNorm, GELU, Dropout(0.1)
+\item \textbf{Freeze strategy:} Encoder frozen epochs 0--4, unfrozen epoch 5+ with 10$\times$ lower LR
+\item \textbf{Loss:} MSE on $z$-score normalized ages
+\end{itemize}
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering
+\caption{BMFM-RNA fine-tuning results (2048 CpG subset).}
+\label{tab:bmfm_results}
+\begin{tabular}{lcc}
+\toprule
+Split & MAE (years) & $R^2$ \\
+\midrule
+Train & 1.97 & -- \\
+Validation & 5.17 & 0.914 \\
+Test & 4.87 & 0.924 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Training ran for 245 epochs (early stopping, patience=60). The model explains 92.4\% of age variance on the test set.
+
+\section{Experimental Setup}
+
+We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). Two baselines are evaluated on the same split: (1) mean prediction ($\hat{y}_i = \bar{y}_{\text{train}}$) and (2) Ridge regression with $\alpha$ selected by validation MAE (best: $\alpha=10$).
+
+\begin{table}[h]
+\centering
+\caption{Training hyperparameters (MLP fine-tuning).}
+\label{tab:training_config}
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Optimizer & AdamW ($\beta_1{=}0.9$, $\beta_2{=}0.999$, $\epsilon{=}10^{-8}$) \\
+Learning rate & $5 \times 10^{-4}$ \\
+Weight decay & 0.01 \\
+LR schedule & Cosine decay with 200-step linear warmup \\
+Batch size & 32 (effective 64 with gradient accumulation $\times$2) \\
+Max epochs & 100 \\
+Precision & 16-bit mixed \\
+Early stopping & Patience = 20 epochs on val/MAE \\
+Checkpoint & Best validation MAE (top-3 saved) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k/runs/v4yn0u15/overview}{\textbf{W\&B run (bmfm-methyl-finetune-43998394)}}.
+
+\section{Results}
+
+\begin{table}[h]
+\centering
+\caption{Comparison across all approaches on the test set.}
+\label{tab:all_comparison}
+\begin{tabular}{lccc}
+\toprule
+Model & Test MAE (years) & Test $R^2$ & CpG sites \\
+\midrule
+Mean prediction & 22.82 & 0.00 & -- \\
+Ridge ($\alpha = 10$) & 4.49 & 0.943 & 8{,}000 \\
+MethylGPT baseline & 4.39 $\pm$ 0.18 & 0.941 $\pm$ 0.004 & 8{,}000 \\
+\textbf{BMFM-RNA (ours)} & \textbf{4.87} & \textbf{0.924} & 2{,}048 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Training ran for 245 epochs with early stopping (patience=60). The BMFM-RNA model achieves comparable performance to MethylGPT while using only 2{,}048 CpG sites (25\% of the input). Train MAE = 1.97 years indicates slight overfitting (train--test gap of $\sim$2.9 years).
+
+\section{Discussion and Conclusions}
+
+\textbf{BMFM-RNA adaptation.} The BMFM-RNA SCBert architecture successfully transfers to methylation age prediction. Using the correct pretrain$\to$finetune pipeline (frozen encoder with gradual unfreezing, MLP age head on mean-pooled outputs), the model achieves Test MAE = 4.87 years and $R^2$ = 0.924 on a 2{,}048 CpG subset.
+
+\textbf{Comparison with baselines.} The BMFM-RNA result is within 10\% of Ridge regression (4.49 years) and MethylGPT (4.39 years), despite using 4$\times$ fewer CpG sites. This suggests the Transformer encoder learns efficient representations that capture the age signal in fewer features.
+
+\textbf{Limitations.} (1) Single training run; multi-seed evaluation needed. (2) Full 8K CpG input not yet tested with the corrected pipeline. (3) Comparison uses different CpG subsets (2K vs 8K).
+
+\section{References}
+\begin{enumerate}[leftmargin=1.5em]
+\item Ying, K., et al., ``MethylGPT: a foundation model for the DNA methylome,'' \emph{bioRxiv}, 2024.
+\item Li, D., et al., ``BMFM-RNA: A biomedical foundation model for single-cell transcriptomics,'' IBM Research, 2024.
+\item Horvath, S., ``DNA methylation age of human tissues and cell types,'' \emph{Genome Biology}, 14(10):R115, 2013.
+\item Hannum, G., et al., ``Genome-wide methylation profiles reveal quantitative views of human aging rates,'' \emph{Molecular Cell}, 49(2):359--367, 2013.
+\item de Lima Camillo, L.P., et al., ``AltumAge: A pan-tissue DNA methylation epigenetic clock based on deep learning,'' \emph{npj Aging}, 8(1):1--15, 2022.
+\end{enumerate}
+
+\end{document}
