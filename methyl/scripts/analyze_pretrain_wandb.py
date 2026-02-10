@@ -32,7 +32,7 @@ import wandb
 # CONFIG (env overrides)
 # ==============================
 ENTITY = os.getenv("WANDB_ENTITY", "netanelazran11-hebrew-university-of-jerusalem")
-PROJECT = os.getenv("WANDB_PROJECT", "pretrain-bmfm-rna-methylation-8k")
+PROJECT = os.getenv("WANDB_PROJECT", "pretrain-fixed2048-bmfm-rna-methylation")
 RUN_ID = os.getenv("WANDB_RUN_ID", None)  # If None, will list runs and let user choose
 
 DEFAULT_OUTDIR = os.path.join(os.path.dirname(__file__), "..", "wandb_analysis")
