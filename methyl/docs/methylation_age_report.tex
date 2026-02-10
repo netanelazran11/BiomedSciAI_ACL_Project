@@ -98,6 +98,13 @@ For visual tracking and seed-level curves, see:
 \item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/ft8k_seeds_43622436_20260107_233307/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
 \end{itemize}
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{mae_loss_plot.png}
+\caption{Training and validation MAE/loss curves for MethylGPT baseline. The validation MAE stabilizes after approximately 50 epochs.}
+\label{fig:mae_loss}
+\end{figure}
+
 \section{Proposed Changes: BMFM-RNA Architecture}
 
 We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. The original BMFM-RNA is a BERT-based foundation model for single-cell RNA-seq ($\sim$110M parameters). We scale it down to match our 8K-CpG input.
@@ -277,17 +284,6 @@ Several critical modifications were required to achieve good performance:
 \item \textbf{Architecture search.} The current head architecture (512$\to$256$\to$128$\to$1) was not extensively tuned. Simpler or deeper heads may perform better.
 \item \textbf{Tissue-specific models.} The current model is trained on mixed tissues. Tissue-specific fine-tuning may reduce prediction error.
 \end{enumerate}
-
-\section{Training Curves}
-
-Figure~\ref{fig:mae_loss} shows the training dynamics of the BMFM-RNA model over 245 epochs. The validation MAE decreases rapidly in the first 50 epochs and stabilizes around epoch 100, with the best checkpoint selected at epoch 144.
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.9\textwidth]{mae_loss_plot.png}
-\caption{Training and validation MAE/loss curves for BMFM-RNA fine-tuning. The model converges after approximately 100 epochs, with early stopping triggered at epoch 245 (patience=60).}
-\label{fig:mae_loss}
-\end{figure}
 
 \section{References}
 \begin{enumerate}[leftmargin=1.5em]
