@@ -39,8 +39,8 @@ import wandb
 # CONFIG (env overrides)
 # ==============================
 ENTITY = os.getenv("WANDB_ENTITY", "netanelazran11-hebrew-university-of-jerusalem")
-PROJECT = os.getenv("WANDB_PROJECT", "finetune-bmfm-rna-methylation-8k")
-RUN_ID = os.getenv("WANDB_RUN_ID", None)
+PROJECT = os.getenv("WANDB_PROJECT", "finetune-fixed2048-bmfm-rna-methylation")
+RUN_ID = os.getenv("WANDB_RUN_ID", "ycap9s0f")  # Latest run
 
 DEFAULT_OUTDIR = os.path.join(os.path.dirname(__file__), "..", "wandb_analysis", "finetune")
 OUTDIR = os.path.abspath(os.path.expanduser(os.getenv("OUTDIR", DEFAULT_OUTDIR)))
