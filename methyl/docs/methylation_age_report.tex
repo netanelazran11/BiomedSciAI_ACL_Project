@@ -169,20 +169,20 @@ The pretrained encoder (MLM loss = 0.0013, PCC = 0.997 after 240 epochs) is fine
 
 \begin{table}[h]
 \centering
-\caption{BMFM-RNA fine-tuning results (2048 CpG subset).}
+\caption{BMFM-RNA fine-tuning results (8{,}000 CpG sites, dropout=0.2).}
 \label{tab:bmfm_results}
 \begin{tabular}{lcc}
 \toprule
 Split & MAE (years) & $R^2$ \\
 \midrule
-Train & 1.97 & -- \\
-Validation & 5.17 & 0.914 \\
-Test & 4.87 & 0.924 \\
+Train & 2.21 & -- \\
+Validation & 5.12 & 0.917 \\
+Test & 4.85 & 0.923 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Training ran for 245 epochs (early stopping, patience=60). The model explains 92.4\% of age variance on the test set.
+Training ran for 245 epochs (early stopping, patience=60). The model explains 92.3\% of age variance on the test set.
 
 \section{Experimental Setup}
 
@@ -224,12 +224,12 @@ Model & Test MAE (years) & Test $R^2$ & CpG sites \\
 Mean prediction & 22.82 & 0.00 & -- \\
 Ridge ($\alpha = 10$) & 4.49 & 0.943 & 8{,}000 \\
 MethylGPT baseline & 4.39 $\pm$ 0.18 & 0.941 $\pm$ 0.004 & 8{,}000 \\
-\textbf{BMFM-RNA (ours)} & \textbf{4.87} & \textbf{0.924} & 2{,}048 \\
+\textbf{BMFM-RNA (ours)} & \textbf{4.85} & \textbf{0.923} & 8{,}000 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Training ran for 245 epochs with early stopping (patience=60). The BMFM-RNA model achieves comparable performance to MethylGPT while using only 2{,}048 CpG sites (25\% of the input). Train MAE = 1.97 years indicates slight overfitting (train--test gap of $\sim$2.9 years).
+Training ran for 245 epochs with early stopping (patience=60). The BMFM-RNA model achieves comparable performance to MethylGPT and Ridge regression using all 8{,}000 CpG sites. Train MAE = 2.21 years indicates moderate overfitting (train--test gap of $\sim$2.6 years), reduced from earlier experiments by increasing dropout to 0.2.
 
 \section{Discussion and Conclusions}
 
@@ -265,17 +265,17 @@ Several critical modifications were required to achieve good performance:
 
 \subsection{Results Analysis}
 
-\textbf{BMFM-RNA performance.} Using the corrected pipeline, the model achieves Test MAE = 4.87 years and $R^2$ = 0.924 on a 2{,}048 CpG subset. This is within 10\% of Ridge regression (4.49 years) and MethylGPT (4.39 years), despite using 4$\times$ fewer CpG sites.
+\textbf{BMFM-RNA performance.} Using the corrected pipeline with all 8{,}000 CpG sites and dropout=0.2, the model achieves Test MAE = 4.85 years and $R^2$ = 0.923. This is within 8\% of Ridge regression (4.49 years) and 10\% of MethylGPT (4.39 years).
 
-\textbf{Representation efficiency.} The comparable performance with fewer CpGs suggests the Transformer encoder learns compact, informative representations. The pretrained embeddings capture redundant information across correlated CpG sites, allowing the model to achieve similar accuracy with a smaller input subset.
+\textbf{Effect of using all CpGs.} Increasing from 2{,}048 to 8{,}000 CpG sites provided only marginal improvement (4.87 $\to$ 4.85 years). This suggests the fixed 2{,}048 CpG subset already captured most of the age-predictive signal, and the Transformer encoder effectively learns from a compressed input.
 
-\textbf{Overfitting gap.} The train--test MAE gap of $\sim$2.9 years (train MAE = 1.97, test MAE = 4.87) indicates some overfitting. This motivated increasing dropout from 0.1 to 0.2 in the age head for future experiments.
+\textbf{Overfitting reduction.} Increasing dropout from 0.1 to 0.2 reduced the train--test MAE gap from $\sim$2.9 years to $\sim$2.6 years (train MAE = 2.21, test MAE = 4.85). Further regularization or data augmentation may continue to narrow this gap.
 
 \subsection{Limitations and Future Work}
 
 \begin{enumerate}
 \item \textbf{Single training run.} Results are from one seed; multi-seed evaluation is needed for robust confidence intervals.
-\item \textbf{CpG subset.} Current results use 2{,}048 CpGs. Experiments with all 8{,}000 CpGs are in progress and expected to improve performance.
+\item \textbf{Performance gap.} BMFM-RNA (4.85) is still 8\% behind Ridge (4.49) despite using a 23M parameter Transformer. This may indicate that the pretrained representations are not fully leveraged, or that methylation age prediction is fundamentally a linear problem.
 \item \textbf{Architecture search.} The current head architecture (512$\to$256$\to$128$\to$1) was not extensively tuned. Simpler or deeper heads may perform better.
 \item \textbf{Tissue-specific models.} The current model is trained on mixed tissues. Tissue-specific fine-tuning may reduce prediction error.
 \end{enumerate}
