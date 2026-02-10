@@ -63,7 +63,7 @@ This model fits our data because methylation profiles contain structured CpG dep
 
 \textbf{Fine-tuning data.} We fine-tune on 11,453 labeled samples, each represented by 8,000 CpGs per sample (M=8000), with ages spanning 0--100 years and multi-tissue composition (blood $\sim$47.2\%, brain $\sim$34.5\%, others $\sim$18.3\%).
 
-\textbf{Fine-tuning task.} Predict chronological age from the Transformer embeddings using a ResNet1D regression head (Conv1D 3x3, 6x ResBlock1D, AdaptiveAvgPool1d, Dropout, Linear, Sigmoid) with MSE loss. The output is a normalized age in [0,1]. The baseline results are reported in Section 7.
+\textbf{Fine-tuning task.} Predict chronological age from the Transformer embeddings using a ResNet1D regression head (Conv1D 3x3, 6x ResBlock1D, AdaptiveAvgPool1d, Dropout, Linear, Sigmoid) with MSE loss. The output is a normalized age in [0,1]. The baseline results are reported in Section 6.
 
 \textbf{Architecture flow :} Pretraining applies MLM-style masked value prediction using the ExprDecoder; fine-tuning replaces the decoder with a ResNet1D age head that operates on Transformer outputs (excluding [CLS]) to produce a single normalized age prediction.
 
@@ -112,7 +112,7 @@ We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. 
 
 BMFM-RNA uses a \texttt{MultiFieldTokenizer} that handles multiple input fields (e.g., gene IDs and expression values). We adapt this for methylation by creating a custom tokenizer:
 
-\textbf{Vocabulary construction.} We extract the 8{,}000 CpG site names (e.g., \texttt{cg00000029}, \texttt{cg00000108}) from the h5ad data file and build a vocabulary with 5 special tokens , followed by CpG site tokens (IDs 5--8004). Total vocab size: 8{,}005.
+\textbf{Vocabulary construction.} We extract the 8{,}000 CpG site names (e.g., \texttt{cg00000029}, \texttt{cg00000108}) from the h5ad data file and build a vocabulary with 5 special tokens , followed by CpG site tokens . Total vocab size: 8{,}005.
 
 \textbf{Two-field input.} Each sample is represented as two parallel sequences:
 \begin{enumerate}
@@ -122,7 +122,7 @@ BMFM-RNA uses a \texttt{MultiFieldTokenizer} that handles multiple input fields 
 
 \textbf{Embedding combination.} Each CpG site $i$ is represented by combining both fields via element-wise summation:
 \begin{equation}
-\mathbf{h}_i = \mathbf{e}_{\text{cpg}}(s_i) + \mathbf{e}_{\beta}(\beta_i) + \mathbf{e}_{\text{pos}}(i)
+\mathbf{h}_i = \mathbf{e}_{\text{cpg}}(s_i) + \mathbf{e}_{\beta}(\beta_i)
 \label{eq:embedding_sum}
 \end{equation}
 where $\mathbf{e}_{\text{cpg}}(s_i) \in \mathbb{R}^{512}$ is a learned CpG site embedding, $\mathbf{e}_{\beta}(\beta_i) \in \mathbb{R}^{512}$ is the output of a continuous value encoder (MLP that projects $\beta$-values to the hidden dimension), and $\mathbf{e}_{\text{pos}}(i) \in \mathbb{R}^{512}$ is the position embedding. The combined sequence is passed through a 6-layer Transformer encoder.
@@ -208,7 +208,7 @@ Training ran for 245 epochs (early stopping, patience=60). The model explains 92
 
 \section{Experimental Setup}
 
-We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). Two baselines are evaluated on the same split: (1) mean prediction ($\hat{y}_i = \bar{y}_{\text{train}}$) .
+We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). Two baselines are evaluated on the same split: mean prediction ($\hat{y}_i = \bar{y}_{\text{train}}$) .
 
 \begin{table}[h]
 \centering
