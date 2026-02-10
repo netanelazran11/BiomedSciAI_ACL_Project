@@ -150,9 +150,37 @@ CpG subset & -- & 8{,}000 & 8{,}000 \\
 \end{tabular}
 \end{table}
 
+\subsection{Pretraining Results}
+
+Before fine-tuning, we pretrain the BMFM-RNA encoder using masked language modeling (MLM) on methylation $\beta$-values. The model learns to reconstruct masked values from context, forcing it to capture the statistical structure of methylation patterns.
+
+\begin{table}[h]
+\centering
+\caption{BMFM-RNA pretraining results (MLM on $\beta$-values, 250 epochs).}
+\label{tab:pretrain_results}
+\begin{tabular}{lcccc}
+\toprule
+Split & Loss & MSE & MAE & PCC \\
+\midrule
+Train & 0.00132 & 0.00132 & 0.0221 & 0.994 \\
+Validation & 0.00147 & 0.00147 & 0.0234 & 0.994 \\
+Test & 0.00133 & 0.00087 & 0.0195 & 0.997 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The encoder achieves strong reconstruction performance: Test PCC = 0.997 indicates the model accurately predicts masked $\beta$-values from surrounding context. The low test MAE (0.0195) on the [0,1] scale demonstrates precise value reconstruction. Figure~\ref{fig:pretrain_loss} shows the training dynamics.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{loss_curves.png}
+\caption{Pretraining loss curves for BMFM-RNA encoder (MLM objective). The model converges after approximately 150 epochs, achieving final test loss = 0.00133 and PCC = 0.997.}
+\label{fig:pretrain_loss}
+\end{figure}
+
 \subsection{Fine-Tuning Pipeline}
 
-The pretrained encoder (MLM loss = 0.0013, PCC = 0.997 after 240 epochs) is fine-tuned for age regression:
+The pretrained encoder is fine-tuned for age regression:
 \begin{itemize}[leftmargin=1.5em]
 \item \textbf{Pooling:} Mean pooling over token outputs (skip CLS)
 \item \textbf{Age head:} MLP (512 $\to$ 256 $\to$ 128 $\to$ 1) with LayerNorm, GELU, Dropout(0.2)
