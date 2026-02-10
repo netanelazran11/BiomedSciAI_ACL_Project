@@ -86,7 +86,7 @@ Metric & Mean $\pm$ Std & Min & Max \\
 Validation MAE (years) & 5.12 $\pm$ 0.89 & 4.13 & -- \\
 Test MAE (years) & 4.95 & -- & --   \\
 Test MedAE (years) & 3.06 & -- & -- \\
-Test $R^2$ & 0.941 & -- & -- \\
+Test $R^2$ & 0.911 & -- & -- \\
 Test Spearman & 0.958 & -- & -- \\
 \bottomrule
 \end{tabular}
@@ -95,15 +95,9 @@ Test Spearman & 0.958 & -- & -- \\
 Test metrics are computed from the best checkpoint (selected by validation MAE). Validation MAE is averaged across all 100 training epochs.
 For visual tracking and seed-level curves, see:
 \begin{itemize}[leftmargin=1.5em]
-\item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/ft8k_seeds_43622436_20260107_233307/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
+\item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/finetune-methylGPT-8k-cpgs-Baseline/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
 \end{itemize}
 
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.9\textwidth]{mae_loss_plot.png}
-\caption{Training and validation MAE/loss curves for MethylGPT baseline. The validation MAE stabilizes after approximately 50 epochs.}
-\label{fig:mae_loss}
-\end{figure}
 
 \section{Proposed Changes: BMFM-RNA Architecture}
 
@@ -114,7 +108,7 @@ We adapt the BMFM-RNA SCBert architecture for methylation-based age prediction. 
 \item \textbf{Code:} \href{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}{\textbf{GitHub Repository}}
 \end{itemize}
 
-\subsection{Tokenizer Adaptation}
+\subsection{Tokenizer and Multi-Field Representation}
 
 BMFM-RNA uses a \texttt{MultiFieldTokenizer} that handles multiple input fields (e.g., gene IDs and expression values). We adapt this for methylation by creating a custom tokenizer:
 
@@ -126,7 +120,12 @@ BMFM-RNA uses a \texttt{MultiFieldTokenizer} that handles multiple input fields 
 \item \textbf{beta\_values}: Continuous $\beta$-values $[0, \beta_1, \beta_2, \ldots, \beta_n, 0, 0, \ldots]$ in range $[0,1]$
 \end{enumerate}
 
-\textbf{Embedding combination.} The model combines both fields: $\mathbf{h}_i = \texttt{CpG\_embed}(s_i) + \texttt{Beta\_embed}(\beta_i) + \texttt{Pos\_embed}(i)$, where \texttt{Beta\_embed} is a learned MLP that projects continuous values to the hidden dimension.
+\textbf{Embedding combination.} Each CpG site $i$ is represented by combining both fields via element-wise summation:
+\begin{equation}
+\mathbf{h}_i = \mathbf{e}_{\text{cpg}}(s_i) + \mathbf{e}_{\beta}(\beta_i) + \mathbf{e}_{\text{pos}}(i)
+\label{eq:embedding_sum}
+\end{equation}
+where $\mathbf{e}_{\text{cpg}}(s_i) \in \mathbb{R}^{512}$ is a learned CpG site embedding, $\mathbf{e}_{\beta}(\beta_i) \in \mathbb{R}^{512}$ is the output of a continuous value encoder (MLP that projects $\beta$-values to the hidden dimension), and $\mathbf{e}_{\text{pos}}(i) \in \mathbb{R}^{512}$ is the position embedding. The combined sequence is passed through a 6-layer Transformer encoder.
 
 \subsection{Architecture Comparison}
 
@@ -150,15 +149,6 @@ CpG subset & -- & 8{,}000 & 8{,}000 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{Multi-Field Tokenization}
-
-Each CpG site $i$ is represented by two parallel fields combined via element-wise summation:
-\begin{equation}
-\mathbf{h}_i = \mathbf{e}_{\text{cpg}}(s_i) + \mathbf{e}_{\beta}(\beta_i)
-\label{eq:embedding_sum}
-\end{equation}
-where $\mathbf{e}_{\text{cpg}}(s_i) \in \mathbb{R}^{512}$ is a learned CpG site embedding and $\mathbf{e}_{\beta}(\beta_i) \in \mathbb{R}^{512}$ is the output of a continuous value encoder. The sequence is passed through a 6-layer Transformer encoder.
 
 \subsection{Fine-Tuning Pipeline}
 
@@ -191,7 +181,7 @@ Training ran for 245 epochs (early stopping, patience=60). The model explains 92
 
 \section{Experimental Setup}
 
-We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). Two baselines are evaluated on the same split: (1) mean prediction ($\hat{y}_i = \bar{y}_{\text{train}}$) and (2) Ridge regression with $\alpha$ selected by validation MAE (best: $\alpha=10$).
+We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). Two baselines are evaluated on the same split: (1) mean prediction ($\hat{y}_i = \bar{y}_{\text{train}}$) .
 
 \begin{table}[h]
 \centering
@@ -201,7 +191,7 @@ We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, trai
 \toprule
 Hyperparameter & Value \\
 \midrule
-Optimizer & AdamW ($\beta_1{=}0.9$, $\beta_2{=}0.999$, $\epsilon{=}10^{-8}$) \\
+Optimizer & AdamW  \\
 Learning rate & $5 \times 10^{-4}$ \\
 Weight decay & 0.01 \\
 LR schedule & Cosine decay with 200-step linear warmup \\
@@ -209,14 +199,14 @@ Batch size & 32 (effective 64 with gradient accumulation $\times$2) \\
 Max epochs & 300 \\
 Precision & 16-bit mixed \\
 Early stopping & Patience = 60 epochs on val/MAE \\
-Checkpoint & Best validation MAE (top-3 saved) \\
+Checkpoint & Best validation MAE  \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k/runs/v4yn0u15/overview}{\textbf{W\&B run (bmfm-methyl-finetune-43998394)}}.
+Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k/runs/v4yn0u15/overview}{\textbf{W\&B run (finetune-fixed2048-44045989)}}.
 
-\section{Results}
+\section{Comparisons}
 
 \begin{table}[h]
 \centering
@@ -226,9 +216,8 @@ Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-
 \toprule
 Model & Test MAE (years) & Test $R^2$ & CpG sites \\
 \midrule
-Mean prediction & 22.82 & 0.00 & -- \\
-Ridge ($\alpha = 10$) & 4.49 & 0.943 & 8{,}000 \\
-MethylGPT baseline & 4.39 $\pm$ 0.18 & 0.941 $\pm$ 0.004 & 8{,}000 \\
+Mean prediction (without training) & 22.82 & 0.00 & -- \\
+MethylGPT baseline & 4.95 & 0.911 & 8{,}000 \\
 \textbf{BMFM-RNA (ours)} & \textbf{4.85} & \textbf{0.923} & 8{,}000 \\
 \bottomrule
 \end{tabular}
