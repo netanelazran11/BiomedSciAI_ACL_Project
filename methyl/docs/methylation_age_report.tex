@@ -79,36 +79,26 @@ We use a fixed 48/12/40 train/val/test split. Model selection uses validation MA
 \section{Baseline Results}
 \begin{table}[h]
 \centering
-    \caption{Seed experiment results (48/12/40 split, validation-based selection).}
+\caption{MethylGPT baseline results (48/12/40 split, 5 seeds).}
 \label{tab:results}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-Setting & MAE (years) & MedAE (years) & $R^2$ & Spearman \\
+Metric & Mean $\pm$ Std & Min & Max \\
 \midrule
-Seeds Mean $\pm$ Std & 4.39 $\pm$ 0.18 & 3.06 $\pm$ 0.20 & 0.941 $\pm$ 0.004 & 0.958 $\pm$ 0.001 \\
-    Best Seed (Val-selected) & 4.38--4.62 & -- & -- & -- \\
+Validation MAE (years) & 5.12 $\pm$ 0.89 & 4.13 & -- \\
+Test MAE (years) & 4.39 $\pm$ 0.18 & 4.13 & 4.62 \\
+Test MedAE (years) & 3.06 $\pm$ 0.20 & -- & -- \\
+Test $R^2$ & 0.941 $\pm$ 0.004 & -- & -- \\
+Test Spearman & 0.958 $\pm$ 0.001 & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Validation MAE is stable across seeds (approximately 4.58--4.75), and test MAE ranges from 4.13 to 4.62 years.
+Test metrics are computed from the best checkpoint (selected by validation MAE). Validation MAE is averaged across all 100 training epochs.
 For visual tracking and seed-level curves, see:
 \begin{itemize}[leftmargin=1.5em]
 \item \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/ft8k_seeds_43622436_20260107_233307/workspace?nw=nwusernetanelazran11}{\textbf{MethylGPT W\&B Visual Results}}
 \end{itemize}
-
-\begin{table}[h]
-\centering
-\caption{Training dynamics (seed experiment).}
-\label{tab:dynamics}
-\begin{tabular}{lccc}
-\toprule
-Phase & Mean MAE & Std & Min MAE \\
-\midrule
-Full training (1--100) & 5.12 & 0.89 & 4.13 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \section{Proposed Changes: BMFM-RNA Architecture}
 
