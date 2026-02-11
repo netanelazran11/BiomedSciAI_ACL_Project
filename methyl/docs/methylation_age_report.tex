@@ -6,6 +6,7 @@
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{amsmath}
+\usepackage{float}
 
 \title{DNA Methylation Age Prediction with Multi-Field Tokenization}
 \date{}
@@ -180,7 +181,7 @@ Test & 0.00133 & 0.00087 & 0.0195 & \textbf{0.997} \\
 The encoder achieves strong reconstruction performance: Test PCC (Pearson correlation) = 0.997 indicates the model accurately predicts masked $\beta$-values from surrounding context. The low test MAE (0.0195) on the [0,1] scale demonstrates precise value reconstruction. Figure~\ref{fig:pretrain_loss} shows the training dynamics.
 For detailed pretraining metrics, see: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/pretrain-fixed2048-bmfm-rna-methylation/workspace?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Pretraining W\&B}}.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.9\textwidth]{loss_curves.png}
 \caption{Pretraining loss curves for BMFM-RNA encoder (MLM objective). The model converges after approximately 150 epochs, achieving final test loss = 0.00133 and PCC = 0.997.}
@@ -267,7 +268,7 @@ MethylGPT baseline & 4.95 & 0.911 \\
 
 The BMFM-RNA model achieves 6\% improvement in MAE (4.67 vs 4.95 years) and 2\% improvement in $R^2$ (0.931 vs 0.911) over MethylGPT. Both models reduce error by approximately 78\% compared to mean prediction (22.82 years).
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.7\textwidth]{mae_comparison_color.png}
 \caption{MAE comparison across models on the test set.}
