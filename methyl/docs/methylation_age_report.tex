@@ -277,7 +277,7 @@ The BMFM-RNA model achieves 6\% improvement in MAE (4.67 vs 4.95 years) and 2\% 
 
 \item \textbf{Key implementation details.} PyTorch Lightning's \texttt{configure\_optimizers()} is called once at initialization. If encoder parameters are frozen at init, they're excluded from the optimizer. Fix: use \texttt{optimizer.add\_param\_group()} when unfreezing. Mean pooling over tokens works better than [CLS] for regression after MLM pretraining.
 
-\item \textbf{Overfitting.} Train MAE = 2.21 years vs test MAE = 4.84 years indicates moderate overfitting (train--test gap of $\sim$2.6 years). Dropout(0.2) helped reduce this gap.
+\item \textbf{Overfitting.} Train MAE = 2.21 years vs test MAE = 4.67 years indicates moderate overfitting (train--test gap of $\sim$2.5 years). Dropout(0.2) helped reduce this gap.
 
 \item \textbf{Capacity vs. gains.} Despite 10$\times$ more parameters (23M vs 2M), improvement is 0.28 years, suggesting methylation age prediction may be approaching a performance ceiling.
 
