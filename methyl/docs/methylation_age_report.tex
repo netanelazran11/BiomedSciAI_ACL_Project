@@ -56,6 +56,9 @@ Output & Methylation reconstruction & Single age prediction \\
 \bottomrule
 \end{tabular}
 \end{table}
+\subsection{Pretraining}
+
+We pretrain using MLM on 154,063 methylation profiles. The encoder achieves Test PCC = 0.997, indicating accurate reconstruction of masked $\beta$-values.
 
 \section{Loss Function}
 Pretraining uses masked MSE to reconstruct methylation values with a 30\% mask ratio. Fine-tuning uses MSE on normalized chronological age.
@@ -117,10 +120,6 @@ Parameters & $\sim$23M & $\sim$2M \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{Pretraining}
-
-We pretrain using MLM on 154,063 methylation profiles. The encoder achieves Test PCC = 0.997, indicating accurate reconstruction of masked $\beta$-values.
 
 \subsection{Fine-Tuning Pipeline}
 \begin{itemize}[leftmargin=1.5em]
