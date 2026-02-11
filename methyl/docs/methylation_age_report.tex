@@ -261,8 +261,6 @@ The BMFM-RNA model achieves 2\% improvement in MAE (4.85 vs 4.95 years) and 1.2\
 
 \textbf{Performance.} BMFM-RNA's multi-field tokenization and larger capacity yield modest but consistent improvements over MethylGPT. The explicit separation of site identity and methylation value appears beneficial for capturing age-related methylation patterns.
 
-\textbf{Why pretraining helps.} The encoder is pretrained on 154,063 methylation profiles using masked value prediction. During pretraining, the model learns to reconstruct masked $\beta$-values from context, forcing it to understand the statistical structure of methylation patterns across diverse tissues and conditions. The pretrained checkpoint provides: (1) CpG site embeddings encoding site-specific properties, (2) $\beta$-value encoder mapping continuous values to meaningful representations, (3) Transformer layers capturing inter-site dependencies, and (4) position embeddings.
-
 \textbf{Key implementation details.} PyTorch Lightning's \texttt{configure\_optimizers()} is called once at initialization. If encoder parameters are frozen (\texttt{requires\_grad=False}) at init, they're excluded from the optimizer. Setting \texttt{requires\_grad=True} later doesn't add them. Fix: use \texttt{optimizer.add\_param\_group()} when unfreezing. Mean pooling over tokens works better than [CLS] for regression after MLM pretraining, since MLM doesn't train [CLS] to aggregate sequence information.
 
 \textbf{Overfitting.} Train MAE = 2.21 years vs test MAE = 4.85 years indicates moderate overfitting (train--test gap of $\sim$2.6 years). Dropout(0.2) helped reduce this gap from earlier experiments.
