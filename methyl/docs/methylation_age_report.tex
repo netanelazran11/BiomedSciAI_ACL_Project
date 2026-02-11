@@ -257,6 +257,13 @@ MethylGPT baseline & 4.95 & 0.911 & 8{,}000 \\
 
 The BMFM-RNA model achieves 2\% improvement in MAE (4.85 vs 4.95 years) and 1.2\% improvement in $R^2$ (0.923 vs 0.911) over MethylGPT. Both models reduce error by approximately 78\% compared to mean prediction (22.82 years).
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{mae_comparison_bw.png}
+\caption{MAE comparison across models on the test set.}
+\label{fig:mae_comparison}
+\end{figure}
+
 \section{Discussion and Conclusions}
 
 \textbf{Performance.} BMFM-RNA's multi-field tokenization and larger capacity yield modest but consistent improvements over MethylGPT. The explicit separation of site identity and methylation value appears beneficial for capturing age-related methylation patterns.
