@@ -1,8 +1,35 @@
 # Methylation-Based Age Prediction: BMFM-RNA vs MethylGPT
 
-This project investigates DNA methylation-based biological age prediction using Transformer foundation models. We establish a baseline with **MethylGPT** and evaluate our adapted **BMFM-RNA** architecture.
+## Project Overview
+
+This project explores **DNA methylation-based biological age prediction** using Transformer foundation models. DNA methylation patterns at CpG sites change systematically with age, making them powerful biomarkers. We adapt IBM's **BMFM-RNA** architecture (originally for single-cell RNA-seq) to methylation data and compare it against the **MethylGPT** baseline.
+
+**Key idea:** Use multi-field tokenization to separately encode CpG site identity and methylation values, then pretrain with masked language modeling (MLM) before fine-tuning for age regression.
 
 **Paper Reference:** [MethylGPT: a foundation model for the DNA methylome (bioRxiv 2024)](https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2)
+
+---
+
+## Key Files
+
+| File | Location | Description |
+|------|----------|-------------|
+| `tokenizer.py` | `bmfm_methylation/tokenizer.py` | Multi-field tokenizer that builds vocabulary from CpG site names and encodes samples as (cpg_ids, beta_values) pairs |
+| `model.py` | `bmfm_methylation/model.py` | SCBert model architecture with CpG embeddings, continuous value encoder, and Transformer layers |
+| `pretrain.py` | `bmfm_methylation/pretrain.py` | MLM pretraining script - trains encoder to reconstruct masked β-values |
+| `finetune.py` | `bmfm_methylation/finetune.py` | Age regression fine-tuning with freeze/unfreeze strategy |
+| `data_module.py` | `bmfm_methylation/data_module.py` | PyTorch Lightning DataModule for loading h5ad methylation data |
+| `dataset.py` | `bmfm_methylation/dataset.py` | Dataset class that tokenizes samples and applies masking |
+| `config.py` | `bmfm_methylation/config.py` | Dataclass configurations for model, training, and data |
+| `lightning_module.py` | `bmfm_methylation/lightning_module.py` | Lightning modules for pretraining (MLMTrainingModule) and fine-tuning |
+
+### Scripts
+
+| Script | Location | Description |
+|--------|----------|-------------|
+| `finetune_multiseed.sh` | `scripts/finetune_multiseed.sh` | SLURM script for fine-tuning with a specific seed |
+| `launch_multiseed.sh` | `scripts/launch_multiseed.sh` | Launches 5 parallel jobs with seeds 40-44 |
+| `baseline_ridge.py` | `scripts/baseline_ridge.py` | Ridge regression baseline for comparison |
 
 ---
 
