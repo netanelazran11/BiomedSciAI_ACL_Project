@@ -121,6 +121,10 @@ Parameters & $\sim$23M & $\sim$2M \\
 \end{tabular}
 \end{table}
 
+\subsection{Pretraining on Methylation Data}
+
+We pretrain the adapted BMFM-RNA encoder using MLM on 154,063 methylation profiles for 250 epochs. The model learns to reconstruct masked $\beta$-values from context, achieving Test PCC = 0.997 and Test MAE = 0.0195 on the [0,1] scale. This high reconstruction accuracy indicates the encoder captures meaningful inter-CpG dependencies that transfer to downstream tasks.
+
 \subsection{Fine-Tuning Pipeline}
 \begin{itemize}[leftmargin=1.5em]
 \item \textbf{Pooling:} Mean pooling over tokens (MLM doesn't train [CLS])
