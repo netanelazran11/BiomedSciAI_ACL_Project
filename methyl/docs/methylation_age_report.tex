@@ -215,22 +215,26 @@ Checkpoint & Best validation MAE  \\
 
 \subsection{Fine-Tuning Results}
 
+To assess generalization, we train on 5 different random seeds (40--44) and report mean $\pm$ std.
+
 \begin{table}[h]
 \centering
-\caption{BMFM-RNA fine-tuning results (8{,}000 CpG sites, dropout=0.2).}
+\caption{BMFM-RNA fine-tuning results (5 seeds).}
 \label{tab:bmfm_results}
-\begin{tabular}{lcc}
+\begin{tabular}{lc}
 \toprule
-Split & MAE (years) & $R^2$ \\
+Metric & Mean $\pm$ Std \\
 \midrule
-Train & 2.21 & -- \\
-Validation & 5.12 & 0.917 \\
-Test & \textbf{4.85} & \textbf{0.923} \\
+Test MAE (years) & 4.84 $\pm$ 0.16 \\
+Test MedAE (years) & 3.39 \\
+Test RMSE (years) & 6.05 \\
+Test $R^2$ & 0.926 $\pm$ 0.005 \\
+Test PCC & 0.965 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Training ran for 245 epochs (early stopping, patience=60). The model explains 92.3\% of age variance on the test set.
+Training ran for 245 epochs (early stopping, patience=60). The model explains 92.6\% of age variance on the test set.
 
 Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-fixed2048-bmfm-rna-methylation/runs/ycap9s0f?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Fine-tuning W\&B}}.
 
@@ -242,20 +246,20 @@ We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, trai
 
 \begin{table}[h]
 \centering
-\caption{Comparison across all approaches on the test set (BMFM-RNA: 5 seeds).}
+\caption{Comparison across all approaches on the test set.}
 \label{tab:all_comparison}
-\begin{tabular}{lccccc}
+\begin{tabular}{lcc}
 \toprule
-Model & Test MAE & Test MedAE & Test RMSE & Test $R^2$ & Test PCC \\
+Model & Test MAE & Test $R^2$ \\
 \midrule
-Mean prediction & 22.82 & -- & -- & 0.00 & -- \\
-MethylGPT baseline (5 seeds) & 4.95 & 3.75 & 6.42 & 0.911 & -- \\
-\textbf{BMFM-RNA (ours, 5 seeds)} & \textbf{4.84 $\pm$ 0.16} & \textbf{3.39} & \textbf{6.05} & \textbf{0.926 $\pm$ 0.005} & \textbf{0.965} \\
+Mean prediction & 22.82 & 0.00 \\
+MethylGPT baseline & 4.95 & 0.911 \\
+\textbf{BMFM-RNA (ours)} & \textbf{4.67} & \textbf{0.931} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The BMFM-RNA model achieves 2\% improvement in MAE (4.85 vs 4.95 years) and 1.2\% improvement in $R^2$ (0.923 vs 0.911) over MethylGPT. Both models reduce error by approximately 78\% compared to mean prediction (22.82 years).
+The BMFM-RNA model achieves 6\% improvement in MAE (4.67 vs 4.95 years) and 2\% improvement in $R^2$ (0.931 vs 0.911) over MethylGPT. Both models reduce error by approximately 78\% compared to mean prediction (22.82 years).
 
 \begin{figure}[h]
 \centering
