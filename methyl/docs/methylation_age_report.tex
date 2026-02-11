@@ -192,6 +192,27 @@ The pretrained encoder is fine-tuned for age regression:
 \item \textbf{Loss:} MSE on $z$-score normalized ages
 \end{itemize}
 
+\begin{table}[h]
+\centering
+\caption{Training hyperparameters (BMFM-RNA fine-tuning).}
+\label{tab:training_config}
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Optimizer & AdamW  \\
+Learning rate & $5 \times 10^{-4}$ \\
+Weight decay & 0.01 \\
+LR schedule & Cosine decay with 200-step linear warmup \\
+Batch size & 32 (effective 64 with gradient accumulation $\times$2) \\
+Max epochs & 300 \\
+Precision & 16-bit mixed \\
+Early stopping & Patience = 60 epochs on val/MAE \\
+Checkpoint & Best validation MAE  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Fine-Tuning Results}
 
 \begin{table}[h]
@@ -211,32 +232,11 @@ Test & \textbf{4.85} & \textbf{0.923} \\
 
 Training ran for 245 epochs (early stopping, patience=60). The model explains 92.3\% of age variance on the test set.
 
+Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-fixed2048-bmfm-rna-methylation/runs/ycap9s0f?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Fine-tuning W\&B}}.
+
 \section{Experimental Setup}
 
 We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, train/valid/test split). The mean prediction baseline ($\hat{y}_i = \bar{y}_{\text{train}}$) serves as a reference.
-
-\begin{table}[h]
-\centering
-\caption{Training hyperparameters (MLP fine-tuning).}
-\label{tab:training_config}
-\begin{tabular}{ll}
-\toprule
-Hyperparameter & Value \\
-\midrule
-Optimizer & AdamW  \\
-Learning rate & $5 \times 10^{-4}$ \\
-Weight decay & 0.01 \\
-LR schedule & Cosine decay with 200-step linear warmup \\
-Batch size & 32 (effective 64 with gradient accumulation $\times$2) \\
-Max epochs & 300 \\
-Precision & 16-bit mixed \\
-Early stopping & Patience = 60 epochs on val/MAE \\
-Checkpoint & Best validation MAE  \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Experiment tracking: \href{https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-fixed2048-bmfm-rna-methylation/runs/ycap9s0f?nw=nwusernetanelazran11}{\textbf{BMFM-RNA Fine-tuning W\&B}}.
 
 \section{Final Comparison}
 
