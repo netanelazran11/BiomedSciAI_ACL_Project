@@ -28,7 +28,7 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
 # Pretrained checkpoint (loss=0.0013, 250 epochs)
-CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=234-val_loss=validation/loss=0.0013.ckpt"
+CHECKPOINT='/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=234-val_loss=validation/loss=0.0013.ckpt'
 
 # W&B naming - include seed in run name
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
