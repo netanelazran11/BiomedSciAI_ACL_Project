@@ -90,7 +90,7 @@ PY
 # -------------------------
 # Run Fine-tuning with specific seed
 # -------------------------
-python -m bmfm_methylation.finetune \
+python -m bmfm_methylation.finetune_transformer \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
