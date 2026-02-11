@@ -155,7 +155,7 @@ CpG subset & -- & 8{,}000 & 8{,}000 \\
 
 \subsection{Pretraining Results}
 
-Before fine-tuning, we pretrain the BMFM-RNA encoder using masked language modeling (MLM) on methylation $\beta$-values. The model learns to reconstruct masked values from context, forcing it to capture the statistical structure of methylation patterns. The loss decreases from $\sim$9.0 to 0.0013 over 250 epochs.
+Before fine-tuning, we pretrain the BMFM-RNA encoder using masked language modeling (MLM) on methylation $\beta$-values. The model learns to reconstruct masked values from context, forcing it to capture the statistical structure of methylation patterns. The loss decreases to 0.0013 over 250 epochs.
 
 \begin{table}[h]
 \centering
@@ -260,6 +260,8 @@ The BMFM-RNA model achieves 2\% improvement in MAE (4.85 vs 4.95 years) and 1.2\
 \section{Discussion and Conclusions}
 
 \textbf{Performance.} BMFM-RNA's multi-field tokenization and larger capacity yield modest but consistent improvements over MethylGPT. The explicit separation of site identity and methylation value appears beneficial for capturing age-related methylation patterns.
+
+\textbf{Why pretraining helps.} The encoder is pretrained on  methylation profiles using masked value prediction. During pretraining, the model learns to reconstruct masked $\beta$-values from context, forcing it to understand the statistical structure of methylation patterns across diverse tissues and conditions. The pretrained checkpoint provides: (1) CpG site embeddings encoding site-specific properties, (2) $\beta$-value encoder mapping continuous values to meaningful representations, (3) Transformer layers capturing inter-site dependencies, and (4) position embeddings.
 
 \textbf{Key implementation details.} PyTorch Lightning's \texttt{configure\_optimizers()} is called once at initialization. If encoder parameters are frozen (\texttt{requires\_grad=False}) at init, they're excluded from the optimizer. Setting \texttt{requires\_grad=True} later doesn't add them. Fix: use \texttt{optimizer.add\_param\_group()} when unfreezing. Mean pooling over tokens works better than [CLS] for regression after MLM pretraining, since MLM doesn't train [CLS] to aggregate sequence information.
 
