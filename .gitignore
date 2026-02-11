@@ -135,4 +135,5 @@ bmfm_targets/tests/resources/pretrain/cellxgene/processed.h5ad
 prof/
 bmfm_targets/tests/resources/pretrain/hic/litdata/
 bmfm_targets/tests/resources/pretrain/hic/parquet/
-.claude/
+# Local config
+.local/
