@@ -277,17 +277,34 @@ class MethylationAgeRegressor(pl.LightningModule):
 
     def on_validation_epoch_end(self):
         if self._val_preds:
-            all_preds = torch.cat(self._val_preds, dim=0)
-            all_labels = torch.cat(self._val_labels, dim=0)
+            all_preds = torch.cat(self._val_preds, dim=0).squeeze()
+            all_labels = torch.cat(self._val_labels, dim=0).squeeze()
 
+            # R2
             ss_res = torch.sum((all_labels - all_preds) ** 2)
             ss_tot = torch.sum((all_labels - all_labels.mean()) ** 2)
             r2 = 1 - ss_res / (ss_tot + 1e-8)
             self.log("val/r2", r2, prog_bar=True)
 
-            # Also log epoch-level MAE for accuracy
+            # MAE
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("val/mae_epoch", epoch_mae)
+
+            # MedAE (median absolute error)
+            medae = torch.median(torch.abs(all_preds - all_labels))
+            self.log("val/medae", medae)
+
+            # RMSE
+            rmse = torch.sqrt(torch.mean((all_preds - all_labels) ** 2))
+            self.log("val/rmse", rmse)
+
+            # PCC (Pearson correlation coefficient)
+            preds_centered = all_preds - all_preds.mean()
+            labels_centered = all_labels - all_labels.mean()
+            pcc = torch.sum(preds_centered * labels_centered) / (
+                torch.sqrt(torch.sum(preds_centered ** 2)) * torch.sqrt(torch.sum(labels_centered ** 2)) + 1e-8
+            )
+            self.log("val/pcc", pcc)
 
         self._val_preds.clear()
         self._val_labels.clear()
@@ -305,18 +322,36 @@ class MethylationAgeRegressor(pl.LightningModule):
 
     def on_test_epoch_end(self):
         if self._test_preds:
-            all_preds = torch.cat(self._test_preds, dim=0)
-            all_labels = torch.cat(self._test_labels, dim=0)
+            all_preds = torch.cat(self._test_preds, dim=0).squeeze()
+            all_labels = torch.cat(self._test_labels, dim=0).squeeze()
 
+            # R2
             ss_res = torch.sum((all_labels - all_preds) ** 2)
             ss_tot = torch.sum((all_labels - all_labels.mean()) ** 2)
             r2 = 1 - ss_res / (ss_tot + 1e-8)
             self.log("test/r2", r2)
 
+            # MAE
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("test/mae_epoch", epoch_mae)
 
-            logger.info(f"Test MAE: {epoch_mae:.2f} years, R2: {r2:.4f}")
+            # MedAE (median absolute error)
+            medae = torch.median(torch.abs(all_preds - all_labels))
+            self.log("test/medae", medae)
+
+            # RMSE
+            rmse = torch.sqrt(torch.mean((all_preds - all_labels) ** 2))
+            self.log("test/rmse", rmse)
+
+            # PCC (Pearson correlation coefficient)
+            preds_centered = all_preds - all_preds.mean()
+            labels_centered = all_labels - all_labels.mean()
+            pcc = torch.sum(preds_centered * labels_centered) / (
+                torch.sqrt(torch.sum(preds_centered ** 2)) * torch.sqrt(torch.sum(labels_centered ** 2)) + 1e-8
+            )
+            self.log("test/pcc", pcc)
+
+            logger.info(f"Test MAE: {epoch_mae:.2f} years, MedAE: {medae:.2f}, RMSE: {rmse:.2f}, R2: {r2:.4f}, PCC: {pcc:.4f}")
 
         self._test_preds.clear()
         self._test_labels.clear()
