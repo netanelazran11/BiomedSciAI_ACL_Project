@@ -244,13 +244,13 @@ We use the same 8K-CpG dataset as the MethylGPT baseline (11{,}453 samples, trai
 \centering
 \caption{Comparison across all approaches on the test set.}
 \label{tab:all_comparison}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-Model & Test MAE (years) & Test $R^2$ & CpG sites \\
+Model & Test MAE & Test MedAE & Test RMSE & Test $R^2$ \\
 \midrule
-Mean prediction (without training) & 22.82 & 0.00 & -- \\
-MethylGPT baseline & 4.95 & 0.911 & 8{,}000 \\
-\textbf{BMFM-RNA (ours)} & \textbf{4.85} & \textbf{0.923} & 8{,}000 \\
+Mean prediction & 22.82 & -- & -- & 0.00 \\
+MethylGPT baseline & 4.95 & 3.75 & 6.42 & 0.911 \\
+\textbf{BMFM-RNA (ours)} & \textbf{4.85} & \textbf{3.39} & \textbf{6.05} & \textbf{0.923} \\
 \bottomrule
 \end{tabular}
 \end{table}
