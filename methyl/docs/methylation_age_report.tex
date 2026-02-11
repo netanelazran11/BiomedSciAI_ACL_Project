@@ -63,6 +63,8 @@ Pretraining uses masked MSE to reconstruct methylation values with a 30\% mask r
 \section{Evaluation}
 We use a fixed 48/12/40 train/val/test split with model selection on validation MAE. Generalization is assessed using 5 random seeds (40--44).
 
+\textbf{MethylGPT fine-tuning:} For age prediction, MethylGPT replaces the MLM head with a ResNet1D regression head using 1$\times$1 convolutions over the token embeddings, followed by adaptive pooling and a linear layer to produce a single age prediction.
+
 \textbf{Metrics:} We report MAE (interpretable in years), MedAE (robust to outliers), and $R^2$ (proportion of variance explained). These are standard metrics for age regression that allow comparison with prior work~[3, 4].
 
 \section{Baseline Results (MethylGPT)}
