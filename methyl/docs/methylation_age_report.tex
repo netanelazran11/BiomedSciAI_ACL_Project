@@ -92,7 +92,7 @@ Pretraining uses masked MSE to reconstruct methylation values (MLM) with a 30\% 
 \vspace{-0.3em}
 \hrule
 \vspace{0.8em}
-We use a fixed 48/12/40 train/val/test split. Model selection uses validation MAE. The test set is used once per run for final evaluation. Generalization is assessed by repeating training with multiple random seeds (40--44). Metrics reported for age prediction include MAE (interpretable in years), MedAE (robust to outliers), RMSE, $R^2$ (proportion of variance explained), Pearson $r$, and Spearman $r$. These are standard metrics for age regression that allow comparison with prior work~[3, 4].
+We use a fixed 48/12/40 train/val/test split. Model selection uses validation MAE. The test set is used once per run for final evaluation. Generalization is assessed by repeating training with multiple random seeds (40--44). Metrics reported for age prediction include MAE (interpretable in years), MedAE (robust to outliers), RMSE, $R^2$ (proportion of variance explained), Pearson $r$, and Spearman $r$. These are standard metrics for age regression that allow comparison with prior work~[3].
 
 \section{Baseline Results}
 \vspace{-0.3em}
@@ -322,8 +322,6 @@ MethylGPT baseline & 4.95 & 0.911 \\
 \item Ying, K., et al., ``MethylGPT: a foundation model for the DNA methylome,'' \emph{bioRxiv}, 2024.
 \item Dandala, B., et al., ``BMFM-RNA: An Open Framework for Building Transcriptomic Foundation Models,'' \emph{arXiv}, 2025.
 \item Horvath, S., ``DNA methylation age of human tissues and cell types,'' \emph{Genome Biology}, 14(10):R115, 2013.
-\item Hannum, G., et al., ``Genome-wide methylation profiles reveal quantitative views of human aging rates,'' \emph{Molecular Cell}, 49(2):359--367, 2013.
-\item de Lima Camillo, L.P., et al., ``AltumAge: A pan-tissue DNA methylation epigenetic clock,'' \emph{npj Aging}, 8(1):1--15, 2022.
 \end{enumerate}
 
 \end{document}
