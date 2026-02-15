@@ -10,18 +10,37 @@ This project explores **DNA methylation-based biological age prediction** using 
 
 ---
 
+## Latest Results (Multi-Seed Analysis)
+
+**Dataset:** 8,000 CpG sites from Altumage dataset
+**Samples:** 11,500 (Train: 5,483 | Valid: 1,371 | Test: 4,646)
+
+### Multi-Seed Performance (n=3 seeds: 40, 41, 43)
+
+| Metric | Mean ± Std | Min | Max |
+|--------|-----------|-----|-----|
+| **MAE (years)** | **4.84 ± 0.16** | 4.67 | 4.97 |
+| **R²** | **0.926 ± 0.005** | 0.921 | 0.931 |
+
+### Best Individual Model
+- **Seed 43:** MAE = 4.67 years, R² = 0.931
+- **Checkpoint:** Epoch 118 (best validation MAE: 4.98)
+
+---
+
 ## Key Files
 
 | File | Location | Description |
 |------|----------|-------------|
 | `tokenizer.py` | `bmfm_methylation/tokenizer.py` | Multi-field tokenizer that builds vocabulary from CpG site names and encodes samples as (cpg_ids, beta_values) pairs |
 | `model.py` | `bmfm_methylation/model.py` | SCBert model architecture with CpG embeddings, continuous value encoder, and Transformer layers |
-| `pretrain.py` | `bmfm_methylation/pretrain.py` | MLM pretraining script - trains encoder to reconstruct masked β-values |
+| `pretrain.py` | `bmfm_methylation/pretrain.py` | MLM/WCED pretraining script - trains encoder to reconstruct β-values |
 | `finetune.py` | `bmfm_methylation/finetune.py` | Age regression fine-tuning with freeze/unfreeze strategy |
 | `data_module.py` | `bmfm_methylation/data_module.py` | PyTorch Lightning DataModule for loading h5ad methylation data |
 | `dataset.py` | `bmfm_methylation/dataset.py` | Dataset class that tokenizes samples and applies masking |
-| `config.py` | `bmfm_methylation/config.py` | Dataclass configurations for model, training, and data |
-| `lightning_module.py` | `bmfm_methylation/lightning_module.py` | Lightning modules for pretraining (MLMTrainingModule) and fine-tuning |
+| `config.py` | `bmfm_methylation/config.py` | Dataclass configurations for model, training, and pretraining modes |
+| `wced_module.py` | `bmfm_methylation/wced_module.py` | WCED (Whole Cell Expression Decoder) pretraining module |
+| `decoders/` | `bmfm_methylation/decoders/` | WCED decoder implementations |
 
 ### Scripts
 
@@ -39,11 +58,40 @@ DNA methylation provides strong signals for age prediction, but the data are hig
 
 1. Establishes a stable **8K-CpG baseline** using MethylGPT
 2. Adapts the **BMFM-RNA** (IBM's SCBert) architecture for methylation data
-3. Compares both approaches on the same dataset and evaluation protocol
+3. Supports two pretraining modes: **MLM** and **WCED**
+4. Compares both approaches on the same dataset and evaluation protocol
 
 ---
 
-## 2. Data Description
+## 2. Pretraining Modes
+
+### MLM (Masked Language Modeling)
+- Mask 30% of β-values
+- Predict only the masked positions
+- Learns per-token representations
+
+### WCED (Whole Cell Expression Decoder)
+- No masking - use all β-values
+- Reconstruct ALL positions from [CLS] token
+- Creates global bottleneck forcing [CLS] to aggregate full profile
+- [CLS] can be directly used for downstream tasks
+
+**Usage:**
+```bash
+# MLM pretraining (default)
+python -m bmfm_methylation.pretrain \
+    data_path=/path/to/methylation.h5ad \
+    pretraining_mode=mlm
+
+# WCED pretraining
+python -m bmfm_methylation.pretrain \
+    --config-name=pretrain_wced_config \
+    data_path=/path/to/methylation.h5ad
+```
+
+---
+
+## 3. Data Description
 
 | Item | Description |
 |------|-------------|
@@ -60,94 +108,26 @@ DNA methylation provides strong signals for age prediction, but the data are hig
 
 ---
 
-## 3. Baseline Architecture (MethylGPT)
+## 4. Architecture
 
-MethylGPT is based on the scGPT TransformerModel architecture:
-
-| Component | Pretraining | Fine-tuning |
-|-----------|-------------|-------------|
-| **Base model** | TransformerModel (scGPT) | Same (frozen/low LR) |
-| **Encoder** | CpG embeddings | Same |
-| **Value encoder** | ContinuousValueEncoder | Same |
-| **Transformer** | 6 layers, 4 heads, d=64 | Same (loaded from pretrained) |
-| **Task head** | ExprDecoder (MLM) + MVCDecoder | ResNet1D age head |
-| **Output** | Methylation reconstruction | Single age prediction |
-| **Dropout** | 0.1 | 0.0 |
-| **Mask ratio** | 30% | 0% |
-
-**Why this model fits:** Methylation profiles contain structured CpG dependencies that benefit from self-attention. Pretraining on large-scale data learns generalizable token representations that transfer to the 8K-CpG setting.
-
----
-
-## 4. Loss Function
-
-- **Pretraining:** Masked MSE to reconstruct methylation values (MLM) with 30% mask ratio, plus profile-level reconstruction
-- **Fine-tuning:** MSE on normalized chronological age (no masking)
-
----
-
-## 5. Evaluation Plan
-
-- **Split:** Fixed 48/12/40 train/valid/test
-- **Model selection:** Best validation MAE
-- **Generalization:** Multiple random seeds (40–44)
-- **Metrics:** MAE, MedAE, RMSE, R², Pearson r, Spearman r
-
----
-
-## 6. Baseline Results (MethylGPT)
-
-| Metric | Mean ± Std | Best |
-|--------|------------|------|
-| **Validation MAE** | 5.12 ± 0.89 years | 4.13 |
-| **Test MAE** | 4.95 years | — |
-| **Test MedAE** | 3.06 years | — |
-| **Test R²** | 0.911 | — |
-| **Test Spearman** | 0.958 | — |
-
-### MethylGPT Training Visualization
-
-<p align="center">
-<img src="docs/images/methylgpt/TEST_MAE_per_seed.png" width="45%">
-<img src="docs/images/methylgpt/TEST_R2_per_seed.png" width="45%">
-</p>
-
-<p align="center">
-<img src="docs/images/methylgpt/VALID_BOX_MAE_per_seed.png" width="45%">
-<img src="docs/images/methylgpt/VALID_BOX_R2_per_seed.png" width="45%">
-</p>
-
-**W&B Dashboard:** [MethylGPT Visual Results](https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/methylGPT_8K_ElasticNet_Features/groups/finetune-methylGPT-8k-cpgs-Baseline/workspace)
-
----
-
-## 7. Proposed Changes: BMFM-RNA Architecture
-
-We adapt IBM's BMFM-RNA SCBert architecture (~110M params originally) for methylation-based age prediction, scaling it down to match our 8K-CpG input.
-
-**Reference:** [BMFM-RNA (IBM Research)](https://research.ibm.com/projects/biomedical-foundation-models)
-
-### 7.1 Tokenizer and Multi-Field Representation
-
-BMFM-RNA uses a `MultiFieldTokenizer` that handles multiple input fields. We adapt this for methylation:
-
-**Vocabulary construction:** Extract 8,000 CpG site names (e.g., `cg00000029`, `cg00000108`) from the h5ad file. Build vocabulary with 5 special tokens ([UNK], [SEP], [PAD], [CLS], [MASK]) followed by CpG tokens. Total vocab size: 8,005.
-
-**Two-field input:** Each sample is represented as two parallel sequences:
-1. **cpg_sites:** Discrete token IDs `[3, s₁, s₂, ..., sₙ, 2, 2, ...]` where 3=[CLS], sᵢ are CpG IDs, 2=[PAD]
-2. **beta_values:** Continuous β-values `[0, β₁, β₂, ..., βₙ, 0, 0, ...]` in range [0,1]
-
-**Embedding combination:** Each CpG site i is represented by:
-
+### Model Configuration
 ```
-h_i = e_cpg(s_i) + e_beta(β_i)
+BMFM-RNA Encoder:
+  - Hidden size: 512
+  - Attention heads: 8
+  - Layers: 6
+  - Intermediate size: 2,048
+  - Max position embeddings: 8,002
+  - Total encoder params: ~23M
+
+Regression Head (Fine-tuning):
+  - Input: 512 (from encoder)
+  - Hidden: 256 (with dropout=0.2)
+  - Hidden: 128
+  - Output: 1 (predicted age)
 ```
 
-where:
-- `e_cpg(s_i) ∈ ℝ⁵¹²` is a learned CpG site embedding
-- `e_beta(β_i) ∈ ℝ⁵¹²` is output of a continuous value encoder (MLP projecting β-values to hidden dim)
-
-### 7.2 Architecture Comparison
+### Architecture Comparison
 
 | Parameter | BMFM-RNA (original) | BMFM-RNA (ours) | MethylGPT (scGPT) |
 |-----------|---------------------|-----------------|-------------------|
@@ -159,9 +139,11 @@ where:
 | **Parameters (encoder)** | ~110M | ~23M | ~2M |
 | **CpG subset** | — | 8,000 | 8,000 |
 
-### 7.3 Pretraining Results
+---
 
-Before fine-tuning, we pretrain the BMFM-RNA encoder using masked language modeling (MLM) on methylation β-values. The model learns to reconstruct masked values from context.
+## 5. Results
+
+### Pretraining Results (MLM)
 
 | Split | Loss | MSE | MAE | PCC |
 |-------|------|-----|-----|-----|
@@ -169,22 +151,9 @@ Before fine-tuning, we pretrain the BMFM-RNA encoder using masked language model
 | **Validation** | 0.00147 | 0.00147 | 0.0234 | 0.994 |
 | **Test** | 0.00133 | 0.00087 | 0.0195 | **0.997** |
 
-**PCC = 0.997** indicates the model accurately predicts masked β-values from surrounding context, learning meaningful methylation representations.
+**PCC = 0.997** indicates the model accurately predicts masked β-values from context.
 
-<p align="center">
-<img src="docs/images/pretrain/loss_curves.png" width="80%">
-</p>
-
-### 7.4 Fine-Tuning Pipeline
-
-The pretrained encoder is fine-tuned for age regression:
-
-- **Pooling:** Mean pooling over token outputs (skip CLS)
-- **Age head:** MLP (512 → 256 → 128 → 1) with LayerNorm, GELU, Dropout(0.2)
-- **Freeze strategy:** Encoder frozen epochs 0–4, unfrozen epoch 5+ with 10× lower LR
-- **Loss:** MSE on z-score normalized ages
-
-### 7.5 BMFM-RNA Results
+### Fine-tuning Results
 
 | Split | MAE (years) | R² |
 |-------|-------------|-----|
@@ -192,38 +161,7 @@ The pretrained encoder is fine-tuned for age regression:
 | **Validation** | 5.12 | 0.917 |
 | **Test** | **4.85** | **0.923** |
 
-Training ran for 245 epochs (early stopping, patience=60). The model explains 92.3% of age variance on the test set.
-
-<p align="center">
-<img src="docs/images/finetune/all_metrics_combined.png" width="90%">
-</p>
-
-<p align="center">
-<img src="docs/images/finetune/mae_curves.png" width="45%">
-<img src="docs/images/finetune/r2_curves.png" width="45%">
-</p>
-
----
-
-## 8. Experimental Setup
-
-| Hyperparameter | Value |
-|----------------|-------|
-| **Optimizer** | AdamW |
-| **Learning rate** | 5×10⁻⁴ |
-| **Weight decay** | 0.01 |
-| **LR schedule** | Cosine decay with 200-step linear warmup |
-| **Batch size** | 32 (effective 64 with gradient accumulation ×2) |
-| **Max epochs** | 300 |
-| **Precision** | 16-bit mixed |
-| **Early stopping** | Patience = 60 epochs on val/MAE |
-| **Checkpoint** | Best validation MAE |
-
-**W&B Dashboard:** [BMFM-RNA Fine-tuning](https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k)
-
----
-
-## 9. Final Comparison
+### Final Comparison
 
 | Model | Test MAE (years) | Test R² | CpG sites |
 |-------|------------------|---------|-----------|
@@ -237,52 +175,43 @@ Training ran for 245 epochs (early stopping, patience=60). The model explains 92
 
 ---
 
-## 10. Discussion and Conclusions
+## 6. Experimental Setup
 
-### Why BMFM-RNA Architecture for Methylation?
-
-**Multi-field tokenization:** Unlike standard approaches that treat methylation as a flat vector, BMFM uses dual-field representation: `h_i = e_cpg(s_i) + e_beta(β_i)`. The CpG ID embedding captures site-specific information (genomic context, regulatory role), while the continuous value encoder captures methylation state. This separation allows the model to learn which sites are informative independently of their current methylation level.
-
-**Continuous value encoding:** The β-value encoder uses an MLP to project continuous methylation values into embedding space, rather than discretizing into bins. This preserves fine-grained information lost in quantization-based approaches.
-
-**Self-attention over CpG sites:** The Transformer encoder learns pairwise relationships between CpG sites. Methylation patterns are correlated across genomic regions (CpG islands, promoters). Self-attention captures these long-range dependencies without explicit feature engineering.
-
-### Why Pretraining Helps
-
-**Transfer learning from large-scale data:** The encoder is pretrained on 154,063 methylation profiles using masked value prediction (MLM). During pretraining, the model learns to reconstruct masked β-values from context, forcing it to understand the statistical structure of methylation patterns across diverse tissues and conditions.
-
-**Pretrained components:** The checkpoint provides well-trained: (1) CpG site embeddings encoding site-specific properties, (2) β-value encoder mapping continuous values to meaningful representations, (3) Transformer layers capturing inter-site dependencies, and (4) position embeddings.
-
-### Key Implementation Details
-
-**Optimizer configuration fix:** PyTorch Lightning's `configure_optimizers()` is called once at initialization. If encoder parameters are frozen (requires_grad=False) at init, they're excluded from the optimizer. Setting requires_grad=True later doesn't add them. Fix: Include all parameters from start—frozen parameters receive no gradients automatically.
-
-**Mean pooling instead of CLS:** MLM pretraining doesn't train [CLS] token to aggregate sequence information. Mean pooling over content tokens works better for regression after MLM pretraining.
-
-**Z-score normalization:** Ages normalized to zero mean and unit variance during training. This stabilizes gradients when target range (0–100 years) differs from typical neural network output scales.
-
-### Model Capacity vs Performance
-
-Despite BMFM-RNA having 23M parameters vs MethylGPT's 2M, improvement is modest (0.10 years). This suggests methylation age prediction may be approaching a performance ceiling, or additional capacity requires more sophisticated training strategies.
+| Hyperparameter | Value |
+|----------------|-------|
+| **Optimizer** | AdamW |
+| **Learning rate** | 5×10⁻⁴ |
+| **Weight decay** | 0.01 |
+| **LR schedule** | Cosine decay with 200-step linear warmup |
+| **Batch size** | 32 (effective 64 with gradient accumulation ×2) |
+| **Max epochs** | 300 |
+| **Precision** | 16-bit mixed |
+| **Early stopping** | Patience = 60 epochs on val/MAE |
+| **Checkpoint** | Best validation MAE |
 
 ---
 
-## Project Structure
+## 7. Project Structure
 
 ```
 methyl/
 ├── bmfm_methylation/
 │   ├── configs/              # Hydra configuration files
 │   │   ├── pretrain_config.yaml
+│   │   ├── pretrain_wced_config.yaml
 │   │   ├── finetune_config.yaml
-│   │   ├── model/
-│   │   └── data_module/
+│   │   └── model/
+│   ├── decoders/             # WCED decoder implementations
+│   │   ├── __init__.py
+│   │   └── wced_decoder.py
 │   ├── data_module.py        # Data loading and preprocessing
 │   ├── dataset.py            # PyTorch Dataset classes
 │   ├── tokenizer.py          # Multi-field tokenizer for CpG sites
 │   ├── model.py              # Model architecture definitions
-│   ├── pretrain.py           # MLM pretraining script
+│   ├── config.py             # Configuration classes
+│   ├── pretrain.py           # MLM/WCED pretraining script
 │   ├── finetune.py           # Age regression fine-tuning
+│   ├── wced_module.py        # WCED training module
 │   └── lightning_module.py   # PyTorch Lightning modules
 ├── scripts/
 │   ├── pretrain_*.sh         # SLURM pretraining scripts
@@ -290,11 +219,10 @@ methyl/
 │   ├── baseline_ridge.py     # Ridge regression baseline
 │   └── analyze_*_wandb.py    # W&B analysis scripts
 ├── wandb_analysis/           # Training curves and analysis
-│   ├── pretrain/
-│   └── finetune/
+│   ├── finetune/
+│   └── multiply_seeds_wandb/
 ├── docs/
-│   ├── images/               # Result visualizations
-│   └── methylation_age_report.tex
+│   └── BMFM_Methylation_Adaptation_Presentation.html
 └── README.md
 ```
 
@@ -326,27 +254,42 @@ pip install -r requirements.txt
 ### Pretraining
 
 ```bash
-# On SLURM cluster
-sbatch scripts/pretrain_bmfm_methylation.sh
-
-# Or directly
+# MLM pretraining (default)
 python -m bmfm_methylation.pretrain \
     data_path=/path/to/methylation.h5ad \
     output_directory=./outputs/pretrain
+
+# WCED pretraining
+python -m bmfm_methylation.pretrain \
+    --config-name=pretrain_wced_config \
+    data_path=/path/to/methylation.h5ad \
+    output_directory=./outputs/pretrain_wced
 ```
 
 ### Fine-tuning
 
 ```bash
-# On SLURM cluster
-sbatch scripts/finetune_transformer_pretrained.sh
-
-# Or directly
+# Single-seed
 python -m bmfm_methylation.finetune \
     data_path=/path/to/methylation.h5ad \
     checkpoint_path=/path/to/pretrained.ckpt \
     output_directory=./outputs/finetune
+
+# Multi-seed training
+for seed in 40 41 42 43 44; do
+    python -m bmfm_methylation.finetune \
+        data_path=/path/to/methylation.h5ad \
+        checkpoint_path=/path/to/pretrained.ckpt \
+        seed.seed_value=$seed
+done
 ```
+
+---
+
+## WandB Dashboards
+
+- [BMFM-RNA Fine-tuning](https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k)
+- [Multi-Seed Project](https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-multiseed)
 
 ---
 
@@ -370,3 +313,12 @@ python -m bmfm_methylation.finetune \
   howpublished={\url{https://github.com/netanelazran11/BiomedSciAI_ACL_Project}}
 }
 ```
+
+---
+
+## Contact
+
+**Author:** Netanel Azran
+**Institution:** Hebrew University of Jerusalem
+**Email:** netanelazran11@gmail.com
+**GitHub:** [@netanelazran11](https://github.com/netanelazran11)

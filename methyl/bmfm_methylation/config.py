@@ -4,13 +4,52 @@ Methylation Configuration - Wraps original BMFM SCBertConfig
 This module provides configuration for the methylation encoder by wrapping
 the original BMFM SCBertConfig with appropriate field definitions for
 methylation data (CpG site IDs + beta values).
+
+Supports two pretraining modes:
+- MLM (Masked Language Modeling): Mask some beta values, predict masked positions
+- WCED (Whole Cell Expression Decoder): Reconstruct ALL beta values from [CLS]
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 
 # Import original BMFM config
 from bmfm_targets.config import SCBertConfig, FieldInfo
+
+
+# ============================================================================
+# Pretraining Mode Configuration
+# ============================================================================
+
+@dataclass
+class PretrainingConfig:
+    """
+    Configuration for pretraining mode selection.
+
+    Attributes:
+        mode: Pretraining strategy ("mlm" or "wced")
+        mask_ratio: Ratio of positions to mask (MLM only)
+        decoder_hidden_sizes: Hidden layer sizes for WCED decoder
+        decoder_dropout: Dropout for WCED decoder
+        use_positional_decoder: Use position-aware WCED decoder
+    """
+    # Pretraining mode: "mlm" or "wced"
+    mode: Literal["mlm", "wced"] = "mlm"
+
+    # MLM-specific settings
+    mask_ratio: float = 0.3  # 30% of positions masked
+
+    # WCED-specific settings
+    decoder_hidden_sizes: List[int] = field(default_factory=lambda: [2048, 4096])
+    decoder_dropout: float = 0.1
+    use_positional_decoder: bool = False  # Use attention-based positional decoder
+
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.mode not in ("mlm", "wced"):
+            raise ValueError(f"Invalid pretraining mode: {self.mode}. Must be 'mlm' or 'wced'")
+        if self.mask_ratio < 0 or self.mask_ratio > 1:
+            raise ValueError(f"mask_ratio must be between 0 and 1, got {self.mask_ratio}")
 
 
 def create_methylation_config(
@@ -115,5 +154,63 @@ def create_methylation_config(
 # Backwards compatibility alias - can be called as BMFMConfig(...) or used as a type hint
 BMFMConfig = create_methylation_config
 
+
+def create_wced_config(
+    num_cpg_sites: int = 8000,
+    decoder_hidden_sizes: Optional[List[int]] = None,
+    decoder_dropout: float = 0.1,
+    use_positional_decoder: bool = False,
+    **encoder_kwargs
+) -> tuple:
+    """
+    Create configuration for WCED pretraining.
+
+    Returns both the encoder config (SCBertConfig) and pretraining config.
+
+    For WCED, the beta_values field is NOT masked during pretraining since
+    we reconstruct all values from [CLS], not just masked positions.
+
+    Args:
+        num_cpg_sites: Number of CpG sites
+        decoder_hidden_sizes: WCED decoder hidden sizes
+        decoder_dropout: Decoder dropout
+        use_positional_decoder: Use attention-based positional decoder
+        **encoder_kwargs: Additional args for encoder config
+
+    Returns:
+        Tuple of (encoder_config, pretraining_config)
+    """
+    if decoder_hidden_sizes is None:
+        decoder_hidden_sizes = [2048, 4096]
+
+    # Create encoder config (same architecture, but no masking on beta_values)
+    encoder_config = create_methylation_config(
+        num_cpg_sites=num_cpg_sites,
+        **encoder_kwargs
+    )
+
+    # For WCED, we modify the beta_values field to NOT be masked
+    # This is handled in the collator/training loop, not here
+    # The config stays the same, but mask_ratio=0 is used
+
+    # Create pretraining config
+    pretrain_config = PretrainingConfig(
+        mode="wced",
+        mask_ratio=0.0,  # No masking for WCED
+        decoder_hidden_sizes=decoder_hidden_sizes,
+        decoder_dropout=decoder_dropout,
+        use_positional_decoder=use_positional_decoder,
+    )
+
+    return encoder_config, pretrain_config
+
+
 # Re-export SCBertConfig for type hints
-__all__ = ["create_methylation_config", "BMFMConfig", "SCBertConfig", "FieldInfo"]
+__all__ = [
+    "create_methylation_config",
+    "create_wced_config",
+    "PretrainingConfig",
+    "BMFMConfig",
+    "SCBertConfig",
+    "FieldInfo",
+]

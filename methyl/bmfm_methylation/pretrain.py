@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 """
-Pretraining script for Methylation Model using MLM
+Pretraining script for Methylation Model
 
 This script pretrains the BMFM SCBertModel on methylation data using
-Masked Language Modeling (MLM) to learn methylation patterns.
+one of two pretraining strategies:
+
+1. MLM (Masked Language Modeling) - Default
+   - Masks 30% of beta values
+   - Predicts only masked positions
+   - Good for per-token representations
+
+2. WCED (Whole Cell Expression Decoder)
+   - No masking
+   - Reconstructs ALL beta values from [CLS] token
+   - Better for global [CLS] representations
 
 Usage:
+    # MLM pretraining (default)
     python -m bmfm_methylation.pretrain \
         data_path=/path/to/methylation.h5ad \
         output_directory=./outputs
+
+    # WCED pretraining
+    python -m bmfm_methylation.pretrain \
+        data_path=/path/to/methylation.h5ad \
+        output_directory=./outputs \
+        pretraining_mode=wced
 
 After pretraining, use finetune.py to fine-tune for age prediction.
 """
@@ -217,9 +234,12 @@ def setup_wandb(cfg: DictConfig):
 )
 def main(cfg: DictConfig):
     """Main pretraining function."""
+    # Get pretraining mode (default: mlm)
+    pretraining_mode = cfg.get("pretraining_mode", "mlm").lower()
+
     # Print config
     logger.info("=" * 70)
-    logger.info("METHYLATION PRETRAINING (MLM)")
+    logger.info(f"METHYLATION PRETRAINING ({pretraining_mode.upper()})")
     logger.info("=" * 70)
     logger.info(f"\nConfiguration:\n{OmegaConf.to_yaml(cfg)}")
 
@@ -244,6 +264,13 @@ def main(cfg: DictConfig):
         fields.append(FieldInfo(**field_dict))
 
     # Setup data module
+    # For WCED: disable masking (mask_ratio=0)
+    # For MLM: enable masking (default)
+    use_mlm = (pretraining_mode == "mlm")
+    mask_ratio = cfg.data_module.mask_ratio if use_mlm else 0.0
+
+    logger.info(f"Data module: mlm={use_mlm}, mask_ratio={mask_ratio}")
+
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -254,50 +281,71 @@ def main(cfg: DictConfig):
         batch_size=cfg.data_module.batch_size,
         num_workers=cfg.data_module.num_workers,
         max_length=cfg.data_module.max_length,
-        mlm=True,  # Enable MLM for pretraining
-        change_ratio=cfg.data_module.change_ratio,
-        mask_ratio=cfg.data_module.mask_ratio,
-        switch_ratio=cfg.data_module.switch_ratio,
+        mlm=use_mlm,  # Enable MLM for pretraining, disable for WCED
+        change_ratio=cfg.data_module.change_ratio if use_mlm else 0.0,
+        mask_ratio=mask_ratio,
+        switch_ratio=cfg.data_module.switch_ratio if use_mlm else 0.0,
         collation_strategy="language_modeling",
     )
     def _wrap_collator():
         base_collator = data_module.collator
 
-        def _collate_for_mlm(examples):
-            batch = base_collator(examples)
-            # Build BMFM-style input_ids: [B, 2, L]
-            input_ids = torch.stack(
-                [batch["cpg_ids"].float(), batch["beta_values"]],
-                dim=1,
-            )
-            # Labels: use labels_beta where masked, else -100
-            labels_beta = batch["labels_beta"].clone()
-            loss_mask = batch["loss_mask_beta"]
-            labels_beta[loss_mask == 0] = -100.0
-            if not hasattr(_collate_for_mlm, "_debug_logged"):
-                _collate_for_mlm._debug_logged = True
-                cpg_ids = batch["cpg_ids"]
-                beta_values = batch["beta_values"]
-                attn = batch["attention_mask"]
-                mask_count = int(loss_mask.sum().item())
-                total_count = int(loss_mask.numel())
-                mask_density = mask_count / max(total_count, 1)
-                diff_count = int((cpg_ids[0, 1:] != cpg_ids[1, 1:]).sum().item()) if cpg_ids.shape[0] > 1 else 0
-                print("\n[DEBUG] Option-B Collator Batch")
-                print(f"  input_ids shape: {tuple(input_ids.shape)}")
-                print(f"  cpg_ids shape: {tuple(cpg_ids.shape)}, beta_values shape: {tuple(beta_values.shape)}")
-                print(f"  attention_mask shape: {tuple(attn.shape)}, non-pad tokens: {int(attn[0].sum().item())}")
-                print(f"  mask_count: {mask_count} / {total_count} ({mask_density:.4f})")
-                if cpg_ids.shape[0] > 1:
-                    print(f"  subset diff count (sample0 vs sample1): {diff_count}")
-                print(f"  labels_beta masked example (first 10): {labels_beta[0, :10].tolist()}")
-            return {
-                "input_ids": input_ids,
-                "attention_mask": batch["attention_mask"],
-                "labels": {"beta_values": labels_beta},
-            }
+        if pretraining_mode == "wced":
+            # WCED mode: no MLM-specific wrapping needed
+            # Just return batch with cpg_ids, beta_values, attention_mask
+            def _collate_for_wced(examples):
+                batch = base_collator(examples)
+                if not hasattr(_collate_for_wced, "_debug_logged"):
+                    _collate_for_wced._debug_logged = True
+                    cpg_ids = batch["cpg_ids"]
+                    beta_values = batch["beta_values"]
+                    attn = batch["attention_mask"]
+                    print("\n[DEBUG] WCED Collator Batch (no masking)")
+                    print(f"  cpg_ids shape: {tuple(cpg_ids.shape)}")
+                    print(f"  beta_values shape: {tuple(beta_values.shape)}")
+                    print(f"  attention_mask shape: {tuple(attn.shape)}")
+                    print(f"  non-pad tokens: {int(attn[0].sum().item())}")
+                    print(f"  beta_values first 10: {beta_values[0, :10].tolist()}")
+                return batch  # Return as-is for WCEDTrainingModule
 
-        data_module.collator = _collate_for_mlm
+            data_module.collator = _collate_for_wced
+        else:
+            # MLM mode: wrap for MLMTrainingModule
+            def _collate_for_mlm(examples):
+                batch = base_collator(examples)
+                # Build BMFM-style input_ids: [B, 2, L]
+                input_ids = torch.stack(
+                    [batch["cpg_ids"].float(), batch["beta_values"]],
+                    dim=1,
+                )
+                # Labels: use labels_beta where masked, else -100
+                labels_beta = batch["labels_beta"].clone()
+                loss_mask = batch["loss_mask_beta"]
+                labels_beta[loss_mask == 0] = -100.0
+                if not hasattr(_collate_for_mlm, "_debug_logged"):
+                    _collate_for_mlm._debug_logged = True
+                    cpg_ids = batch["cpg_ids"]
+                    beta_values = batch["beta_values"]
+                    attn = batch["attention_mask"]
+                    mask_count = int(loss_mask.sum().item())
+                    total_count = int(loss_mask.numel())
+                    mask_density = mask_count / max(total_count, 1)
+                    diff_count = int((cpg_ids[0, 1:] != cpg_ids[1, 1:]).sum().item()) if cpg_ids.shape[0] > 1 else 0
+                    print("\n[DEBUG] MLM Collator Batch")
+                    print(f"  input_ids shape: {tuple(input_ids.shape)}")
+                    print(f"  cpg_ids shape: {tuple(cpg_ids.shape)}, beta_values shape: {tuple(beta_values.shape)}")
+                    print(f"  attention_mask shape: {tuple(attn.shape)}, non-pad tokens: {int(attn[0].sum().item())}")
+                    print(f"  mask_count: {mask_count} / {total_count} ({mask_density:.4f})")
+                    if cpg_ids.shape[0] > 1:
+                        print(f"  subset diff count (sample0 vs sample1): {diff_count}")
+                    print(f"  labels_beta masked example (first 10): {labels_beta[0, :10].tolist()}")
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": batch["attention_mask"],
+                    "labels": {"beta_values": labels_beta},
+                }
+
+            data_module.collator = _collate_for_mlm
 
     # Setup data module and ensure collator is wrapped after each setup
     original_setup = data_module.setup
@@ -342,33 +390,80 @@ def main(cfg: DictConfig):
         batch_prediction_behavior=batch_prediction_behavior,
     )
 
-    # Create MLMTrainingModule (proper LightningModule wrapper for SCBertForMaskedLM)
-    model = MLMTrainingModule(
-        model_config=model_config,
-        trainer_config=trainer_config,
-        tokenizer=tokenizer,
-    )
-
-    # Apply MULTIPLY mode if configured
-    combine_style = cfg.get('combine_style', 'add')
-    if combine_style == 'multiply':
+    # Create training module based on pretraining mode
+    if pretraining_mode == "wced":
+        # WCED pretraining: reconstruct ALL beta values from [CLS]
         logger.info("=" * 70)
-        logger.info("APPLYING MULTIPLY MODE (scGPT style)")
-        logger.info("Embedding: h = CpG_embed * β_value")
+        logger.info("WCED PRETRAINING MODE")
+        logger.info("Strategy: Reconstruct ALL beta values from [CLS] embedding")
         logger.info("=" * 70)
         print("\n" + "=" * 70)
-        print("MULTIPLY MODE ENABLED")
-        print("Embedding: h = CpG_embed * β_value")
-        print("(High methylation = strong embedding, low = weak)")
+        print("WCED PRETRAINING MODE")
+        print("Reconstruct all beta values from [CLS] → global bottleneck")
         print("=" * 70 + "\n")
 
-        # Get the embeddings layer and patch its forward method
-        embeddings_layer = model.model.scbert.embeddings
-        embeddings_layer.forward = create_multiply_forward(embeddings_layer)
-        logger.info("Embeddings layer patched for MULTIPLY mode")
+        from bmfm_methylation.wced_module import WCEDTrainingModule
+        from bmfm_methylation.config import PretrainingConfig
+
+        # Get WCED-specific settings
+        wced_config = PretrainingConfig(
+            mode="wced",
+            mask_ratio=0.0,  # No masking for WCED
+            decoder_hidden_sizes=cfg.get("wced_decoder_hidden_sizes", [2048, 4096]),
+            decoder_dropout=cfg.get("wced_decoder_dropout", 0.1),
+            use_positional_decoder=cfg.get("wced_use_positional_decoder", False),
+        )
+
+        # Get number of CpG sites (from subset_k or full sequence)
+        num_cpg_sites = cfg.data_module.get("subset_k", 2048)
+        logger.info(f"WCED decoder output size: {num_cpg_sites}")
+
+        model = WCEDTrainingModule(
+            model_config=model_config,
+            pretrain_config=wced_config,
+            learning_rate=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+            warmup_steps=cfg.trainer.warmup_steps,
+            lr_decay_steps=cfg.trainer.lr_decay_steps,
+            num_cpg_sites=num_cpg_sites,
+            betas=tuple(cfg.trainer.betas),
+            epsilon=cfg.trainer.epsilon,
+        )
+
     else:
-        logger.info(f"Using ADD mode (standard): h = CpG_embed + β_embed")
-        print(f"[MODE] ADD (standard): h = CpG_embed + β_embed")
+        # MLM pretraining (default): mask and predict
+        logger.info("=" * 70)
+        logger.info("MLM PRETRAINING MODE")
+        logger.info("Strategy: Mask 30% of beta values, predict masked positions")
+        logger.info("=" * 70)
+
+        # Create MLMTrainingModule (proper LightningModule wrapper for SCBertForMaskedLM)
+        model = MLMTrainingModule(
+            model_config=model_config,
+            trainer_config=trainer_config,
+            tokenizer=tokenizer,
+        )
+
+        # Apply MULTIPLY mode if configured
+        combine_style = cfg.get('combine_style', 'add')
+        if combine_style == 'multiply':
+            logger.info("=" * 70)
+            logger.info("APPLYING MULTIPLY MODE (scGPT style)")
+            logger.info("Embedding: h = CpG_embed * β_value")
+            logger.info("=" * 70)
+            print("\n" + "=" * 70)
+            print("MULTIPLY MODE ENABLED")
+            print("Embedding: h = CpG_embed * β_value")
+            print("(High methylation = strong embedding, low = weak)")
+            print("=" * 70 + "\n")
+
+            # Get the embeddings layer and patch its forward method
+            embeddings_layer = model.model.scbert.embeddings
+            embeddings_layer.forward = create_multiply_forward(embeddings_layer)
+            logger.info("Embeddings layer patched for MULTIPLY mode")
+        else:
+            logger.info(f"Using ADD mode (standard): h = CpG_embed + β_embed")
+            print(f"[MODE] ADD (standard): h = CpG_embed + β_embed")
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -434,13 +529,16 @@ def main(cfg: DictConfig):
         test_results = trainer.test(model, data_module)
 
     logger.info("=" * 70)
-    logger.info("PRETRAINING COMPLETE")
+    logger.info(f"PRETRAINING COMPLETE ({pretraining_mode.upper()} mode)")
     logger.info("=" * 70)
     logger.info(f"Best checkpoint: {best_ckpt}")
     logger.info(f"\nNext step: Fine-tune for age prediction:")
     logger.info(f"  python -m bmfm_methylation.finetune \\")
     logger.info(f"      data_path={cfg.data_path} \\")
     logger.info(f"      checkpoint_path={best_ckpt}")
+    if pretraining_mode == "wced":
+        logger.info(f"\nNote: WCED pretraining trains [CLS] to aggregate global information.")
+        logger.info(f"      For finetuning, consider using [CLS] pooling instead of mean pooling.")
 
     return best_ckpt
 

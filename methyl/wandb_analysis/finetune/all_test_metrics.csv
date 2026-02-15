@@ -1,0 +1,3 @@
+metric,value,description
+mae,4.854778289794922,MAE (Mean Absolute Error)
+r2,0.92264723777771,R² (Coefficient of Determination)

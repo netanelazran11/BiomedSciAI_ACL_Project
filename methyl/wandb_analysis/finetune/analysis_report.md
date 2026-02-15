@@ -1,10 +1,10 @@
 # Fine-tuning Analysis Report
 
-**Run:** bmfm-methyl-finetune-43998394
-**Run ID:** v4yn0u15
-**URL:** https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-bmfm-rna-methylation-8k/runs/v4yn0u15
+**Run:** finetune-fixed2048-44045989
+**Run ID:** ycap9s0f
+**URL:** https://wandb.ai/netanelazran11-hebrew-university-of-jerusalem/finetune-fixed2048-bmfm-rna-methylation/runs/ycap9s0f
 **State:** finished
-**Generated:** 2026-02-04 11:39:33
+**Generated:** 2026-02-10 15:13:12
 
 ---
 
@@ -12,26 +12,26 @@
 
 | Metric | Train | Validation | Test | Ridge Baseline |
 |--------|-------|------------|------|----------------|
-| MAE (years) | 2.98 | 3.77 | 3.62 | 4.49 |
-| R² | - | 0.9483 | 0.9574 | 0.94 |
+| MAE (years) | 2.21 | 4.97 | 4.85 | 4.49 |
+| R² | - | 0.9220 | 0.9226 | 0.94 |
 
 ## Performance Summary
 
-- **Best Val MAE:** 3.77 years (at epoch 94)
-- **Test MAE:** 3.62 years
-- **Test R²:** 0.9574
-- **vs Ridge Baseline:** 19.4% improvement in MAE
+- **Best Val MAE:** 4.97 years (at epoch 144)
+- **Test MAE:** 4.85 years
+- **Test R²:** 0.9226
+- **vs Ridge Baseline:** -8.1% improvement in MAE
 
 ## Training Details
 
-- **Total Epochs:** 100
-- **Early Stopping Triggered:** No
-- **Epochs After Best:** 5
+- **Total Epochs:** 245
+- **Early Stopping Triggered:** Yes
+- **Epochs After Best:** 100
 
 ## Overfitting Analysis
 
-- **Train-Val MAE Gap:** 0.80 years
-- **Assessment:** Healthy (gap < 1 year)
+- **Train-Val MAE Gap:** 2.91 years
+- **Assessment:** Concerning (gap > 2 years)
 
 ## Key Observations
 
@@ -41,7 +41,7 @@
 
 2. **vs Ridge Regression:**
    - Ridge (linear): MAE = 4.49 years, R² = 0.94
-   - MLP (nonlinear): MAE = 3.62 years, R² = 0.9574
+   - MLP (nonlinear): MAE = 4.85 years, R² = 0.9226
    - The MLP captures nonlinear interactions between CpG sites
 
 3. **Training Dynamics:**
