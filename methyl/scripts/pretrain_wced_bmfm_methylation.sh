@@ -111,24 +111,20 @@ PY
 # -------------------------
 # Run WCED Pretraining
 # -------------------------
-# Option 1: Use dedicated WCED config file
-# python -m bmfm_methylation.pretrain \
-#     --config-name=pretrain_wced_config \
-#     ...
-
-# Option 2: Use main config with pretraining_mode=wced (more flexible)
+# Use main config with pretraining_mode=wced
+# Note: List values use Hydra syntax: 'key=[val1,val2]' (no spaces)
 python -m bmfm_methylation.pretrain \
     data_path="${DATA}" \
     output_directory="${OUTDIR}" \
-    pretraining_mode="wced" \
+    pretraining_mode=wced \
     combine_style="${COMBINE_STYLE}" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    wced_decoder_hidden_sizes="${WCED_DECODER_HIDDEN}" \
-    wced_decoder_dropout="${WCED_DECODER_DROPOUT}" \
-    wced_use_positional_decoder="${WCED_USE_POSITIONAL}" \
+    'wced_decoder_hidden_sizes=[2048,4096]' \
+    wced_decoder_dropout=${WCED_DECODER_DROPOUT} \
+    wced_use_positional_decoder=${WCED_USE_POSITIONAL} \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \

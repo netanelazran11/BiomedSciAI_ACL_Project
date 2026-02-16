@@ -1,9 +1,15 @@
-# Main configuration for methylation pretraining (MLM)
+# Main configuration for methylation pretraining (MLM/WCED)
 #
 # Usage:
+#   # MLM pretraining (default):
 #   python -m bmfm_methylation.pretrain \
 #       data_path=/path/to/methylation.h5ad \
 #       output_directory=./outputs
+#
+#   # WCED pretraining:
+#   python -m bmfm_methylation.pretrain \
+#       data_path=/path/to/methylation.h5ad \
+#       pretraining_mode=wced
 
 defaults:
   - data_module: methylation
@@ -12,6 +18,11 @@ defaults:
   - task: pretrain_mlm
   - model: scbert_methylation
   - _self_
+
+# Pretraining mode: "mlm" or "wced"
+# - mlm: Mask 30% of beta values, predict masked positions only
+# - wced: No masking, reconstruct ALL positions from [CLS] token
+pretraining_mode: mlm
 
 # Paths
 data_path: ???  # Required: path to h5ad file
@@ -29,9 +40,14 @@ early_stop_patience: 15  # Stop after 15 epochs without improvement
 # "multiply": h = CpG_embed * β_value (scGPT style)
 combine_style: add
 
-# MLM settings
+# MLM settings (used when pretraining_mode=mlm)
 mlm_enabled: true
 collation_strategy: "language_modeling"
+
+# WCED settings (used when pretraining_mode=wced)
+wced_decoder_hidden_sizes: [2048, 4096]  # Decoder: 512 -> 2048 -> 4096 -> num_cpg
+wced_decoder_dropout: 0.1
+wced_use_positional_decoder: false  # Set to true for attention-based decoder
 
 # Seed
 seed:
