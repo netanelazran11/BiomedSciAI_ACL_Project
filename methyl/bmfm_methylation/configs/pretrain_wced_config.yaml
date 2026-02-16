@@ -38,7 +38,7 @@ checkpoint_path: null
 # Training settings
 pretrain_epochs: 300
 accumulate_grad_batches: 4  # Effective batch = 32 x 4 = 128
-early_stop_patience: 15
+early_stop_patience: 60
 
 # Embedding combination style (for encoder)
 combine_style: add

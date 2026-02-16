@@ -1,27 +1,25 @@
 """
-WCED Training Module - PyTorch Lightning module for WCED pretraining
+WCED Training Module - Whole Cell Expression Decoder for Methylation
 
-This module implements the Whole Cell Expression Decoder (WCED) pretraining
-strategy for methylation data:
+The key insight: The decoder must know WHICH CpG it's predicting for.
+We achieve this by using the SAME CpG embeddings in both encoder and decoder.
 
-1. Encode all CpG sites with their beta values (NO masking)
-2. Extract the [CLS] token representation
-3. Decode ALL beta values from [CLS] using a deep MLP
-4. Compute MSE loss between predicted and actual beta values
+Architecture:
+    Encoder:
+        [CpG_1+β_1, CpG_2+β_2, ..., CpG_n+β_n] → Transformer → [CLS]
 
-This creates a global bottleneck that forces the [CLS] token to aggregate
-information from the entire methylation profile into a single vector.
+    Decoder (for each CpG_i):
+        query = CpG_embedding(cpg_id_i)  # Same embeddings as encoder!
+        predicted_β_i = MLP(CrossAttention(query, [CLS]))
 
-Comparison with MLM:
-- MLM: Predicts MASKED positions only → per-token representations
-- WCED: Predicts ALL positions from [CLS] → global representation
-
-After WCED pretraining, [CLS] can be directly used for downstream tasks
-without additional pooling strategies.
+This creates:
+1. Information bottleneck: ALL info compressed into [CLS]
+2. CpG-aware decoding: Decoder knows which CpG it's predicting via shared embeddings
+3. Proper WCED objective: Reconstruct ALL betas from global representation
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -32,31 +30,121 @@ import numpy as np
 from bmfm_targets.config import SCBertConfig
 from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
 
-from .decoders import WCEDDecoder, WCEDLoss
 from .config import PretrainingConfig
 
 logger = logging.getLogger(__name__)
 
 
-class WCEDTrainingModule(pl.LightningModule):
+class WCEDDecoder(nn.Module):
     """
-    PyTorch Lightning module for WCED pretraining.
+    WCED Decoder: CpG-aware decoder using shared embeddings.
+
+    Key insight: Use the SAME CpG embeddings from encoder as queries.
+    This way the decoder knows exactly which CpG it's predicting for.
 
     Architecture:
-        [CpG IDs + Beta Values] → Encoder → [CLS] → Decoder → Reconstructed Betas
+        For each CpG in the sequence:
+            1. Get CpG embedding (shared with encoder)
+            2. Cross-attend to [CLS] to get context
+            3. Project to beta value
+    """
 
-    The encoder processes all CpG sites with their beta values (no masking).
-    The [CLS] token is extracted and passed through the WCED decoder.
-    The decoder reconstructs all beta values, and MSE loss is computed.
+    def __init__(
+        self,
+        cpg_embeddings: nn.Embedding,  # Shared from encoder!
+        hidden_size: int = 512,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
 
-    Args:
-        model_config: SCBertConfig for the encoder
-        pretrain_config: PretrainingConfig with WCED settings
-        learning_rate: Learning rate for optimizer
-        weight_decay: Weight decay for AdamW
-        warmup_steps: Number of warmup steps
-        lr_decay_steps: Total steps for LR decay
-        num_cpg_sites: Number of CpG sites to reconstruct
+        # Store reference to encoder's CpG embeddings (shared weights!)
+        self.cpg_embeddings = cpg_embeddings
+        self.hidden_size = hidden_size
+
+        # Cross-attention: CpG queries attend to [CLS]
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=hidden_size,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        # Layer norm after attention
+        self.norm = nn.LayerNorm(hidden_size)
+
+        # Output projection: attended representation → beta value
+        self.output_proj = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, 1),
+            nn.Sigmoid(),  # Beta values are in [0, 1]
+        )
+
+        self._init_weights()
+
+    def _init_weights(self):
+        # Initialize output projection (cross-attention has its own init)
+        for module in self.output_proj.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+    def forward(
+        self,
+        cls_embedding: torch.Tensor,
+        cpg_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Predict beta values using CpG embeddings as queries to [CLS].
+
+        Args:
+            cls_embedding: [batch, hidden_size] - [CLS] representation
+            cpg_ids: [batch, seq_len] - CpG IDs at each position
+            attention_mask: [batch, seq_len] - Mask for valid positions
+
+        Returns:
+            predicted_betas: [batch, seq_len] - Predicted beta values
+        """
+        batch_size, seq_len = cpg_ids.shape
+
+        # Get CpG embeddings as queries (using SHARED encoder embeddings)
+        # These embeddings know the identity of each CpG
+        queries = self.cpg_embeddings(cpg_ids.long())  # [batch, seq_len, hidden]
+
+        # [CLS] is the key and value (contains all compressed info)
+        cls_expanded = cls_embedding.unsqueeze(1)  # [batch, 1, hidden]
+
+        # Cross-attention: each CpG query asks [CLS] for its beta value
+        # Q: [batch, seq_len, hidden], K/V: [batch, 1, hidden]
+        attended, _ = self.cross_attention(
+            query=queries,
+            key=cls_expanded,
+            value=cls_expanded,
+        )  # [batch, seq_len, hidden]
+
+        # Residual connection + layer norm
+        attended = self.norm(queries + attended)
+
+        # Project to beta values
+        predicted_betas = self.output_proj(attended).squeeze(-1)  # [batch, seq_len]
+
+        return predicted_betas
+
+
+class WCEDTrainingModule(pl.LightningModule):
+    """
+    WCED Training Module - Whole Cell Expression Decoder for Methylation.
+
+    Architecture:
+        Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → [CLS]
+        Decoder: CpG_embed(cpg_id) → CrossAttention([CLS]) → predicted_β
+
+    The decoder shares CpG embeddings with encoder, so it knows exactly
+    which CpG it's predicting for at each position.
     """
 
     def __init__(
@@ -67,61 +155,53 @@ class WCEDTrainingModule(pl.LightningModule):
         weight_decay: float = 0.01,
         warmup_steps: int = 100,
         lr_decay_steps: int = 10000,
-        num_cpg_sites: int = 2048,
+        num_heads: int = 8,
         betas: tuple = (0.9, 0.999),
         epsilon: float = 1e-8,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['model_config', 'pretrain_config'])
 
-        # Store configs
         self.model_config = model_config
         if pretrain_config is None:
             pretrain_config = PretrainingConfig(mode="wced")
         self.pretrain_config = pretrain_config
 
-        # Encoder (BMFM SCBertModel)
+        # Encoder
         self.encoder = SCBertModel(model_config, add_pooling_layer=True)
 
-        # Apply ADD fusion stabilization (scale down CpG embeddings)
+        # Apply ADD fusion stabilization
         self._patch_embeddings_add_stabilized()
 
-        # WCED Decoder
-        if pretrain_config.use_positional_decoder:
-            from .decoders import WCEDWithPositionalDecoder
-            self.decoder = WCEDWithPositionalDecoder(
-                hidden_size=model_config.hidden_size,
-                num_cpg_sites=num_cpg_sites,
-                dropout=pretrain_config.decoder_dropout,
-            )
-            logger.info("Using positional WCED decoder (attention-based)")
-        else:
-            self.decoder = WCEDDecoder(
-                hidden_size=model_config.hidden_size,
-                num_cpg_sites=num_cpg_sites,
-                decoder_hidden_sizes=pretrain_config.decoder_hidden_sizes,
-                dropout=pretrain_config.decoder_dropout,
-            )
-            logger.info(f"Using standard WCED decoder: {model_config.hidden_size} → {pretrain_config.decoder_hidden_sizes} → {num_cpg_sites}")
+        # Get the CpG embeddings from encoder (to share with decoder)
+        cpg_embeddings = self.encoder.embeddings.cpg_sites_embeddings
+
+        # WCED Decoder: uses shared CpG embeddings for CpG-aware prediction
+        self.decoder = WCEDDecoder(
+            cpg_embeddings=cpg_embeddings,  # Shared with encoder!
+            hidden_size=model_config.hidden_size,
+            num_heads=num_heads,
+            dropout=pretrain_config.decoder_dropout,
+        )
 
         # Loss function
-        self.loss_fn = WCEDLoss(reduction='mean')
+        self.loss_fn = nn.MSELoss(reduction='none')
 
         # Log model info
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         decoder_params = sum(p.numel() for p in self.decoder.parameters())
+        # Note: CpG embeddings are shared, so counted only once in encoder
+        shared_params = sum(p.numel() for p in cpg_embeddings.parameters())
+
         logger.info(f"WCED Training Module initialized:")
         logger.info(f"  Encoder params: {encoder_params:,}")
-        logger.info(f"  Decoder params: {decoder_params:,}")
-        logger.info(f"  Total params: {encoder_params + decoder_params:,}")
-        logger.info(f"  Pretraining mode: WCED (reconstruct ALL from [CLS])")
+        logger.info(f"  Decoder params (excluding shared): {decoder_params - shared_params:,}")
+        logger.info(f"  Shared CpG embeddings: {shared_params:,}")
+        logger.info(f"  Total params: {encoder_params + decoder_params - shared_params:,}")
+        logger.info(f"  Mode: WCED (CpG-aware decoder with shared embeddings)")
 
     def _patch_embeddings_add_stabilized(self, initial_cpg_scale: float = 0.1):
-        """
-        Patch embeddings to use ADD fusion with learnable CpG scaling.
-
-        h = alpha * CpG_embed + beta_embed
-        """
+        """Patch embeddings to use ADD fusion with learnable CpG scaling."""
         embeddings_layer = self.encoder.embeddings
         embeddings_layer.cpg_scale = nn.Parameter(torch.tensor(float(initial_cpg_scale)))
 
@@ -137,7 +217,6 @@ class WCEDTrainingModule(pl.LightningModule):
 
             # Field 1: beta values
             beta_values = input_ids[:, 1, :].float()
-            # Replace special sentinels with neutral value
             beta_values_clean = beta_values.clone()
             beta_values_clean[beta_values_clean < 0] = 0.0
             beta_embeds = embeddings_layer.beta_values_embeddings(beta_values_clean)
@@ -167,71 +246,37 @@ class WCEDTrainingModule(pl.LightningModule):
 
         Args:
             cpg_ids: [batch, seq_len] - CpG site token IDs
-            beta_values: [batch, seq_len] - Beta values (including CLS/PAD sentinels)
+            beta_values: [batch, seq_len] - Beta values
             attention_mask: [batch, seq_len] - Attention mask
 
         Returns:
-            Dict with:
-                - predicted_betas: [batch, num_cpg_sites] - Reconstructed values
-                - cls_embedding: [batch, hidden_size] - [CLS] representation
+            Dict with predicted_betas and cls_embedding
         """
         batch_size, seq_len = cpg_ids.shape
 
         # Build BMFM-style input: [batch, 2, seq_len]
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
 
-        # Encode
+        # Encode - get [CLS] representation
         encoder_output = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
 
-        # Extract [CLS] token (pooler_output)
-        cls_embedding = encoder_output.pooler_output  # [batch, hidden_size]
+        # Extract [CLS] embedding (global representation)
+        cls_embedding = encoder_output.pooler_output  # [batch, hidden]
 
-        # Decode to all beta values
-        predicted_betas = self.decoder(cls_embedding)  # [batch, num_cpg_sites]
+        # Decode: use CpG IDs to query [CLS] for each beta value
+        predicted_betas = self.decoder(
+            cls_embedding=cls_embedding,
+            cpg_ids=cpg_ids,
+            attention_mask=attention_mask,
+        )  # [batch, seq_len]
 
         return {
             "predicted_betas": predicted_betas,
             "cls_embedding": cls_embedding,
         }
-
-    def _extract_target_betas(
-        self,
-        beta_values: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Extract target beta values for loss computation.
-
-        Args:
-            beta_values: [batch, seq_len] - Input beta values with sentinels
-            attention_mask: [batch, seq_len] - Attention mask
-
-        Returns:
-            target_betas: [batch, num_cpg_sites] - Clean target values
-        """
-        # Skip CLS token (position 0), extract content tokens
-        # Beta values for CLS is sentinel (-2.0), PAD is sentinel (-3.0)
-        content_betas = beta_values[:, 1:]  # Skip CLS
-        content_mask = attention_mask[:, 1:]  # Skip CLS
-
-        batch_size = beta_values.size(0)
-        num_cpg_sites = self.decoder.num_cpg_sites
-
-        # Initialize target tensor
-        target_betas = torch.zeros(batch_size, num_cpg_sites, device=beta_values.device)
-
-        # Copy valid beta values (those that are >= 0, not sentinels)
-        for i in range(batch_size):
-            valid_mask = (content_betas[i] >= 0) & (content_mask[i] == 1)
-            valid_values = content_betas[i][valid_mask]
-            # Pad or truncate to num_cpg_sites
-            n_valid = min(len(valid_values), num_cpg_sites)
-            target_betas[i, :n_valid] = valid_values[:n_valid]
-
-        return target_betas
 
     def _shared_step(self, batch: Dict[str, torch.Tensor], stage: str) -> Dict[str, torch.Tensor]:
         """Shared step for train/val/test."""
@@ -243,19 +288,23 @@ class WCEDTrainingModule(pl.LightningModule):
         outputs = self(cpg_ids, beta_values, attention_mask)
         predicted_betas = outputs["predicted_betas"]
 
-        # Extract target betas (skip CLS, handle sentinels)
-        target_betas = self._extract_target_betas(beta_values, attention_mask)
+        # Target: original beta values
+        target_betas = beta_values.clone()
 
-        # Create valid mask for loss (positions with real beta values)
-        valid_mask = (target_betas > 0) | (target_betas == 0)  # All non-sentinel values
+        # Create mask for valid positions (non-CLS, non-PAD, valid beta values)
+        # Position 0 is CLS (beta = -2.0), PAD positions have beta = -3.0
+        valid_mask = (target_betas >= 0) & (attention_mask == 1)
 
-        # Compute loss
-        loss = self.loss_fn(predicted_betas, target_betas, valid_mask.float())
+        # Compute loss only on valid positions
+        loss_per_pos = self.loss_fn(predicted_betas, target_betas.clamp(0, 1))
+        loss = (loss_per_pos * valid_mask.float()).sum() / valid_mask.float().sum().clamp(min=1)
 
-        # Compute metrics
+        # Compute metrics on valid positions
         with torch.no_grad():
-            mae = torch.abs(predicted_betas - target_betas).mean()
-            mse = ((predicted_betas - target_betas) ** 2).mean()
+            valid_pred = predicted_betas[valid_mask]
+            valid_target = target_betas[valid_mask].clamp(0, 1)
+            mae = torch.abs(valid_pred - valid_target).mean()
+            mse = ((valid_pred - valid_target) ** 2).mean()
 
         return {
             "loss": loss,
@@ -263,10 +312,10 @@ class WCEDTrainingModule(pl.LightningModule):
             "mse": mse,
             "predicted_betas": predicted_betas,
             "target_betas": target_betas,
+            "valid_mask": valid_mask,
         }
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        """Training step."""
         outputs = self._shared_step(batch, "train")
 
         self.log("train/loss", outputs["loss"], on_step=True, on_epoch=True, prog_bar=True)
@@ -276,7 +325,6 @@ class WCEDTrainingModule(pl.LightningModule):
         return outputs["loss"]
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        """Validation step."""
         outputs = self._shared_step(batch, "val")
 
         self.log("validation/loss", outputs["loss"], on_epoch=True, prog_bar=True)
@@ -286,16 +334,16 @@ class WCEDTrainingModule(pl.LightningModule):
         return outputs["loss"]
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        """Test step."""
         outputs = self._shared_step(batch, "test")
 
         self.log("test/loss", outputs["loss"], on_epoch=True)
         self.log("test/mae", outputs["mae"], on_epoch=True)
         self.log("test/mse", outputs["mse"], on_epoch=True)
 
-        # Compute PCC for test
-        pred = outputs["predicted_betas"].detach().cpu().numpy().flatten()
-        target = outputs["target_betas"].detach().cpu().numpy().flatten()
+        # Compute PCC
+        valid_mask = outputs["valid_mask"]
+        pred = outputs["predicted_betas"][valid_mask].detach().cpu().numpy()
+        target = outputs["target_betas"][valid_mask].clamp(0, 1).detach().cpu().numpy()
         if len(pred) > 1:
             pcc, _ = pearsonr(pred, target)
             self.log("test/pcc", pcc, on_epoch=True)
@@ -303,8 +351,6 @@ class WCEDTrainingModule(pl.LightningModule):
         return outputs["loss"]
 
     def configure_optimizers(self):
-        """Configure optimizer and scheduler."""
-        # AdamW optimizer
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.hparams.learning_rate,
@@ -313,12 +359,20 @@ class WCEDTrainingModule(pl.LightningModule):
             eps=self.hparams.epsilon,
         )
 
-        # Cosine scheduler with warmup
+        lr_decay_steps = self.hparams.lr_decay_steps
+        if lr_decay_steps <= 0:
+            if self.trainer is not None and self.trainer.estimated_stepping_batches is not None:
+                lr_decay_steps = int(self.trainer.estimated_stepping_batches)
+            else:
+                lr_decay_steps = 300 * 45
+
+        warmup_steps = self.hparams.warmup_steps
+
         def lr_lambda(current_step):
-            if current_step < self.hparams.warmup_steps:
-                return float(current_step) / float(max(1, self.hparams.warmup_steps))
-            progress = float(current_step - self.hparams.warmup_steps) / \
-                       float(max(1, self.hparams.lr_decay_steps - self.hparams.warmup_steps))
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            progress = float(current_step - warmup_steps) / float(max(1, lr_decay_steps - warmup_steps))
+            progress = min(progress, 1.0)
             return max(0.0, 0.5 * (1.0 + np.cos(np.pi * progress)))
 
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

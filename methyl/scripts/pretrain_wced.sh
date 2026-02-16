@@ -1,12 +1,12 @@
 #!/bin/bash -l
-#SBATCH --job-name=pretrain-wced-improved
+#SBATCH --job-name=pretrain-wced
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=72:00:00
+#SBATCH --time=50:00:00
 
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
@@ -30,28 +30,38 @@ FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # ============================================================
-# IMPROVED WCED SETTINGS
+# WCED SETTINGS - CpG-aware architecture
 # ============================================================
-# 1. Use POSITIONAL DECODER (attention-based) - key improvement!
-WCED_USE_POSITIONAL="true"
+# Uses SHARED CpG embeddings between encoder and decoder
+#
+# Architecture:
+#   Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → [CLS]
+#   Decoder: CpG_embed(cpg_id) → CrossAttention([CLS]) → predicted_β
+#            ↑
+#            SAME embeddings as encoder (shared weights)
+#
+# Why this works:
+#   1. Information bottleneck: ALL info compressed into [CLS]
+#   2. CpG-aware: Decoder knows which CpG via shared embeddings
+#   3. Proper WCED: Reconstruct ALL betas from global representation
+# ============================================================
 
-# 2. Larger decoder for more capacity
+# Standard encoder settings
+HIDDEN_SIZE="${HIDDEN_SIZE:-512}"
+NUM_ATTENTION_HEADS="${NUM_ATTENTION_HEADS:-8}"
+INTERMEDIATE_SIZE="${INTERMEDIATE_SIZE:-2048}"
+
+# Decoder dropout
 WCED_DECODER_DROPOUT="0.1"
 
-# 3. Longer training - increased patience
-EARLY_STOP_PATIENCE="50"
+# Training settings
+EARLY_STOP_PATIENCE="20"
 PRETRAIN_EPOCHS="300"
-
-# 4. Larger encoder hidden size for richer [CLS]
-HIDDEN_SIZE="768"
-NUM_ATTENTION_HEADS="12"  # 768 / 12 = 64 per head
-INTERMEDIATE_SIZE="3072"  # 4x hidden size
-# ============================================================
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="pretrain-wced-improved-bmfm"
-WANDB_RUN_NAME="wced-positional-h${HIDDEN_SIZE}-${SLURM_JOB_ID}"
+WANDB_PROJECT="pretrain-wced-bmfm"
+WANDB_RUN_NAME="wced-h${HIDDEN_SIZE}-${SLURM_JOB_ID}"
 
 # Output directory
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -61,19 +71,22 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "IMPROVED WCED PRETRAINING"
+echo "WCED PRETRAINING - CpG-Aware Decoder"
 echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "============================================================"
-echo "KEY IMPROVEMENTS:"
-echo "  1. POSITIONAL DECODER: ${WCED_USE_POSITIONAL} (attention-based)"
-echo "  2. LARGER ENCODER: hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
-echo "  3. LONGER TRAINING: patience=${EARLY_STOP_PATIENCE}, max_epochs=${PRETRAIN_EPOCHS}"
+echo "ARCHITECTURE:"
+echo "  Encoder: [CpG+β] → Transformer → [CLS] (bottleneck)"
+echo "  Decoder: CpG_embed → CrossAttn([CLS]) → predicted_β"
+echo ""
+echo "  Key: Decoder uses SAME CpG embeddings as encoder"
+echo "       Each CpG query asks [CLS]: 'what is MY beta value?'"
 echo "============================================================"
 echo "CpG Subset:  FIXED ${SUBSET_K} CpGs"
 echo "Combine:     ${COMBINE_STYLE}"
+echo "Model:       hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
 echo "============================================================"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
@@ -106,7 +119,7 @@ print("torch:", torch.__version__, "cuda:", torch.version.cuda)
 PY
 
 # -------------------------
-# Run Improved WCED Pretraining
+# Run WCED Pretraining
 # -------------------------
 python -m bmfm_methylation.pretrain \
     data_path="${DATA}" \
@@ -117,7 +130,6 @@ python -m bmfm_methylation.pretrain \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    wced_use_positional_decoder=${WCED_USE_POSITIONAL} \
     wced_decoder_dropout=${WCED_DECODER_DROPOUT} \
     early_stop_patience=${EARLY_STOP_PATIENCE} \
     pretrain_epochs=${PRETRAIN_EPOCHS} \
@@ -130,7 +142,13 @@ python -m bmfm_methylation.pretrain \
     track_wandb.name="${WANDB_RUN_NAME}"
 
 echo "============================================================"
-echo "Improved WCED Pretraining finished: $(date)"
+echo "WCED Pretraining finished: $(date)"
 echo "============================================================"
 echo "Checkpoint: ${OUTDIR}"
+echo "============================================================"
+echo "Next steps:"
+echo "  1. Check WandB for training curves"
+echo "  2. Verify PCC is improving (should reach ~0.95+)"
+echo "  3. If good, the [CLS] embedding is now a strong global representation"
+echo "  4. Use for finetuning - [CLS] should work well for age prediction"
 echo "============================================================"

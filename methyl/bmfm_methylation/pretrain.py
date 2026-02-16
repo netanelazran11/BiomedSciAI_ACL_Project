@@ -392,14 +392,30 @@ def main(cfg: DictConfig):
 
     # Create training module based on pretraining mode
     if pretraining_mode == "wced":
-        # WCED pretraining: reconstruct ALL beta values from [CLS]
+        # WCED pretraining: CpG-aware decoder with shared embeddings
+        #
+        # Key insight: The decoder must know WHICH CpG it's predicting for.
+        # We achieve this by sharing CpG embeddings between encoder and decoder.
+        #
+        # Architecture:
+        #   Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → [CLS]
+        #   Decoder: CpG_embed(cpg_id) → CrossAttention([CLS]) → predicted_β
+        #
+        # The decoder uses the SAME CpG embeddings as encoder, so it knows
+        # exactly which CpG it's querying [CLS] about.
         logger.info("=" * 70)
         logger.info("WCED PRETRAINING MODE")
-        logger.info("Strategy: Reconstruct ALL beta values from [CLS] embedding")
+        logger.info("Strategy: CpG-aware decoder with shared embeddings")
+        logger.info("  - Encoder compresses ALL info into [CLS]")
+        logger.info("  - Decoder uses CpG embeddings (shared with encoder) as queries")
+        logger.info("  - CrossAttention: CpG_query → [CLS] → predicted_beta")
+        logger.info("  - Creates proper bottleneck while maintaining CpG identity")
         logger.info("=" * 70)
         print("\n" + "=" * 70)
         print("WCED PRETRAINING MODE")
-        print("Reconstruct all beta values from [CLS] → global bottleneck")
+        print("CpG-aware decoder with shared embeddings")
+        print("Encoder: all CpGs → [CLS] (bottleneck)")
+        print("Decoder: CpG_embed queries [CLS] → beta")
         print("=" * 70 + "\n")
 
         from bmfm_methylation.wced_module import WCEDTrainingModule
@@ -409,14 +425,8 @@ def main(cfg: DictConfig):
         wced_config = PretrainingConfig(
             mode="wced",
             mask_ratio=0.0,  # No masking for WCED
-            decoder_hidden_sizes=cfg.get("wced_decoder_hidden_sizes", [2048, 4096]),
             decoder_dropout=cfg.get("wced_decoder_dropout", 0.1),
-            use_positional_decoder=cfg.get("wced_use_positional_decoder", False),
         )
-
-        # Get number of CpG sites (from subset_k or full sequence)
-        num_cpg_sites = cfg.data_module.get("subset_k", 2048)
-        logger.info(f"WCED decoder output size: {num_cpg_sites}")
 
         model = WCEDTrainingModule(
             model_config=model_config,
@@ -425,7 +435,7 @@ def main(cfg: DictConfig):
             weight_decay=cfg.trainer.weight_decay,
             warmup_steps=cfg.trainer.warmup_steps,
             lr_decay_steps=cfg.trainer.lr_decay_steps,
-            num_cpg_sites=num_cpg_sites,
+            num_heads=cfg.model.get("num_attention_heads", 8),
             betas=tuple(cfg.trainer.betas),
             epsilon=cfg.trainer.epsilon,
         )

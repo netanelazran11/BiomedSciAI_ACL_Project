@@ -81,6 +81,9 @@ except ImportError:
     SCBertForMaskedLM = None
     _HAS_BMFM = False
 
+# WCED Training Module
+from .wced_module import WCEDTrainingModule
+
 
 __all__ = [
     # Config
@@ -104,6 +107,9 @@ __all__ = [
     # Models (from bmfm_targets)
     "SCBertModel",
     "SCBertForMaskedLM",
+
+    # WCED Training Module
+    "WCEDTrainingModule",  # CpG_embed → CrossAttn([CLS]) → betas
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
