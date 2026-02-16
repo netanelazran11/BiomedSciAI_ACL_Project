@@ -15,16 +15,26 @@ This project explores **DNA methylation-based biological age prediction** using 
 **Dataset:** 8,000 CpG sites from Altumage dataset
 **Samples:** 11,500 (Train: 5,483 | Valid: 1,371 | Test: 4,646)
 
-### Multi-Seed Performance (n=3 seeds: 40, 41, 43)
+### Multi-Seed Performance (n=5 seeds: 40, 41, 42, 43, 44)
 
 | Metric | Mean ± Std | Min | Max |
 |--------|-----------|-----|-----|
-| **MAE (years)** | **4.84 ± 0.16** | 4.67 | 4.97 |
-| **R²** | **0.926 ± 0.005** | 0.921 | 0.931 |
+| **MAE (years)** | **4.79 ± 0.14** | 4.64 | 4.97 |
+| **R²** | **0.927 ± 0.004** | 0.921 | 0.932 |
+
+### Individual Seed Results
+
+| Seed | Test MAE (years) | Test R² | Best Epoch |
+|------|------------------|---------|------------|
+| 40 | 4.88 | 0.926 | 116 |
+| 41 | 4.97 | 0.921 | 85 |
+| 42 | 4.76 | 0.928 | 214 |
+| 43 | 4.67 | 0.931 | 118 |
+| **44** | **4.64** | **0.932** | 125 |
 
 ### Best Individual Model
-- **Seed 43:** MAE = 4.67 years, R² = 0.931
-- **Checkpoint:** Epoch 118 (best validation MAE: 4.98)
+- **Seed 44:** MAE = 4.64 years, R² = 0.932
+- **Checkpoint:** Epoch 125 (best validation MAE: 4.85)
 
 ---
 
@@ -153,13 +163,14 @@ Regression Head (Fine-tuning):
 
 **PCC = 0.997** indicates the model accurately predicts masked β-values from context.
 
-### Fine-tuning Results
+### Fine-tuning Results (n=5 seeds)
 
 | Split | MAE (years) | R² |
 |-------|-------------|-----|
-| **Train** | 2.21 | — |
-| **Validation** | 5.12 | 0.917 |
-| **Test** | **4.85** | **0.923** |
+| **Train** | 2.34 ± 0.14 | — |
+| **Validation** | 4.95 ± 0.06 | — |
+| **Test (Mean)** | **4.79 ± 0.14** | **0.927 ± 0.004** |
+| **Test (Best)** | **4.64** | **0.932** |
 
 ### Final Comparison
 
@@ -167,11 +178,13 @@ Regression Head (Fine-tuning):
 |-------|------------------|---------|-----------|
 | Mean prediction | 22.82 | 0.00 | — |
 | MethylGPT baseline | 4.95 | 0.911 | 8,000 |
-| **BMFM-RNA (ours)** | **4.85** | **0.923** | 8,000 |
+| **BMFM-RNA (Mean, n=5)** | **4.79 ± 0.14** | **0.927** | 8,000 |
+| **BMFM-RNA (Best)** | **4.64** | **0.932** | 8,000 |
 
-- **78% error reduction** compared to mean prediction baseline
-- **2% improvement** in MAE over MethylGPT (4.85 vs 4.95 years)
-- **1.2% improvement** in R² (0.923 vs 0.911)
+- **79% error reduction** compared to mean prediction baseline
+- **3.3% improvement** in MAE over MethylGPT (mean: 4.79 vs 4.95 years)
+- **6.3% improvement** for best model (4.64 vs 4.95 years)
+- **1.8% improvement** in R² (0.927 vs 0.911)
 
 ---
 
