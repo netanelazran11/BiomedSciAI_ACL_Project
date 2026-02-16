@@ -1,21 +1,26 @@
 """
 WCED Training Module - Whole Cell Expression Decoder for Methylation
 
-The key insight: The decoder must know WHICH CpG it's predicting for.
-We achieve this by using the SAME CpG embeddings in both encoder and decoder.
-
 Architecture:
     Encoder:
-        [CpG_1+β_1, CpG_2+β_2, ..., CpG_n+β_n] → Transformer → [CLS]
+        [CpG_1+β_1, CpG_2+β_2, ..., CpG_n+β_n] → Transformer → hidden_states
 
     Decoder (for each CpG_i):
-        query = CpG_embedding(cpg_id_i)  # Same embeddings as encoder!
-        predicted_β_i = MLP(CrossAttention(query, [CLS]))
+        query = CpG_embedding(cpg_id_i)  # Same embeddings as encoder
+        predicted_β_i = MLP(CrossAttention(query, ALL_hidden_states))
 
-This creates:
-1. Information bottleneck: ALL info compressed into [CLS]
-2. CpG-aware decoding: Decoder knows which CpG it's predicting via shared embeddings
-3. Proper WCED objective: Reconstruct ALL betas from global representation
+Key insight: The decoder must attend to ALL encoder hidden states, not just [CLS].
+This allows the decoder to gather sample-specific information from the full context.
+
+Why attending to just [CLS] fails:
+- Cross-attention with 1 token gives the same value to all queries
+- Model learns: f(CpG_embed + [CLS]) → average_beta_for_that_CpG
+- Can't capture per-sample variation (PCC stuck at ~0.94)
+
+Why attending to ALL hidden states works:
+- Each CpG query can attend to all positions
+- Can gather relevant sample-specific information
+- Similar to MLM but predicting ALL positions
 """
 
 import logging
@@ -37,16 +42,16 @@ logger = logging.getLogger(__name__)
 
 class WCEDDecoder(nn.Module):
     """
-    WCED Decoder: CpG-aware decoder using shared embeddings.
-
-    Key insight: Use the SAME CpG embeddings from encoder as queries.
-    This way the decoder knows exactly which CpG it's predicting for.
+    WCED Decoder: CpG-aware decoder attending to ALL encoder hidden states.
 
     Architecture:
-        For each CpG in the sequence:
-            1. Get CpG embedding (shared with encoder)
-            2. Cross-attend to [CLS] to get context
-            3. Project to beta value
+        Query: CpG embeddings (shared with encoder) - knows which CpG
+        Key/Value: ALL encoder hidden states - full sample context
+        Output: CrossAttention → MLP → predicted beta
+
+    This allows the decoder to:
+    1. Know which CpG it's predicting (via CpG embedding query)
+    2. Access full sample context (via attention to all hidden states)
     """
 
     def __init__(
@@ -62,7 +67,7 @@ class WCEDDecoder(nn.Module):
         self.cpg_embeddings = cpg_embeddings
         self.hidden_size = hidden_size
 
-        # Cross-attention: CpG queries attend to [CLS]
+        # Cross-attention: CpG queries attend to ALL encoder hidden states
         self.cross_attention = nn.MultiheadAttention(
             embed_dim=hidden_size,
             num_heads=num_heads,
@@ -85,7 +90,6 @@ class WCEDDecoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        # Initialize output projection (cross-attention has its own init)
         for module in self.output_proj.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -94,15 +98,15 @@ class WCEDDecoder(nn.Module):
 
     def forward(
         self,
-        cls_embedding: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
         cpg_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Predict beta values using CpG embeddings as queries to [CLS].
+        Predict beta values using CpG embeddings as queries to ALL hidden states.
 
         Args:
-            cls_embedding: [batch, hidden_size] - [CLS] representation
+            encoder_hidden_states: [batch, seq_len, hidden_size] - ALL encoder outputs
             cpg_ids: [batch, seq_len] - CpG IDs at each position
             attention_mask: [batch, seq_len] - Mask for valid positions
 
@@ -112,18 +116,20 @@ class WCEDDecoder(nn.Module):
         batch_size, seq_len = cpg_ids.shape
 
         # Get CpG embeddings as queries (using SHARED encoder embeddings)
-        # These embeddings know the identity of each CpG
         queries = self.cpg_embeddings(cpg_ids.long())  # [batch, seq_len, hidden]
 
-        # [CLS] is the key and value (contains all compressed info)
-        cls_expanded = cls_embedding.unsqueeze(1)  # [batch, 1, hidden]
+        # Create key padding mask for attention (True = ignore)
+        key_padding_mask = None
+        if attention_mask is not None:
+            key_padding_mask = (attention_mask == 0)  # [batch, seq_len]
 
-        # Cross-attention: each CpG query asks [CLS] for its beta value
-        # Q: [batch, seq_len, hidden], K/V: [batch, 1, hidden]
+        # Cross-attention: each CpG query attends to ALL encoder hidden states
+        # Q: [batch, seq_len, hidden], K/V: [batch, seq_len, hidden]
         attended, _ = self.cross_attention(
             query=queries,
-            key=cls_expanded,
-            value=cls_expanded,
+            key=encoder_hidden_states,
+            value=encoder_hidden_states,
+            key_padding_mask=key_padding_mask,
         )  # [batch, seq_len, hidden]
 
         # Residual connection + layer norm
@@ -140,11 +146,13 @@ class WCEDTrainingModule(pl.LightningModule):
     WCED Training Module - Whole Cell Expression Decoder for Methylation.
 
     Architecture:
-        Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → [CLS]
-        Decoder: CpG_embed(cpg_id) → CrossAttention([CLS]) → predicted_β
+        Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → hidden_states
+        Decoder: CpG_embed(cpg_id) → CrossAttention(ALL_hidden_states) → predicted_β
 
-    The decoder shares CpG embeddings with encoder, so it knows exactly
-    which CpG it's predicting for at each position.
+    The decoder:
+    1. Uses CpG embeddings (shared with encoder) as queries
+    2. Attends to ALL encoder hidden states (not just [CLS])
+    3. This provides full sample context for prediction
     """
 
     def __init__(
@@ -176,7 +184,7 @@ class WCEDTrainingModule(pl.LightningModule):
         # Get the CpG embeddings from encoder (to share with decoder)
         cpg_embeddings = self.encoder.embeddings.cpg_sites_embeddings
 
-        # WCED Decoder: uses shared CpG embeddings for CpG-aware prediction
+        # WCED Decoder: attends to ALL hidden states
         self.decoder = WCEDDecoder(
             cpg_embeddings=cpg_embeddings,  # Shared with encoder!
             hidden_size=model_config.hidden_size,
@@ -190,7 +198,6 @@ class WCEDTrainingModule(pl.LightningModule):
         # Log model info
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         decoder_params = sum(p.numel() for p in self.decoder.parameters())
-        # Note: CpG embeddings are shared, so counted only once in encoder
         shared_params = sum(p.numel() for p in cpg_embeddings.parameters())
 
         logger.info(f"WCED Training Module initialized:")
@@ -198,7 +205,7 @@ class WCEDTrainingModule(pl.LightningModule):
         logger.info(f"  Decoder params (excluding shared): {decoder_params - shared_params:,}")
         logger.info(f"  Shared CpG embeddings: {shared_params:,}")
         logger.info(f"  Total params: {encoder_params + decoder_params - shared_params:,}")
-        logger.info(f"  Mode: WCED (CpG-aware decoder with shared embeddings)")
+        logger.info(f"  Mode: WCED (decoder attends to ALL encoder hidden states)")
 
     def _patch_embeddings_add_stabilized(self, initial_cpg_scale: float = 0.1):
         """Patch embeddings to use ADD fusion with learnable CpG scaling."""
@@ -250,25 +257,26 @@ class WCEDTrainingModule(pl.LightningModule):
             attention_mask: [batch, seq_len] - Attention mask
 
         Returns:
-            Dict with predicted_betas and cls_embedding
+            Dict with predicted_betas, cls_embedding, and hidden_states
         """
         batch_size, seq_len = cpg_ids.shape
 
         # Build BMFM-style input: [batch, 2, seq_len]
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
 
-        # Encode - get [CLS] representation
+        # Encode - get ALL hidden states
         encoder_output = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
 
-        # Extract [CLS] embedding (global representation)
+        # Get full hidden states (not just [CLS])
+        hidden_states = encoder_output.last_hidden_state  # [batch, seq_len, hidden]
         cls_embedding = encoder_output.pooler_output  # [batch, hidden]
 
-        # Decode: use CpG IDs to query [CLS] for each beta value
+        # Decode: CpG queries attend to ALL hidden states
         predicted_betas = self.decoder(
-            cls_embedding=cls_embedding,
+            encoder_hidden_states=hidden_states,
             cpg_ids=cpg_ids,
             attention_mask=attention_mask,
         )  # [batch, seq_len]
@@ -276,6 +284,7 @@ class WCEDTrainingModule(pl.LightningModule):
         return {
             "predicted_betas": predicted_betas,
             "cls_embedding": cls_embedding,
+            "hidden_states": hidden_states,
         }
 
     def _shared_step(self, batch: Dict[str, torch.Tensor], stage: str) -> Dict[str, torch.Tensor]:
