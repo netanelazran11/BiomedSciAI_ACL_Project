@@ -45,6 +45,7 @@ mlm_enabled: true
 collation_strategy: "language_modeling"
 
 # WCED settings (used when pretraining_mode=wced)
+wced_input_ratio: 0.8  # Fraction of CpGs as input (0.5 = harder, 0.8 = easier)
 wced_decoder_hidden_sizes: [2048, 4096]  # Decoder: 512 -> 2048 -> 4096 -> num_cpg
 wced_decoder_dropout: 0.1
 wced_use_positional_decoder: false  # Set to true for attention-based decoder
