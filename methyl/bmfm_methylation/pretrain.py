@@ -287,15 +287,16 @@ def main(cfg: DictConfig):
         switch_ratio=cfg.data_module.switch_ratio if use_mlm else 0.0,
         collation_strategy="language_modeling",
     )
-    # Get vocab_size for WCED (needed before collator setup)
+    # Get vocab_size and input_ratio for WCED (needed before collator setup)
     vocab_size = cfg.data_module.get("subset_k", 2048)
+    wced_input_ratio = cfg.get("wced_input_ratio", 0.8)
 
     def _wrap_collator():
         base_collator = data_module.collator
 
         if pretraining_mode == "wced":
             # WCED mode: Use WCEDCollator for random input masking
-            # This creates proper WCED training: input 80% → predict ALL → loss on 20%
+            # This creates proper WCED training: input X% → predict ALL → loss on (1-X)%
             cpg_sites = None
             if data_module.train_dataset is not None:
                 cpg_sites = data_module.train_dataset.cpg_sites
@@ -307,11 +308,13 @@ def main(cfg: DictConfig):
             if cpg_sites is None:
                 raise ValueError("No CpG site list available for WCEDCollator")
 
+            logger.info(f"WCED Collator: vocab_size={vocab_size}, input_ratio={wced_input_ratio}")
+
             wced_collator = WCEDCollator(
                 tokenizer=data_module.tokenizer,
                 cpg_sites=cpg_sites,
                 vocab_size=vocab_size,
-                input_ratio=0.8,  # 80% of CpGs as input
+                input_ratio=wced_input_ratio,
                 fixed_subset_seed=cfg.data_module.get("fixed_subset_seed", 42),
             )
 
@@ -430,20 +433,22 @@ def main(cfg: DictConfig):
         #
         # Key insight: Loss on non-input CpGs forces the model to learn
         # patterns, not just copy. CLS must encode global information.
+        input_pct = int(wced_input_ratio * 100)
+        predict_pct = 100 - input_pct
         logger.info("=" * 70)
         logger.info("WCED PRETRAINING MODE")
         logger.info("Strategy: Linear decoder from CLS to entire vocabulary")
-        logger.info(f"  - Input: Random 80% of {vocab_size} CpGs")
+        logger.info(f"  - Input: Random {input_pct}% of {vocab_size} CpGs")
         logger.info("  - Encoder: Transformer → CLS hidden state (bottleneck)")
         logger.info(f"  - Decoder: Linear(CLS) → {vocab_size} beta predictions")
-        logger.info("  - Loss: MSE only on non-input 20% (forces learning)")
+        logger.info(f"  - Loss: MSE only on non-input {predict_pct}% (forces learning)")
         logger.info("=" * 70)
         print("\n" + "=" * 70)
         print("WCED PRETRAINING MODE")
         print("Linear decoder from CLS to vocabulary")
-        print(f"Input: 80% of {vocab_size} CpGs → Encoder → [CLS]")
+        print(f"Input: {input_pct}% of {vocab_size} CpGs → Encoder → [CLS]")
         print(f"Decoder: Linear([CLS]) → {vocab_size} betas")
-        print("Loss: only on non-input 20%")
+        print(f"Loss: only on non-input {predict_pct}%")
         print("=" * 70 + "\n")
 
         from bmfm_methylation.wced_module import WCEDTrainingModule

@@ -29,21 +29,21 @@ SUBSET_K="${SUBSET_K:-2048}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
+# WCED input ratio (fraction of CpGs as input, rest for prediction)
+# Lower = harder prediction = forces better learning
+# Default 0.8 (80% input, 20% predict) - try 0.5 or 0.3 for harder task
+INPUT_RATIO="${INPUT_RATIO:-0.8}"
+
 # ============================================================
-# WCED SETTINGS - CpG-aware architecture
+# WCED SETTINGS - Linear decoder from CLS
 # ============================================================
-# Uses SHARED CpG embeddings between encoder and decoder
+# Architecture (based on original BMFM WCED):
+#   Input:   Random INPUT_RATIO% of CpGs with beta values
+#   Encoder: Transformer → CLS hidden state (bottleneck)
+#   Decoder: Linear(CLS) → ALL vocab_size beta predictions
+#   Loss:    MSE only on non-input CpGs (forces learning)
 #
-# Architecture:
-#   Encoder: [CpG_1+β_1, ..., CpG_n+β_n] → Transformer → [CLS]
-#   Decoder: CpG_embed(cpg_id) → CrossAttention([CLS]) → predicted_β
-#            ↑
-#            SAME embeddings as encoder (shared weights)
-#
-# Why this works:
-#   1. Information bottleneck: ALL info compressed into [CLS]
-#   2. CpG-aware: Decoder knows which CpG via shared embeddings
-#   3. Proper WCED: Reconstruct ALL betas from global representation
+# Key: Loss on non-input CpGs forces model to learn patterns
 # ============================================================
 
 # Standard encoder settings
@@ -61,7 +61,7 @@ PRETRAIN_EPOCHS="300"
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="pretrain-wced-bmfm"
-WANDB_RUN_NAME="wced-h${HIDDEN_SIZE}-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="wced-k${SUBSET_K}-in${INPUT_RATIO}-${SLURM_JOB_ID}"
 
 # Output directory
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -71,20 +71,20 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "WCED PRETRAINING - CpG-Aware Decoder"
+echo "WCED PRETRAINING - Linear Decoder from CLS"
 echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "============================================================"
 echo "ARCHITECTURE:"
-echo "  Encoder: [CpG+β] → Transformer → [CLS] (bottleneck)"
-echo "  Decoder: CpG_embed → CrossAttn([CLS]) → predicted_β"
-echo ""
-echo "  Key: Decoder uses SAME CpG embeddings as encoder"
-echo "       Each CpG query asks [CLS]: 'what is MY beta value?'"
+echo "  Input:   Random ${INPUT_RATIO} of ${SUBSET_K} CpGs"
+echo "  Encoder: Transformer → [CLS] (bottleneck)"
+echo "  Decoder: Linear([CLS]) → ${SUBSET_K} betas"
+echo "  Loss:    Only on non-input CpGs"
 echo "============================================================"
-echo "CpG Subset:  FIXED ${SUBSET_K} CpGs"
+echo "CpG Vocab:   ${SUBSET_K} CpGs"
+echo "Input ratio: ${INPUT_RATIO} (predict $(echo "1 - ${INPUT_RATIO}" | bc))"
 echo "Combine:     ${COMBINE_STYLE}"
 echo "Model:       hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
 echo "============================================================"
@@ -130,6 +130,7 @@ python -m bmfm_methylation.pretrain \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
+    wced_input_ratio="${INPUT_RATIO}" \
     wced_decoder_dropout=${WCED_DECODER_DROPOUT} \
     early_stop_patience=${EARLY_STOP_PATIENCE} \
     pretrain_epochs=${PRETRAIN_EPOCHS} \
