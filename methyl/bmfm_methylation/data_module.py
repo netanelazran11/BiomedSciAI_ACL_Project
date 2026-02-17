@@ -526,3 +526,114 @@ class MethylationCollator:
             "labels_beta": labels_beta,
             "loss_mask_beta": loss_mask_beta,
         }
+
+
+class WCEDCollator:
+    """
+    Collator for WCED (Whole Cell Expression Decoder) pretraining.
+
+    Key differences from MLM collator:
+    - Masks CpGs from INPUT (not just beta values)
+    - Predicts ALL CpGs from CLS token
+    - Loss only on non-input CpGs
+
+    Architecture:
+        Input:  Random 80% of CpGs (subset)
+        Output: ALL CpGs (full vocabulary)
+        Loss:   Only on masked 20% (non-input CpGs)
+    """
+
+    def __init__(
+        self,
+        tokenizer: MultiFieldTokenizer,
+        cpg_sites: List[str],
+        vocab_size: int = 2048,
+        input_ratio: float = 0.8,  # Fraction of CpGs to include in input
+        cls_beta: float = -2.0,
+        pad_beta: float = -3.0,
+        fixed_subset_seed: int = 42,
+    ):
+        self.tokenizer = tokenizer
+        self.cpg_sites = cpg_sites
+        self.vocab_size = vocab_size
+        self.input_ratio = input_ratio
+        self.cls_beta = cls_beta
+        self.pad_beta = pad_beta
+        self._call_count = 0
+
+        # Use CpG tokenizer from MultiFieldTokenizer
+        self.cpg_tokenizer = self.tokenizer.tokenizers["cpg_sites"]
+        self.vocab = self.cpg_tokenizer.get_vocab()
+        self.unk_id = self.cpg_tokenizer.unk_token_id
+        self.cls_id = self.cpg_tokenizer.cls_token_id
+        self.pad_id = self.cpg_tokenizer.pad_token_id
+
+        # Select FIXED vocabulary of CpGs (same for all samples)
+        n_cpgs = len(self.cpg_sites)
+        if vocab_size <= 0 or n_cpgs <= vocab_size:
+            self.vocab_cpg_indices = np.arange(n_cpgs)
+        else:
+            rng = np.random.default_rng(fixed_subset_seed)
+            self.vocab_cpg_indices = np.sort(rng.choice(n_cpgs, size=vocab_size, replace=False))
+
+        self.actual_vocab_size = len(self.vocab_cpg_indices)
+        self.max_seq_len = self.actual_vocab_size + 1  # +1 for CLS
+
+        # Pre-compute token IDs for vocabulary
+        self.vocab_cpg_ids = [self._token_to_id(self.cpg_sites[j]) for j in self.vocab_cpg_indices]
+
+        logger.info(f"WCED Collator: vocab_size={self.actual_vocab_size}, input_ratio={input_ratio}")
+
+    def _token_to_id(self, token: str) -> int:
+        return self.vocab.get(token, self.unk_id)
+
+    def __call__(self, examples: List[MultiFieldInstance]) -> Dict[str, torch.Tensor]:
+        batch_size = len(examples)
+
+        # Maximum input sequence length (CLS + input CpGs)
+        max_input_len = int(self.actual_vocab_size * self.input_ratio) + 1
+
+        # Input tensors
+        cpg_ids = torch.full((batch_size, max_input_len), self.pad_id, dtype=torch.long)
+        beta_values = torch.full((batch_size, max_input_len), self.pad_beta, dtype=torch.float32)
+        attention_mask = torch.zeros((batch_size, max_input_len), dtype=torch.long)
+
+        # Output tensors (full vocabulary)
+        all_betas = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.float32)
+        input_mask = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.bool)
+
+        seed = (torch.initial_seed() + self._call_count) % (2**32)
+        self._call_count += 1
+        rng = np.random.default_rng(seed)
+
+        for i, ex in enumerate(examples):
+            betas = np.asarray(ex.data["beta_values"], dtype=np.float32)
+
+            # Get beta values for vocabulary CpGs
+            vocab_betas = betas[self.vocab_cpg_indices]
+            all_betas[i] = torch.tensor(vocab_betas, dtype=torch.float32)
+
+            # Randomly select input subset (e.g., 80% of vocabulary)
+            n_input = int(self.actual_vocab_size * self.input_ratio)
+            input_indices = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
+            input_indices = np.sort(input_indices)
+
+            # Mark which CpGs are in input
+            input_mask[i, input_indices] = True
+
+            # Build input sequence: [CLS] + input CpGs
+            ids = [self.cls_id] + [self.vocab_cpg_ids[j] for j in input_indices]
+            vals = [self.cls_beta] + vocab_betas[input_indices].tolist()
+
+            length = len(ids)
+            cpg_ids[i, :length] = torch.tensor(ids, dtype=torch.long)
+            beta_values[i, :length] = torch.tensor(vals, dtype=torch.float32)
+            attention_mask[i, :length] = 1
+
+        return {
+            "cpg_ids": cpg_ids,
+            "beta_values": beta_values,
+            "attention_mask": attention_mask,
+            "all_betas": all_betas,          # [batch, vocab_size] - ALL beta values
+            "input_mask": input_mask,         # [batch, vocab_size] - True if CpG is in input
+        }
