@@ -46,9 +46,10 @@ collation_strategy: "language_modeling"
 
 # WCED settings (used when pretraining_mode=wced)
 wced_input_ratio: 0.5  # Fraction of CpGs per view (0.5 for non-overlapping contrastive views)
-wced_contrastive: true  # Enable contrastive learning (two views per sample)
+wced_contrastive: false  # Enable contrastive learning (two views per sample)
 wced_contrastive_weight: 0.5  # λ for contrastive loss (Loss = Recon + λ * Contrastive)
 wced_contrastive_temp: 0.1  # Temperature for InfoNCE loss
+wced_normalize_loss: false  # Per-sample normalize before loss (removes "predict averages" shortcut)
 wced_decoder_dropout: 0.1
 
 # Seed

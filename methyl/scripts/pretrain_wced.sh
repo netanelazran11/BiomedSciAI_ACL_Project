@@ -38,6 +38,9 @@ CONTRASTIVE="${CONTRASTIVE:-true}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.5}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 
+# Normalize loss (removes "predict averages" shortcut)
+NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
+
 # ============================================================
 # CONTRASTIVE WCED SETTINGS
 # ============================================================
@@ -93,6 +96,7 @@ echo "============================================================"
 echo "CpG Vocab:   ${SUBSET_K} CpGs"
 echo "Input ratio: ${INPUT_RATIO} per view"
 echo "Contrastive: ${CONTRASTIVE} (weight=${CONTRASTIVE_WEIGHT}, temp=${CONTRASTIVE_TEMP})"
+echo "Normalize:   ${NORMALIZE_LOSS}"
 echo "Combine:     ${COMBINE_STYLE}"
 echo "Model:       hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
 echo "============================================================"
@@ -142,6 +146,7 @@ python -m bmfm_methylation.pretrain \
     wced_contrastive="${CONTRASTIVE}" \
     wced_contrastive_weight="${CONTRASTIVE_WEIGHT}" \
     wced_contrastive_temp="${CONTRASTIVE_TEMP}" \
+    wced_normalize_loss="${NORMALIZE_LOSS}" \
     wced_decoder_dropout=${WCED_DECODER_DROPOUT} \
     early_stop_patience=${EARLY_STOP_PATIENCE} \
     pretrain_epochs=${PRETRAIN_EPOCHS} \

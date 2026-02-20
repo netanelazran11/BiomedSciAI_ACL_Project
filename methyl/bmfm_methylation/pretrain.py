@@ -293,6 +293,7 @@ def main(cfg: DictConfig):
     wced_contrastive = cfg.get("wced_contrastive", True)  # Enable contrastive by default
     wced_contrastive_weight = cfg.get("wced_contrastive_weight", 0.5)
     wced_contrastive_temp = cfg.get("wced_contrastive_temp", 0.1)
+    wced_normalize_loss = cfg.get("wced_normalize_loss", False)  # Per-sample normalize
 
     def _wrap_collator():
         base_collator = data_module.collator
@@ -450,6 +451,8 @@ def main(cfg: DictConfig):
         else:
             logger.info("Strategy: Reconstruction only")
             logger.info(f"  - Input: Random {input_pct}% of {vocab_size} CpGs")
+        if wced_normalize_loss:
+            logger.info("  - Normalize loss: ENABLED (removes 'predict averages' shortcut)")
         logger.info(f"  - Decoder: Linear(CLS) → {vocab_size} beta predictions")
         logger.info(f"  - Reconstruction loss: MSE on non-input {predict_pct}%")
         logger.info("=" * 70)
@@ -461,6 +464,8 @@ def main(cfg: DictConfig):
             print(f"Weight: {wced_contrastive_weight}, Temp: {wced_contrastive_temp}")
         print(f"Decoder: Linear([CLS]) → {vocab_size} betas")
         print(f"Reconstruction: MSE on non-input {predict_pct}%")
+        if wced_normalize_loss:
+            print(f"Normalize loss: ENABLED (removes 'predict averages' shortcut)")
         print("=" * 70 + "\n")
 
         from bmfm_methylation.wced_module import WCEDTrainingModule
@@ -483,6 +488,7 @@ def main(cfg: DictConfig):
             vocab_size=vocab_size,
             contrastive_weight=wced_contrastive_weight,
             contrastive_temp=wced_contrastive_temp,
+            normalize_loss=wced_normalize_loss,
             betas=tuple(cfg.trainer.betas),
             epsilon=cfg.trainer.epsilon,
         )

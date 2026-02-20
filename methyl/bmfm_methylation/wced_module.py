@@ -114,6 +114,7 @@ class WCEDTrainingModule(pl.LightningModule):
         vocab_size: int = 2048,
         contrastive_weight: float = 0.5,  # λ for contrastive loss
         contrastive_temp: float = 0.1,    # Temperature for InfoNCE
+        normalize_loss: bool = False,     # Per-sample normalize before loss
         betas: tuple = (0.9, 0.999),
         epsilon: float = 1e-8,
     ):
@@ -127,6 +128,7 @@ class WCEDTrainingModule(pl.LightningModule):
         self.vocab_size = vocab_size
         self.contrastive_weight = contrastive_weight
         self.contrastive_temp = contrastive_temp
+        self.normalize_loss = normalize_loss
 
         # Encoder
         self.encoder = SCBertModel(model_config, add_pooling_layer=True)
@@ -164,6 +166,7 @@ class WCEDTrainingModule(pl.LightningModule):
         logger.info(f"  Vocab size: {vocab_size}")
         logger.info(f"  Contrastive weight: {contrastive_weight}")
         logger.info(f"  Contrastive temp: {contrastive_temp}")
+        logger.info(f"  Normalize loss: {normalize_loss}")
 
     def _patch_embeddings_add_stabilized(self, initial_cpg_scale: float = 0.1):
         """Patch embeddings to use ADD fusion with learnable CpG scaling."""
@@ -231,6 +234,27 @@ class WCEDTrainingModule(pl.LightningModule):
         """Forward pass for single view (used during inference)."""
         return self.encode(cpg_ids, beta_values, attention_mask)
 
+    def _normalize_per_sample(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Normalize each sample to zero-mean, unit-variance.
+
+        This removes the "predict per-CpG averages" shortcut, forcing the model
+        to predict the relative pattern within each sample.
+        """
+        if mask is not None:
+            # Normalize only on valid (non-input) positions
+            # x: [batch, vocab_size], mask: [batch, vocab_size] (True = use)
+            mask_float = mask.float()
+            n = mask_float.sum(dim=1, keepdim=True).clamp(min=1)
+            mean = (x * mask_float).sum(dim=1, keepdim=True) / n
+            var = ((x - mean) ** 2 * mask_float).sum(dim=1, keepdim=True) / n
+            std = torch.sqrt(var + 1e-8)
+            normalized = (x - mean) / std
+            return normalized * mask_float  # Zero out non-masked positions
+        else:
+            mean = x.mean(dim=1, keepdim=True)
+            std = x.std(dim=1, keepdim=True) + 1e-8
+            return (x - mean) / std
+
     def info_nce_loss(self, z1: torch.Tensor, z2: torch.Tensor) -> torch.Tensor:
         """
         Compute InfoNCE contrastive loss.
@@ -275,7 +299,15 @@ class WCEDTrainingModule(pl.LightningModule):
 
         # Reconstruction loss for view 1 (on non-input CpGs)
         non_input_mask_v1 = ~input_mask_v1
-        loss_per_cpg_v1 = self.recon_loss_fn(pred_v1, all_betas)
+
+        # Optional: normalize per sample to remove "predict averages" shortcut
+        if self.normalize_loss:
+            pred_norm_v1 = self._normalize_per_sample(pred_v1, non_input_mask_v1)
+            target_norm_v1 = self._normalize_per_sample(all_betas, non_input_mask_v1)
+            loss_per_cpg_v1 = self.recon_loss_fn(pred_norm_v1, target_norm_v1)
+        else:
+            loss_per_cpg_v1 = self.recon_loss_fn(pred_v1, all_betas)
+
         masked_loss_v1 = loss_per_cpg_v1 * non_input_mask_v1.float()
         recon_loss_v1 = masked_loss_v1.sum() / non_input_mask_v1.float().sum().clamp(min=1)
 
@@ -293,7 +325,14 @@ class WCEDTrainingModule(pl.LightningModule):
 
             # Reconstruction loss for view 2
             non_input_mask_v2 = ~input_mask_v2
-            loss_per_cpg_v2 = self.recon_loss_fn(pred_v2, all_betas)
+
+            if self.normalize_loss:
+                pred_norm_v2 = self._normalize_per_sample(pred_v2, non_input_mask_v2)
+                target_norm_v2 = self._normalize_per_sample(all_betas, non_input_mask_v2)
+                loss_per_cpg_v2 = self.recon_loss_fn(pred_norm_v2, target_norm_v2)
+            else:
+                loss_per_cpg_v2 = self.recon_loss_fn(pred_v2, all_betas)
+
             masked_loss_v2 = loss_per_cpg_v2 * non_input_mask_v2.float()
             recon_loss_v2 = masked_loss_v2.sum() / non_input_mask_v2.float().sum().clamp(min=1)
 
@@ -339,6 +378,7 @@ class WCEDTrainingModule(pl.LightningModule):
             "target_betas": all_betas,
             "non_input_mask": non_input_mask,
             "z1": z1,
+            "cls_embedding": out_v1["cls_embedding"],  # For diagnostics
         }
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -362,6 +402,34 @@ class WCEDTrainingModule(pl.LightningModule):
         self.log("validation/mae", outputs["mae"], on_epoch=True)
         self.log("validation/mse", outputs["mse"], on_epoch=True)
         self.log("validation/all_mae", outputs["all_mae"], on_epoch=True)
+
+        # CLS diagnostic metrics (log on first batch of each epoch)
+        if batch_idx == 0:
+            with torch.no_grad():
+                # CLS embedding variance across batch
+                cls_emb = outputs.get("cls_embedding", outputs.get("z1", None))
+                if cls_emb is not None:
+                    # Variance across samples
+                    cls_var = cls_emb.var(dim=0).mean()
+                    self.log("validation/cls_variance", cls_var, on_epoch=True)
+
+                    # Mean pairwise cosine similarity
+                    cls_norm = F.normalize(cls_emb, dim=-1)
+                    sim_matrix = torch.matmul(cls_norm, cls_norm.T)
+                    # Upper triangle (excluding diagonal)
+                    mask = torch.triu(torch.ones_like(sim_matrix), diagonal=1).bool()
+                    mean_sim = sim_matrix[mask].mean()
+                    self.log("validation/cls_similarity", mean_sim, on_epoch=True)
+
+                # Prediction variance analysis
+                pred = outputs["predicted_betas"]
+                target = outputs["target_betas"]
+
+                # Variance of predictions across samples (should match target variance)
+                pred_var = pred.var(dim=0).mean()
+                target_var = target.var(dim=0).mean()
+                var_ratio = pred_var / (target_var + 1e-8)
+                self.log("validation/pred_var_ratio", var_ratio, on_epoch=True)
 
         return outputs["loss"]
 
