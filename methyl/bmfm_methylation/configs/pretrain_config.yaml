@@ -45,10 +45,11 @@ mlm_enabled: true
 collation_strategy: "language_modeling"
 
 # WCED settings (used when pretraining_mode=wced)
-wced_input_ratio: 0.8  # Fraction of CpGs as input (0.5 = harder, 0.8 = easier)
-wced_decoder_hidden_sizes: [2048, 4096]  # Decoder: 512 -> 2048 -> 4096 -> num_cpg
+wced_input_ratio: 0.5  # Fraction of CpGs per view (0.5 for non-overlapping contrastive views)
+wced_contrastive: true  # Enable contrastive learning (two views per sample)
+wced_contrastive_weight: 0.5  # λ for contrastive loss (Loss = Recon + λ * Contrastive)
+wced_contrastive_temp: 0.1  # Temperature for InfoNCE loss
 wced_decoder_dropout: 0.1
-wced_use_positional_decoder: false  # Set to true for attention-based decoder
 
 # Seed
 seed:

@@ -29,21 +29,27 @@ SUBSET_K="${SUBSET_K:-2048}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
-# WCED input ratio (fraction of CpGs as input, rest for prediction)
-# Lower = harder prediction = forces better learning
-# Default 0.8 (80% input, 20% predict) - try 0.5 or 0.3 for harder task
-INPUT_RATIO="${INPUT_RATIO:-0.8}"
+# WCED input ratio (fraction of CpGs per view)
+# For contrastive: 0.5 = non-overlapping views
+INPUT_RATIO="${INPUT_RATIO:-0.5}"
+
+# Contrastive learning settings
+CONTRASTIVE="${CONTRASTIVE:-true}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.5}"
+CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 
 # ============================================================
-# WCED SETTINGS - Linear decoder from CLS
+# CONTRASTIVE WCED SETTINGS
 # ============================================================
-# Architecture (based on original BMFM WCED):
-#   Input:   Random INPUT_RATIO% of CpGs with beta values
-#   Encoder: Transformer → CLS hidden state (bottleneck)
+# Architecture:
+#   Input:   Two random views (50% CpGs each) per sample
+#   Encoder: Transformer → CLS1, CLS2
+#   Contrastive: Same-sample views → similar CLS embeddings
 #   Decoder: Linear(CLS) → ALL vocab_size beta predictions
-#   Loss:    MSE only on non-input CpGs (forces learning)
+#   Loss:    Reconstruction + λ * Contrastive (InfoNCE)
 #
-# Key: Loss on non-input CpGs forces model to learn patterns
+# Key insight: Contrastive loss forces CLS to encode sample
+# identity, enabling sample-specific predictions.
 # ============================================================
 
 # Standard encoder settings
@@ -61,7 +67,7 @@ PRETRAIN_EPOCHS="300"
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="pretrain-wced-bmfm"
-WANDB_RUN_NAME="wced-k${SUBSET_K}-in${INPUT_RATIO}-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="wced-contrastive-k${SUBSET_K}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
 
 # Output directory
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -71,20 +77,22 @@ mkdir -p "${LOGDIR}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "WCED PRETRAINING - Linear Decoder from CLS"
+echo "CONTRASTIVE WCED PRETRAINING"
 echo "============================================================"
 echo "Job started: $(date)"
 echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "============================================================"
 echo "ARCHITECTURE:"
-echo "  Input:   Random ${INPUT_RATIO} of ${SUBSET_K} CpGs"
-echo "  Encoder: Transformer → [CLS] (bottleneck)"
+echo "  Two views per sample: ${INPUT_RATIO} of ${SUBSET_K} CpGs each"
+echo "  Encoder: Transformer → CLS1, CLS2"
+echo "  Contrastive: Same-sample views → similar CLS"
 echo "  Decoder: Linear([CLS]) → ${SUBSET_K} betas"
-echo "  Loss:    Only on non-input CpGs"
+echo "  Loss: Reconstruction + ${CONTRASTIVE_WEIGHT} * Contrastive"
 echo "============================================================"
 echo "CpG Vocab:   ${SUBSET_K} CpGs"
-echo "Input ratio: ${INPUT_RATIO} (predict $(echo "1 - ${INPUT_RATIO}" | bc))"
+echo "Input ratio: ${INPUT_RATIO} per view"
+echo "Contrastive: ${CONTRASTIVE} (weight=${CONTRASTIVE_WEIGHT}, temp=${CONTRASTIVE_TEMP})"
 echo "Combine:     ${COMBINE_STYLE}"
 echo "Model:       hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
 echo "============================================================"
@@ -131,6 +139,9 @@ python -m bmfm_methylation.pretrain \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
     wced_input_ratio="${INPUT_RATIO}" \
+    wced_contrastive="${CONTRASTIVE}" \
+    wced_contrastive_weight="${CONTRASTIVE_WEIGHT}" \
+    wced_contrastive_temp="${CONTRASTIVE_TEMP}" \
     wced_decoder_dropout=${WCED_DECODER_DROPOUT} \
     early_stop_patience=${EARLY_STOP_PATIENCE} \
     pretrain_epochs=${PRETRAIN_EPOCHS} \

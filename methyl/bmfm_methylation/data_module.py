@@ -530,17 +530,19 @@ class MethylationCollator:
 
 class WCEDCollator:
     """
-    Collator for WCED (Whole Cell Expression Decoder) pretraining.
+    Collator for Contrastive WCED pretraining.
 
-    Key differences from MLM collator:
-    - Masks CpGs from INPUT (not just beta values)
-    - Predicts ALL CpGs from CLS token
-    - Loss only on non-input CpGs
+    Creates TWO views per sample for contrastive learning:
+    - View 1: Random 50% of CpGs
+    - View 2: Different random 50% of CpGs
+
+    Contrastive loss: Same-sample views should have similar CLS embeddings.
+    This forces CLS to encode sample identity, not just CpG averages.
 
     Architecture:
-        Input:  Random 80% of CpGs (subset)
+        Input:  Two random subsets of CpGs (view1, view2)
         Output: ALL CpGs (full vocabulary)
-        Loss:   Only on masked 20% (non-input CpGs)
+        Loss:   Reconstruction + Contrastive
     """
 
     def __init__(
@@ -548,10 +550,11 @@ class WCEDCollator:
         tokenizer: MultiFieldTokenizer,
         cpg_sites: List[str],
         vocab_size: int = 2048,
-        input_ratio: float = 0.8,  # Fraction of CpGs to include in input
+        input_ratio: float = 0.5,  # Each view sees 50% of CpGs
         cls_beta: float = -2.0,
         pad_beta: float = -3.0,
         fixed_subset_seed: int = 42,
+        contrastive: bool = True,  # Enable contrastive learning
     ):
         self.tokenizer = tokenizer
         self.cpg_sites = cpg_sites
@@ -559,6 +562,7 @@ class WCEDCollator:
         self.input_ratio = input_ratio
         self.cls_beta = cls_beta
         self.pad_beta = pad_beta
+        self.contrastive = contrastive
         self._call_count = 0
 
         # Use CpG tokenizer from MultiFieldTokenizer
@@ -582,10 +586,34 @@ class WCEDCollator:
         # Pre-compute token IDs for vocabulary
         self.vocab_cpg_ids = [self._token_to_id(self.cpg_sites[j]) for j in self.vocab_cpg_indices]
 
-        logger.info(f"WCED Collator: vocab_size={self.actual_vocab_size}, input_ratio={input_ratio}")
+        mode = "contrastive" if contrastive else "standard"
+        logger.info(f"WCED Collator: vocab_size={self.actual_vocab_size}, input_ratio={input_ratio}, mode={mode}")
 
     def _token_to_id(self, token: str) -> int:
         return self.vocab.get(token, self.unk_id)
+
+    def _build_view(
+        self,
+        vocab_betas: np.ndarray,
+        input_indices: np.ndarray,
+        max_input_len: int,
+    ) -> tuple:
+        """Build input tensors for a single view."""
+        ids = [self.cls_id] + [self.vocab_cpg_ids[j] for j in input_indices]
+        vals = [self.cls_beta] + vocab_betas[input_indices].tolist()
+
+        cpg_ids = torch.full((max_input_len,), self.pad_id, dtype=torch.long)
+        beta_values = torch.full((max_input_len,), self.pad_beta, dtype=torch.float32)
+        attention_mask = torch.zeros(max_input_len, dtype=torch.long)
+        input_mask = torch.zeros(self.actual_vocab_size, dtype=torch.bool)
+
+        length = len(ids)
+        cpg_ids[:length] = torch.tensor(ids, dtype=torch.long)
+        beta_values[:length] = torch.tensor(vals, dtype=torch.float32)
+        attention_mask[:length] = 1
+        input_mask[input_indices] = True
+
+        return cpg_ids, beta_values, attention_mask, input_mask
 
     def __call__(self, examples: List[MultiFieldInstance]) -> Dict[str, torch.Tensor]:
         batch_size = len(examples)
@@ -593,14 +621,21 @@ class WCEDCollator:
         # Maximum input sequence length (CLS + input CpGs)
         max_input_len = int(self.actual_vocab_size * self.input_ratio) + 1
 
-        # Input tensors
-        cpg_ids = torch.full((batch_size, max_input_len), self.pad_id, dtype=torch.long)
-        beta_values = torch.full((batch_size, max_input_len), self.pad_beta, dtype=torch.float32)
-        attention_mask = torch.zeros((batch_size, max_input_len), dtype=torch.long)
-
         # Output tensors (full vocabulary)
         all_betas = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.float32)
-        input_mask = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.bool)
+
+        # View 1 tensors
+        cpg_ids_v1 = torch.full((batch_size, max_input_len), self.pad_id, dtype=torch.long)
+        beta_values_v1 = torch.full((batch_size, max_input_len), self.pad_beta, dtype=torch.float32)
+        attention_mask_v1 = torch.zeros((batch_size, max_input_len), dtype=torch.long)
+        input_mask_v1 = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.bool)
+
+        # View 2 tensors (for contrastive)
+        if self.contrastive:
+            cpg_ids_v2 = torch.full((batch_size, max_input_len), self.pad_id, dtype=torch.long)
+            beta_values_v2 = torch.full((batch_size, max_input_len), self.pad_beta, dtype=torch.float32)
+            attention_mask_v2 = torch.zeros((batch_size, max_input_len), dtype=torch.long)
+            input_mask_v2 = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.bool)
 
         seed = (torch.initial_seed() + self._call_count) % (2**32)
         self._call_count += 1
@@ -613,27 +648,52 @@ class WCEDCollator:
             vocab_betas = betas[self.vocab_cpg_indices]
             all_betas[i] = torch.tensor(vocab_betas, dtype=torch.float32)
 
-            # Randomly select input subset (e.g., 80% of vocabulary)
+            # Number of CpGs per view
             n_input = int(self.actual_vocab_size * self.input_ratio)
-            input_indices = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
-            input_indices = np.sort(input_indices)
 
-            # Mark which CpGs are in input
-            input_mask[i, input_indices] = True
+            # View 1: Random subset
+            indices_v1 = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
+            indices_v1 = np.sort(indices_v1)
 
-            # Build input sequence: [CLS] + input CpGs
-            ids = [self.cls_id] + [self.vocab_cpg_ids[j] for j in input_indices]
-            vals = [self.cls_beta] + vocab_betas[input_indices].tolist()
+            ids, vals, attn, mask = self._build_view(vocab_betas, indices_v1, max_input_len)
+            cpg_ids_v1[i] = ids
+            beta_values_v1[i] = vals
+            attention_mask_v1[i] = attn
+            input_mask_v1[i] = mask
 
-            length = len(ids)
-            cpg_ids[i, :length] = torch.tensor(ids, dtype=torch.long)
-            beta_values[i, :length] = torch.tensor(vals, dtype=torch.float32)
-            attention_mask[i, :length] = 1
+            if self.contrastive:
+                # View 2: Different random subset (non-overlapping preferred)
+                # For 50% input, we can make them non-overlapping
+                remaining = np.setdiff1d(np.arange(self.actual_vocab_size), indices_v1)
+                if len(remaining) >= n_input:
+                    # Non-overlapping views
+                    indices_v2 = rng.choice(remaining, size=n_input, replace=False)
+                else:
+                    # Partial overlap (if input_ratio > 0.5)
+                    indices_v2 = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
+                indices_v2 = np.sort(indices_v2)
 
-        return {
-            "cpg_ids": cpg_ids,
-            "beta_values": beta_values,
-            "attention_mask": attention_mask,
-            "all_betas": all_betas,          # [batch, vocab_size] - ALL beta values
-            "input_mask": input_mask,         # [batch, vocab_size] - True if CpG is in input
+                ids, vals, attn, mask = self._build_view(vocab_betas, indices_v2, max_input_len)
+                cpg_ids_v2[i] = ids
+                beta_values_v2[i] = vals
+                attention_mask_v2[i] = attn
+                input_mask_v2[i] = mask
+
+        result = {
+            # View 1
+            "cpg_ids": cpg_ids_v1,
+            "beta_values": beta_values_v1,
+            "attention_mask": attention_mask_v1,
+            "input_mask": input_mask_v1,
+            # Target
+            "all_betas": all_betas,
         }
+
+        if self.contrastive:
+            # View 2 (for contrastive learning)
+            result["cpg_ids_v2"] = cpg_ids_v2
+            result["beta_values_v2"] = beta_values_v2
+            result["attention_mask_v2"] = attention_mask_v2
+            result["input_mask_v2"] = input_mask_v2
+
+        return result

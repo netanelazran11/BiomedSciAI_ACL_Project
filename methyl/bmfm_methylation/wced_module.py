@@ -1,27 +1,26 @@
 """
-WCED Training Module - Whole Cell Expression Decoder for Methylation
+Contrastive WCED Training Module - Whole Cell Expression Decoder for Methylation
 
-Based on the original BMFM WCED implementation:
-1. Input: Random subset of CpGs (e.g., 80%)
-2. Encoder: Processes input → CLS hidden state
-3. Decoder: Linear(CLS) → ALL CpG betas (entire vocabulary)
-4. Loss: MSE only on non-input CpGs (the 20% not in input)
+Key insight: Standard WCED fails because CLS doesn't encode sample-specific info.
+The decoder just learns per-CpG averages (PCC stuck at ~0.94).
 
-This forces the CLS token to learn a global representation that can
-predict CpGs it hasn't seen in the input.
+Solution: Contrastive learning forces CLS to encode sample identity.
+- Two random views of same sample → should have similar CLS embeddings
+- Different samples → should have different CLS embeddings
 
 Architecture:
-    Input:  [CLS, CpG_a, CpG_b, ...] (random 80% subset)
-    Encoder: Transformer → hidden_states
-    Decoder: Linear(hidden_states[0]) → [β_0, β_1, ..., β_vocab_size]
-    Loss:   MSE on non-input CpGs only
+    Input:  Two random subsets of CpGs (view1, view2)
+    Encoder: Transformer → CLS1, CLS2
+    Projection: MLP(CLS) → z1, z2 (for contrastive loss)
+    Decoder: Linear(CLS) → ALL CpG betas
+    Loss:   Reconstruction + λ * Contrastive (InfoNCE)
 """
 
 import logging
 from typing import Dict, Optional
-
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import pytorch_lightning as pl
 from scipy.stats import pearsonr
 import numpy as np
@@ -36,13 +35,7 @@ logger = logging.getLogger(__name__)
 
 class WCEDDecoder(nn.Module):
     """
-    WCED Decoder: Simple linear layer from CLS to entire vocabulary.
-
-    This is the correct WCED architecture from the original BMFM:
-    - Input: CLS hidden state [batch, hidden_size]
-    - Output: Predicted betas for ALL CpGs [batch, vocab_size]
-
-    Each output neuron corresponds to a fixed CpG in the vocabulary.
+    WCED Decoder: Linear layer from CLS to entire vocabulary.
     """
 
     def __init__(
@@ -55,14 +48,13 @@ class WCEDDecoder(nn.Module):
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
 
-        # Simple linear decoder with optional hidden layer
         self.decoder = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.LayerNorm(hidden_size),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size, vocab_size),
-            nn.Sigmoid(),  # Beta values are in [0, 1]
+            nn.Sigmoid(),
         )
 
         self._init_weights()
@@ -75,30 +67,40 @@ class WCEDDecoder(nn.Module):
                     nn.init.zeros_(module.bias)
 
     def forward(self, cls_hidden: torch.Tensor) -> torch.Tensor:
-        """
-        Predict ALL beta values from CLS hidden state.
-
-        Args:
-            cls_hidden: [batch, hidden_size] - CLS token representation
-
-        Returns:
-            predicted_betas: [batch, vocab_size] - Predicted beta for each CpG
-        """
         return self.decoder(cls_hidden)
+
+
+class ProjectionHead(nn.Module):
+    """
+    Projection head for contrastive learning (SimCLR style).
+    Maps CLS embedding to a lower-dimensional space where contrastive loss is computed.
+    """
+
+    def __init__(self, input_dim: int = 512, hidden_dim: int = 256, output_dim: int = 128):
+        super().__init__()
+        self.projection = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.normalize(self.projection(x), dim=-1)
 
 
 class WCEDTrainingModule(pl.LightningModule):
     """
-    WCED Training Module - Correct implementation based on original BMFM.
+    Contrastive WCED Training Module.
 
     Architecture:
-        Input:  Random 80% of CpGs with their beta values
-        Encoder: Transformer → CLS hidden state
+        Input:  Two views of each sample (different random CpG subsets)
+        Encoder: Transformer → CLS embeddings
+        Projection: MLP → normalized embeddings for contrastive loss
         Decoder: Linear(CLS) → ALL vocab_size beta predictions
-        Loss:   MSE only on non-input CpGs (forces learning)
+        Loss:   Reconstruction (MSE) + λ * Contrastive (InfoNCE)
 
-    Key insight: Loss is computed ONLY on CpGs NOT in the input.
-    This forces the model to learn patterns, not just copy.
+    Key insight: Contrastive loss forces CLS to encode sample identity,
+    which enables sample-specific predictions instead of per-CpG averages.
     """
 
     def __init__(
@@ -110,6 +112,8 @@ class WCEDTrainingModule(pl.LightningModule):
         warmup_steps: int = 100,
         lr_decay_steps: int = 10000,
         vocab_size: int = 2048,
+        contrastive_weight: float = 0.5,  # λ for contrastive loss
+        contrastive_temp: float = 0.1,    # Temperature for InfoNCE
         betas: tuple = (0.9, 0.999),
         epsilon: float = 1e-8,
     ):
@@ -121,6 +125,8 @@ class WCEDTrainingModule(pl.LightningModule):
             pretrain_config = PretrainingConfig(mode="wced")
         self.pretrain_config = pretrain_config
         self.vocab_size = vocab_size
+        self.contrastive_weight = contrastive_weight
+        self.contrastive_temp = contrastive_temp
 
         # Encoder
         self.encoder = SCBertModel(model_config, add_pooling_layer=True)
@@ -128,26 +134,36 @@ class WCEDTrainingModule(pl.LightningModule):
         # Apply ADD fusion stabilization
         self._patch_embeddings_add_stabilized()
 
-        # WCED Decoder: Simple linear from CLS to vocab_size
+        # WCED Decoder
         self.decoder = WCEDDecoder(
             hidden_size=model_config.hidden_size,
             vocab_size=vocab_size,
             dropout=pretrain_config.decoder_dropout,
         )
 
-        # Loss function
-        self.loss_fn = nn.MSELoss(reduction='none')
+        # Projection head for contrastive learning
+        self.projection_head = ProjectionHead(
+            input_dim=model_config.hidden_size,
+            hidden_dim=model_config.hidden_size // 2,
+            output_dim=128,
+        )
+
+        # Loss functions
+        self.recon_loss_fn = nn.MSELoss(reduction='none')
 
         # Log model info
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         decoder_params = sum(p.numel() for p in self.decoder.parameters())
+        proj_params = sum(p.numel() for p in self.projection_head.parameters())
 
-        logger.info(f"WCED Training Module initialized:")
+        logger.info(f"Contrastive WCED Training Module initialized:")
         logger.info(f"  Encoder params: {encoder_params:,}")
         logger.info(f"  Decoder params: {decoder_params:,}")
-        logger.info(f"  Total params: {encoder_params + decoder_params:,}")
+        logger.info(f"  Projection params: {proj_params:,}")
+        logger.info(f"  Total params: {encoder_params + decoder_params + proj_params:,}")
         logger.info(f"  Vocab size: {vocab_size}")
-        logger.info(f"  Mode: WCED (Linear decoder from CLS to all CpGs)")
+        logger.info(f"  Contrastive weight: {contrastive_weight}")
+        logger.info(f"  Contrastive temp: {contrastive_temp}")
 
     def _patch_embeddings_add_stabilized(self, initial_cpg_scale: float = 0.1):
         """Patch embeddings to use ADD fusion with learnable CpG scaling."""
@@ -160,11 +176,9 @@ class WCEDTrainingModule(pl.LightningModule):
 
             batch_size, num_fields, seq_length = input_ids.shape
 
-            # Field 0: CpG IDs
             cpg_ids = input_ids[:, 0, :].long()
             cpg_embeds = embeddings_layer.cpg_sites_embeddings(cpg_ids)
 
-            # Field 1: beta values
             beta_values = input_ids[:, 1, :].float()
             beta_values_clean = beta_values.clone()
             beta_values_clean[beta_values_clean < 0] = 0.0
@@ -184,93 +198,155 @@ class WCEDTrainingModule(pl.LightningModule):
 
         embeddings_layer.forward = add_forward
 
+    def encode(
+        self,
+        cpg_ids: torch.Tensor,
+        beta_values: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """Encode a view and return CLS embedding and projection."""
+        input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
+
+        encoder_output = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+
+        cls_embedding = encoder_output.pooler_output
+        projection = self.projection_head(cls_embedding)
+        predicted_betas = self.decoder(cls_embedding)
+
+        return {
+            "cls_embedding": cls_embedding,
+            "projection": projection,
+            "predicted_betas": predicted_betas,
+        }
+
     def forward(
         self,
         cpg_ids: torch.Tensor,
         beta_values: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
+        """Forward pass for single view (used during inference)."""
+        return self.encode(cpg_ids, beta_values, attention_mask)
+
+    def info_nce_loss(self, z1: torch.Tensor, z2: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass for WCED.
+        Compute InfoNCE contrastive loss.
 
-        Args:
-            cpg_ids: [batch, seq_len] - CpG site token IDs (input subset)
-            beta_values: [batch, seq_len] - Beta values (input subset)
-            attention_mask: [batch, seq_len] - Attention mask
+        z1, z2: [batch, dim] - normalized projections from two views of same samples
 
-        Returns:
-            Dict with predicted_betas and cls_embedding
+        Positive pairs: (z1[i], z2[i]) - same sample
+        Negative pairs: (z1[i], z2[j]) for j != i - different samples
         """
-        batch_size, seq_len = cpg_ids.shape
+        batch_size = z1.shape[0]
 
-        # Build BMFM-style input: [batch, 2, seq_len]
-        input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
+        # Similarity matrix: [batch, batch]
+        # sim[i,j] = cosine_similarity(z1[i], z2[j])
+        sim = torch.matmul(z1, z2.T) / self.contrastive_temp
 
-        # Encode
-        encoder_output = self.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
+        # Labels: diagonal elements are positive pairs
+        labels = torch.arange(batch_size, device=z1.device)
 
-        # Get CLS hidden state (position 0 or pooler output)
-        cls_embedding = encoder_output.pooler_output  # [batch, hidden]
+        # Cross-entropy loss (InfoNCE)
+        # For each z1[i], we want it to be most similar to z2[i]
+        loss_12 = F.cross_entropy(sim, labels)
+        loss_21 = F.cross_entropy(sim.T, labels)
 
-        # Decode: CLS → all vocab_size betas
-        predicted_betas = self.decoder(cls_embedding)  # [batch, vocab_size]
-
-        return {
-            "predicted_betas": predicted_betas,
-            "cls_embedding": cls_embedding,
-        }
+        return (loss_12 + loss_21) / 2
 
     def _shared_step(self, batch: Dict[str, torch.Tensor], stage: str) -> Dict[str, torch.Tensor]:
-        """Shared step for train/val/test."""
-        cpg_ids = batch["cpg_ids"]
-        beta_values = batch["beta_values"]
-        attention_mask = batch.get("attention_mask")
-        all_betas = batch["all_betas"]        # [batch, vocab_size] - target
-        input_mask = batch["input_mask"]      # [batch, vocab_size] - True if in input
+        """Shared step for train/val/test with contrastive learning."""
 
-        # Forward pass
-        outputs = self(cpg_ids, beta_values, attention_mask)
-        predicted_betas = outputs["predicted_betas"]  # [batch, vocab_size]
+        # View 1
+        cpg_ids_v1 = batch["cpg_ids"]
+        beta_values_v1 = batch["beta_values"]
+        attention_mask_v1 = batch.get("attention_mask")
+        input_mask_v1 = batch["input_mask"]
 
-        # Loss ONLY on non-input CpGs (the ones model must infer)
-        non_input_mask = ~input_mask  # [batch, vocab_size]
+        # Target
+        all_betas = batch["all_betas"]
 
-        # Compute loss
-        loss_per_cpg = self.loss_fn(predicted_betas, all_betas)  # [batch, vocab_size]
+        # Encode view 1
+        out_v1 = self.encode(cpg_ids_v1, beta_values_v1, attention_mask_v1)
+        pred_v1 = out_v1["predicted_betas"]
+        z1 = out_v1["projection"]
 
-        # Mask to only non-input CpGs
-        masked_loss = loss_per_cpg * non_input_mask.float()
-        loss = masked_loss.sum() / non_input_mask.float().sum().clamp(min=1)
+        # Reconstruction loss for view 1 (on non-input CpGs)
+        non_input_mask_v1 = ~input_mask_v1
+        loss_per_cpg_v1 = self.recon_loss_fn(pred_v1, all_betas)
+        masked_loss_v1 = loss_per_cpg_v1 * non_input_mask_v1.float()
+        recon_loss_v1 = masked_loss_v1.sum() / non_input_mask_v1.float().sum().clamp(min=1)
 
-        # Compute metrics on non-input CpGs
+        # Check if we have view 2 (contrastive mode)
+        if "cpg_ids_v2" in batch:
+            cpg_ids_v2 = batch["cpg_ids_v2"]
+            beta_values_v2 = batch["beta_values_v2"]
+            attention_mask_v2 = batch.get("attention_mask_v2")
+            input_mask_v2 = batch["input_mask_v2"]
+
+            # Encode view 2
+            out_v2 = self.encode(cpg_ids_v2, beta_values_v2, attention_mask_v2)
+            pred_v2 = out_v2["predicted_betas"]
+            z2 = out_v2["projection"]
+
+            # Reconstruction loss for view 2
+            non_input_mask_v2 = ~input_mask_v2
+            loss_per_cpg_v2 = self.recon_loss_fn(pred_v2, all_betas)
+            masked_loss_v2 = loss_per_cpg_v2 * non_input_mask_v2.float()
+            recon_loss_v2 = masked_loss_v2.sum() / non_input_mask_v2.float().sum().clamp(min=1)
+
+            # Average reconstruction loss
+            recon_loss = (recon_loss_v1 + recon_loss_v2) / 2
+
+            # Contrastive loss
+            contrastive_loss = self.info_nce_loss(z1, z2)
+
+            # Combined loss
+            loss = recon_loss + self.contrastive_weight * contrastive_loss
+
+            # Use view 1 for metrics
+            predicted_betas = pred_v1
+            non_input_mask = non_input_mask_v1
+        else:
+            # Non-contrastive mode (fallback)
+            recon_loss = recon_loss_v1
+            contrastive_loss = torch.tensor(0.0, device=recon_loss.device)
+            loss = recon_loss
+            predicted_betas = pred_v1
+            non_input_mask = non_input_mask_v1
+
+        # Compute metrics
         with torch.no_grad():
             non_input_pred = predicted_betas[non_input_mask]
             non_input_target = all_betas[non_input_mask]
             mae = torch.abs(non_input_pred - non_input_target).mean()
             mse = ((non_input_pred - non_input_target) ** 2).mean()
 
-            # Also compute metrics on ALL CpGs for comparison
             all_mae = torch.abs(predicted_betas - all_betas).mean()
             all_mse = ((predicted_betas - all_betas) ** 2).mean()
 
         return {
             "loss": loss,
-            "mae": mae,           # MAE on non-input only
-            "mse": mse,           # MSE on non-input only
-            "all_mae": all_mae,   # MAE on all CpGs
-            "all_mse": all_mse,   # MSE on all CpGs
+            "recon_loss": recon_loss,
+            "contrastive_loss": contrastive_loss,
+            "mae": mae,
+            "mse": mse,
+            "all_mae": all_mae,
+            "all_mse": all_mse,
             "predicted_betas": predicted_betas,
             "target_betas": all_betas,
             "non_input_mask": non_input_mask,
+            "z1": z1,
         }
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         outputs = self._shared_step(batch, "train")
 
         self.log("train/loss", outputs["loss"], on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/recon_loss", outputs["recon_loss"], on_step=False, on_epoch=True)
+        self.log("train/contrastive_loss", outputs["contrastive_loss"], on_step=False, on_epoch=True)
         self.log("train/mae", outputs["mae"], on_step=False, on_epoch=True)
         self.log("train/mse", outputs["mse"], on_step=False, on_epoch=True)
         self.log("train/all_mae", outputs["all_mae"], on_step=False, on_epoch=True)
@@ -281,6 +357,8 @@ class WCEDTrainingModule(pl.LightningModule):
         outputs = self._shared_step(batch, "val")
 
         self.log("validation/loss", outputs["loss"], on_epoch=True, prog_bar=True)
+        self.log("validation/recon_loss", outputs["recon_loss"], on_epoch=True)
+        self.log("validation/contrastive_loss", outputs["contrastive_loss"], on_epoch=True)
         self.log("validation/mae", outputs["mae"], on_epoch=True)
         self.log("validation/mse", outputs["mse"], on_epoch=True)
         self.log("validation/all_mae", outputs["all_mae"], on_epoch=True)
@@ -291,11 +369,13 @@ class WCEDTrainingModule(pl.LightningModule):
         outputs = self._shared_step(batch, "test")
 
         self.log("test/loss", outputs["loss"], on_epoch=True)
+        self.log("test/recon_loss", outputs["recon_loss"], on_epoch=True)
+        self.log("test/contrastive_loss", outputs["contrastive_loss"], on_epoch=True)
         self.log("test/mae", outputs["mae"], on_epoch=True)
         self.log("test/mse", outputs["mse"], on_epoch=True)
         self.log("test/all_mae", outputs["all_mae"], on_epoch=True)
 
-        # Compute PCC on non-input CpGs
+        # Compute PCC
         non_input_mask = outputs["non_input_mask"]
         pred = outputs["predicted_betas"][non_input_mask].detach().cpu().numpy()
         target = outputs["target_betas"][non_input_mask].detach().cpu().numpy()
@@ -303,7 +383,6 @@ class WCEDTrainingModule(pl.LightningModule):
             pcc, _ = pearsonr(pred, target)
             self.log("test/pcc", pcc, on_epoch=True)
 
-        # PCC on all CpGs
         all_pred = outputs["predicted_betas"].detach().cpu().numpy().flatten()
         all_target = outputs["target_betas"].detach().cpu().numpy().flatten()
         if len(all_pred) > 1:

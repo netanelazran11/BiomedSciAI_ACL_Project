@@ -287,16 +287,18 @@ def main(cfg: DictConfig):
         switch_ratio=cfg.data_module.switch_ratio if use_mlm else 0.0,
         collation_strategy="language_modeling",
     )
-    # Get vocab_size and input_ratio for WCED (needed before collator setup)
+    # Get vocab_size and contrastive settings for WCED
     vocab_size = cfg.data_module.get("subset_k", 2048)
-    wced_input_ratio = cfg.get("wced_input_ratio", 0.8)
+    wced_input_ratio = cfg.get("wced_input_ratio", 0.5)  # Default 50% for contrastive
+    wced_contrastive = cfg.get("wced_contrastive", True)  # Enable contrastive by default
+    wced_contrastive_weight = cfg.get("wced_contrastive_weight", 0.5)
+    wced_contrastive_temp = cfg.get("wced_contrastive_temp", 0.1)
 
     def _wrap_collator():
         base_collator = data_module.collator
 
         if pretraining_mode == "wced":
-            # WCED mode: Use WCEDCollator for random input masking
-            # This creates proper WCED training: input X% → predict ALL → loss on (1-X)%
+            # WCED mode: Use WCEDCollator with contrastive learning
             cpg_sites = None
             if data_module.train_dataset is not None:
                 cpg_sites = data_module.train_dataset.cpg_sites
@@ -308,7 +310,8 @@ def main(cfg: DictConfig):
             if cpg_sites is None:
                 raise ValueError("No CpG site list available for WCEDCollator")
 
-            logger.info(f"WCED Collator: vocab_size={vocab_size}, input_ratio={wced_input_ratio}")
+            mode_str = "contrastive" if wced_contrastive else "standard"
+            logger.info(f"WCED Collator: vocab_size={vocab_size}, input_ratio={wced_input_ratio}, mode={mode_str}")
 
             wced_collator = WCEDCollator(
                 tokenizer=data_module.tokenizer,
@@ -316,6 +319,7 @@ def main(cfg: DictConfig):
                 vocab_size=vocab_size,
                 input_ratio=wced_input_ratio,
                 fixed_subset_seed=cfg.data_module.get("fixed_subset_seed", 42),
+                contrastive=wced_contrastive,
             )
 
             def _collate_for_wced(examples):
@@ -329,14 +333,13 @@ def main(cfg: DictConfig):
                     input_mask = batch["input_mask"]
                     n_input = int(input_mask[0].sum().item())
                     n_non_input = int((~input_mask[0]).sum().item())
-                    print("\n[DEBUG] WCED Collator Batch (random input masking)")
-                    print(f"  cpg_ids shape: {tuple(cpg_ids.shape)}")
-                    print(f"  beta_values shape: {tuple(beta_values.shape)}")
-                    print(f"  attention_mask shape: {tuple(attn.shape)}")
+                    has_v2 = "cpg_ids_v2" in batch
+                    print(f"\n[DEBUG] WCED Collator Batch ({'contrastive' if has_v2 else 'standard'})")
+                    print(f"  View 1: cpg_ids {tuple(cpg_ids.shape)}, beta_values {tuple(beta_values.shape)}")
+                    if has_v2:
+                        print(f"  View 2: cpg_ids {tuple(batch['cpg_ids_v2'].shape)}")
                     print(f"  all_betas shape: {tuple(all_betas.shape)} (full vocabulary)")
-                    print(f"  input_mask shape: {tuple(input_mask.shape)}")
-                    print(f"  input CpGs: {n_input}, non-input (for loss): {n_non_input}")
-                    print(f"  non-pad tokens: {int(attn[0].sum().item())}")
+                    print(f"  input CpGs per view: {n_input}, non-input: {n_non_input}")
                 return batch
 
             data_module.collator = _collate_for_wced
@@ -423,32 +426,41 @@ def main(cfg: DictConfig):
 
     # Create training module based on pretraining mode
     if pretraining_mode == "wced":
-        # WCED pretraining: Linear decoder from CLS to entire vocabulary
+        # Contrastive WCED pretraining
         #
-        # Architecture (based on original BMFM WCED):
-        #   Input:   Random 80% of CpGs with their beta values
-        #   Encoder: Transformer → CLS hidden state (bottleneck)
+        # Architecture:
+        #   Input:   Two random views (50% CpGs each) per sample
+        #   Encoder: Transformer → CLS embeddings for each view
+        #   Projection: MLP → z1, z2 (for contrastive loss)
         #   Decoder: Linear(CLS) → ALL vocab_size beta predictions
-        #   Loss:    MSE only on non-input CpGs (the 20% not in input)
+        #   Loss:    Reconstruction + λ * Contrastive (InfoNCE)
         #
-        # Key insight: Loss on non-input CpGs forces the model to learn
-        # patterns, not just copy. CLS must encode global information.
+        # Key insight: Contrastive loss forces CLS to encode sample identity,
+        # which enables sample-specific predictions instead of per-CpG averages.
         input_pct = int(wced_input_ratio * 100)
         predict_pct = 100 - input_pct
+        mode_str = "CONTRASTIVE" if wced_contrastive else "STANDARD"
         logger.info("=" * 70)
-        logger.info("WCED PRETRAINING MODE")
-        logger.info("Strategy: Linear decoder from CLS to entire vocabulary")
-        logger.info(f"  - Input: Random {input_pct}% of {vocab_size} CpGs")
-        logger.info("  - Encoder: Transformer → CLS hidden state (bottleneck)")
+        logger.info(f"WCED PRETRAINING MODE ({mode_str})")
+        if wced_contrastive:
+            logger.info("Strategy: Contrastive learning + Reconstruction")
+            logger.info(f"  - Two views per sample: {input_pct}% CpGs each (non-overlapping)")
+            logger.info(f"  - Contrastive: Same-sample views → similar CLS")
+            logger.info(f"  - Contrastive weight: {wced_contrastive_weight}, temp: {wced_contrastive_temp}")
+        else:
+            logger.info("Strategy: Reconstruction only")
+            logger.info(f"  - Input: Random {input_pct}% of {vocab_size} CpGs")
         logger.info(f"  - Decoder: Linear(CLS) → {vocab_size} beta predictions")
-        logger.info(f"  - Loss: MSE only on non-input {predict_pct}% (forces learning)")
+        logger.info(f"  - Reconstruction loss: MSE on non-input {predict_pct}%")
         logger.info("=" * 70)
         print("\n" + "=" * 70)
-        print("WCED PRETRAINING MODE")
-        print("Linear decoder from CLS to vocabulary")
-        print(f"Input: {input_pct}% of {vocab_size} CpGs → Encoder → [CLS]")
+        print(f"WCED PRETRAINING MODE ({mode_str})")
+        if wced_contrastive:
+            print(f"Two views: {input_pct}% CpGs each → CLS1, CLS2")
+            print(f"Contrastive: CLS1 ≈ CLS2 (same sample)")
+            print(f"Weight: {wced_contrastive_weight}, Temp: {wced_contrastive_temp}")
         print(f"Decoder: Linear([CLS]) → {vocab_size} betas")
-        print(f"Loss: only on non-input {predict_pct}%")
+        print(f"Reconstruction: MSE on non-input {predict_pct}%")
         print("=" * 70 + "\n")
 
         from bmfm_methylation.wced_module import WCEDTrainingModule
@@ -457,7 +469,7 @@ def main(cfg: DictConfig):
         # Get WCED-specific settings
         wced_config = PretrainingConfig(
             mode="wced",
-            mask_ratio=0.0,  # Masking handled by WCEDCollator
+            mask_ratio=0.0,
             decoder_dropout=cfg.get("wced_decoder_dropout", 0.1),
         )
 
@@ -468,7 +480,9 @@ def main(cfg: DictConfig):
             weight_decay=cfg.trainer.weight_decay,
             warmup_steps=cfg.trainer.warmup_steps,
             lr_decay_steps=cfg.trainer.lr_decay_steps,
-            vocab_size=vocab_size,  # Pass vocab_size for linear decoder
+            vocab_size=vocab_size,
+            contrastive_weight=wced_contrastive_weight,
+            contrastive_temp=wced_contrastive_temp,
             betas=tuple(cfg.trainer.betas),
             epsilon=cfg.trainer.epsilon,
         )
