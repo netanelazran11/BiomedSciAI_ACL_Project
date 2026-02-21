@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-WCED Diagnostic Script
+WCED Diagnostic Script - Simplified Version
 
-Analyzes WHY CLS embeddings fail to encode sample-specific information.
+Analyzes WHY CLS embeddings fail to encode sample-specific information
+by directly analyzing the checkpoint without complex model reconstruction.
 
 Diagnostics:
-1. CLS Embedding Variance: Do CLS embeddings differ across samples?
-2. CLS-Age Correlation: Does CLS encode age-related information?
-3. CLS Similarity: Are all CLS embeddings too similar?
-4. Prediction Variance: Do predictions vary per sample or just predict averages?
-5. Per-CpG Analysis: Is the model predicting per-CpG means?
+1. Decoder bias analysis: Does decoder just predict per-CpG means?
+2. Prediction variance: Do predictions vary per sample?
+3. Sample correlation: Are predictions correlated with actual values?
 
 Usage:
     python scripts/diagnose_wced.py --checkpoint /path/to/checkpoint.ckpt --data /path/to/data.h5ad
@@ -22,279 +21,230 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 import scanpy as sc
 from scipy.stats import pearsonr, spearmanr
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
-
-# Add parent to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from bmfm_methylation.wced_module import WCEDTrainingModule
-from bmfm_methylation.data_module import MethylationDataModule, WCEDCollator
-from bmfm_methylation.tokenizer import create_methylation_multifield_tokenizer, extract_cpg_sites_from_h5ad
-from bmfm_targets.config import FieldInfo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def load_model_and_data(checkpoint_path: str, data_path: str, vocab_size: int = 2048):
-    """Load trained WCED model and prepare data."""
+def analyze_decoder_weights(checkpoint_path: str):
+    """Analyze the WCED decoder weights to see if it's learning per-CpG biases."""
 
-    # Load checkpoint
-    logger.info(f"Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    print("\n" + "="*70)
+    print("DIAGNOSTIC 1: Decoder Weight Analysis")
+    print("="*70)
 
-    # Extract model config from checkpoint
-    hparams = checkpoint.get('hyper_parameters', {})
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    state_dict = checkpoint['state_dict']
 
-    # Load data
-    logger.info(f"Loading data: {data_path}")
+    # Find decoder layers
+    decoder_keys = [k for k in state_dict.keys() if 'decoder' in k]
+    print(f"Decoder layers found: {decoder_keys}")
+
+    # Get the final decoder layer (output bias)
+    final_linear_bias = None
+    final_linear_weight = None
+
+    for key in decoder_keys:
+        if 'bias' in key and 'decoder.decoder' in key:
+            # Get the last bias layer
+            final_linear_bias = state_dict[key]
+            print(f"\n{key}: shape {final_linear_bias.shape}")
+        if 'weight' in key and 'decoder.decoder' in key:
+            final_linear_weight = state_dict[key]
+            print(f"{key}: shape {final_linear_weight.shape}")
+
+    if final_linear_bias is not None:
+        bias = final_linear_bias.numpy()
+        print(f"\nFinal layer bias statistics:")
+        print(f"  Mean: {np.mean(bias):.6f}")
+        print(f"  Std:  {np.std(bias):.6f}")
+        print(f"  Min:  {np.min(bias):.6f}")
+        print(f"  Max:  {np.max(bias):.6f}")
+
+        # Check if bias values are in [0, 1] range (like beta values)
+        in_range = np.sum((bias >= 0) & (bias <= 1)) / len(bias)
+        print(f"  Fraction in [0,1]: {in_range:.4f}")
+
+        # If bias is learning per-CpG means, they should vary a lot
+        if np.std(bias) > 0.1:
+            print("\n⚠️  Decoder bias has HIGH variance - may be learning per-CpG means!")
+        else:
+            print("\n✓ Decoder bias has low variance.")
+
+    return state_dict
+
+
+def analyze_data_statistics(data_path: str, vocab_size: int = 2048):
+    """Analyze the per-CpG statistics in the training data."""
+
+    print("\n" + "="*70)
+    print("DIAGNOSTIC 2: Data Statistics (Per-CpG Means)")
+    print("="*70)
+
     adata = sc.read_h5ad(data_path)
 
-    # Create tokenizer
-    cpg_sites = list(adata.var_names)
-    tokenizer = create_methylation_multifield_tokenizer(cpg_sites=cpg_sites, output_dir="/tmp/wced_diag_tokenizer")
+    # Get the beta values matrix
+    X = adata.X
+    if hasattr(X, 'toarray'):
+        X = X.toarray()
 
-    # Create fields (matching the config format)
-    fields = [
-        FieldInfo(field_name="cpg_sites", is_input=True, vocab_size=len(cpg_sites) + 10),
-        FieldInfo(field_name="beta_values", is_input=True, vocab_size=1),
-    ]
+    print(f"Data shape: {X.shape} (samples x CpGs)")
 
-    # Create data module
-    data_module = MethylationDataModule(
-        tokenizer=tokenizer,
-        fields=fields,
-        h5ad_path=data_path,
-        batch_size=32,
-        num_workers=0,
-        subset_k=vocab_size,
-        mlm=False,
-    )
-    data_module.setup()
+    # Compute per-CpG statistics
+    cpg_means = np.nanmean(X, axis=0)
+    cpg_stds = np.nanstd(X, axis=0)
 
-    # Create collator (non-contrastive for inference)
-    collator = WCEDCollator(
-        tokenizer=tokenizer,
-        cpg_sites=cpg_sites,
-        vocab_size=vocab_size,
-        input_ratio=0.8,  # Use 80% as input for diagnosis
-        contrastive=False,
-    )
+    print(f"\nPer-CpG mean statistics:")
+    print(f"  Mean of means: {np.nanmean(cpg_means):.6f}")
+    print(f"  Std of means:  {np.nanstd(cpg_means):.6f}")
+    print(f"  Min mean:      {np.nanmin(cpg_means):.6f}")
+    print(f"  Max mean:      {np.nanmax(cpg_means):.6f}")
 
-    return checkpoint, data_module, collator, adata
+    print(f"\nPer-CpG std statistics:")
+    print(f"  Mean std: {np.nanmean(cpg_stds):.6f}")
+    print(f"  Min std:  {np.nanmin(cpg_stds):.6f}")
+    print(f"  Max std:  {np.nanmax(cpg_stds):.6f}")
 
-
-def extract_cls_embeddings(model, data_module, collator, device='cpu', max_samples=500):
-    """Extract CLS embeddings for all samples."""
-
-    model.eval()
-    model.to(device)
-
-    cls_embeddings = []
-    predictions_all = []
-    targets_all = []
-    ages = []
-
-    dataset = data_module.val_dataset or data_module.train_dataset
-
-    logger.info(f"Extracting CLS embeddings for {min(len(dataset), max_samples)} samples...")
-
-    with torch.no_grad():
-        for i in range(min(len(dataset), max_samples)):
-            example = dataset[i]
-            batch = collator([example])
-
-            # Move to device
-            cpg_ids = batch['cpg_ids'].to(device)
-            beta_values = batch['beta_values'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            all_betas = batch['all_betas'].to(device)
-
-            # Forward pass
-            outputs = model(cpg_ids, beta_values, attention_mask)
-
-            cls_emb = outputs['cls_embedding'].cpu().numpy()
-            pred = outputs['predicted_betas'].cpu().numpy()
-            target = all_betas.cpu().numpy()
-
-            cls_embeddings.append(cls_emb[0])
-            predictions_all.append(pred[0])
-            targets_all.append(target[0])
-
-            # Get age
-            if example.metadata and 'labels' in example.metadata:
-                ages.append(example.metadata['labels'])
-            else:
-                ages.append(0.0)
-
-    cls_embeddings = np.array(cls_embeddings)
-    predictions_all = np.array(predictions_all)
-    targets_all = np.array(targets_all)
-    ages = np.array(ages)
-
-    return cls_embeddings, predictions_all, targets_all, ages
-
-
-def analyze_cls_variance(cls_embeddings):
-    """Analyze variance in CLS embeddings."""
-
-    print("\n" + "="*70)
-    print("DIAGNOSTIC 1: CLS Embedding Variance")
-    print("="*70)
-
-    # Per-dimension variance
-    var_per_dim = np.var(cls_embeddings, axis=0)
-    mean_var = np.mean(var_per_dim)
-    max_var = np.max(var_per_dim)
-    min_var = np.min(var_per_dim)
-
-    print(f"CLS embedding shape: {cls_embeddings.shape}")
-    print(f"Variance per dimension: mean={mean_var:.6f}, max={max_var:.6f}, min={min_var:.6f}")
-
-    # Total variance (Frobenius norm style)
-    total_var = np.sum(var_per_dim)
-    print(f"Total variance (sum across dims): {total_var:.6f}")
-
-    # Compare to mean embedding
-    mean_cls = np.mean(cls_embeddings, axis=0)
-    distances_from_mean = np.linalg.norm(cls_embeddings - mean_cls, axis=1)
-
-    print(f"Distance from mean CLS: mean={np.mean(distances_from_mean):.6f}, "
-          f"std={np.std(distances_from_mean):.6f}")
-
-    # Pairwise similarities
-    from sklearn.metrics.pairwise import cosine_similarity
-    sim_matrix = cosine_similarity(cls_embeddings)
-    upper_tri = sim_matrix[np.triu_indices(len(cls_embeddings), k=1)]
-
-    print(f"Pairwise CLS cosine similarity: mean={np.mean(upper_tri):.6f}, "
-          f"std={np.std(upper_tri):.6f}, min={np.min(upper_tri):.6f}, max={np.max(upper_tri):.6f}")
-
-    if np.mean(upper_tri) > 0.99:
-        print("\n⚠️  WARNING: CLS embeddings are NEARLY IDENTICAL across samples!")
-        print("   This explains why WCED fails - CLS doesn't encode sample-specific info.")
-    elif np.mean(upper_tri) > 0.95:
-        print("\n⚠️  WARNING: CLS embeddings are VERY SIMILAR across samples.")
-    else:
-        print("\n✓ CLS embeddings show reasonable variation across samples.")
-
-    return var_per_dim, distances_from_mean, upper_tri
-
-
-def analyze_cls_age_correlation(cls_embeddings, ages):
-    """Check if CLS embeddings correlate with age."""
-
-    print("\n" + "="*70)
-    print("DIAGNOSTIC 2: CLS-Age Correlation")
-    print("="*70)
-
-    # PCA on CLS embeddings
-    pca = PCA(n_components=min(10, cls_embeddings.shape[1]))
-    cls_pca = pca.fit_transform(cls_embeddings)
-
-    print(f"PCA explained variance (top 10): {pca.explained_variance_ratio_[:10]}")
-
-    # Correlation of each PC with age
-    print("\nCorrelation of principal components with age:")
-    pc_age_corrs = []
-    for i in range(min(10, cls_pca.shape[1])):
-        corr, p_val = pearsonr(cls_pca[:, i], ages)
-        pc_age_corrs.append(corr)
-        print(f"  PC{i+1}: r={corr:.4f}, p={p_val:.4e}")
-
-    # Best linear combination for age prediction
-    from sklearn.linear_model import Ridge
-    ridge = Ridge(alpha=1.0)
-    ridge.fit(cls_embeddings, ages)
-    age_pred = ridge.predict(cls_embeddings)
-
-    overall_corr, _ = pearsonr(age_pred, ages)
-    print(f"\nBest linear prediction of age from CLS: r={overall_corr:.4f}")
-
-    if overall_corr < 0.3:
-        print("\n⚠️  WARNING: CLS embeddings have LOW correlation with age!")
-        print("   CLS is not encoding age-relevant information.")
-    elif overall_corr < 0.6:
-        print("\n⚠️  CLS shows MODERATE correlation with age.")
-    else:
-        print("\n✓ CLS shows GOOD correlation with age.")
-
-    return pc_age_corrs, overall_corr
-
-
-def analyze_predictions(predictions, targets):
-    """Analyze if predictions vary per sample or just predict averages."""
-
-    print("\n" + "="*70)
-    print("DIAGNOSTIC 3: Prediction Analysis")
-    print("="*70)
-
-    # Per-CpG mean across samples
-    cpg_means = np.mean(targets, axis=0)  # Ground truth means
-    pred_means = np.mean(predictions, axis=0)  # Predicted means
-
-    # Per-sample PCC
+    # What PCC would we get if we just predicted per-CpG means?
+    # Sample some test predictions
+    n_samples = min(500, X.shape[0])
     sample_pccs = []
-    for i in range(len(predictions)):
-        pcc, _ = pearsonr(predictions[i], targets[i])
-        sample_pccs.append(pcc)
 
-    print(f"Per-sample PCC: mean={np.mean(sample_pccs):.4f}, std={np.std(sample_pccs):.4f}")
+    for i in range(n_samples):
+        sample = X[i, :vocab_size]
+        pred_means = cpg_means[:vocab_size]
 
-    # Check if predictions are just the per-CpG means
-    mean_pred_pccs = []
-    for i in range(len(predictions)):
-        # How well do per-CpG means predict this sample?
-        pcc_mean, _ = pearsonr(cpg_means, targets[i])
-        mean_pred_pccs.append(pcc_mean)
+        valid_mask = ~np.isnan(sample) & ~np.isnan(pred_means)
+        if valid_mask.sum() > 10:
+            pcc, _ = pearsonr(sample[valid_mask], pred_means[valid_mask])
+            sample_pccs.append(pcc)
 
-    print(f"Per-CpG mean baseline PCC: mean={np.mean(mean_pred_pccs):.4f}")
+    mean_pcc = np.mean(sample_pccs)
+    print(f"\nBaseline PCC (predicting per-CpG means): {mean_pcc:.4f}")
+    print(f"  This is what WCED achieves if it ignores sample-specific info!")
 
-    # Variance in predictions
-    pred_var_per_cpg = np.var(predictions, axis=0)  # Variance across samples for each CpG
-    target_var_per_cpg = np.var(targets, axis=0)
+    if mean_pcc > 0.9:
+        print("\n⚠️  HIGH baseline PCC!")
+        print("   Per-CpG means alone explain >90% correlation.")
+        print("   WCED can achieve high PCC by just learning biases.")
 
-    var_ratio = np.mean(pred_var_per_cpg) / np.mean(target_var_per_cpg)
-    print(f"Prediction variance / Target variance: {var_ratio:.4f}")
-
-    if var_ratio < 0.1:
-        print("\n⚠️  WARNING: Predictions have MUCH LESS variance than targets!")
-        print("   Model is predicting near-constant values per CpG (averages).")
-    elif var_ratio < 0.5:
-        print("\n⚠️  Predictions have lower variance than targets.")
-    else:
-        print("\n✓ Predictions show reasonable variance.")
-
-    # Check if model output ≈ per-CpG means
-    pred_vs_cpgmean_corr, _ = pearsonr(pred_means, cpg_means)
-    print(f"\nPredicted means vs Ground truth means correlation: r={pred_vs_cpgmean_corr:.4f}")
-
-    # Per-sample deviation from mean
-    print("\nSample-specific signal analysis:")
-    deviations_pred = predictions - pred_means  # Deviation from predicted mean
-    deviations_true = targets - cpg_means  # Deviation from true mean
-
-    # How well do predicted deviations match true deviations?
-    dev_corrs = []
-    for i in range(len(predictions)):
-        corr, _ = pearsonr(deviations_pred[i], deviations_true[i])
-        dev_corrs.append(corr)
-
-    print(f"Deviation correlation: mean={np.mean(dev_corrs):.4f}, std={np.std(dev_corrs):.4f}")
-
-    if np.mean(dev_corrs) < 0.1:
-        print("\n⚠️  WARNING: Model fails to capture sample-specific deviations!")
-        print("   This confirms the model just predicts per-CpG averages.")
-
-    return sample_pccs, mean_pred_pccs, var_ratio
+    return cpg_means, cpg_stds, adata
 
 
-def visualize_cls_embeddings(cls_embeddings, ages, output_dir):
-    """Create visualizations of CLS embeddings."""
+def analyze_decoder_vs_data(state_dict, cpg_means, vocab_size=2048):
+    """Compare decoder bias with actual per-CpG means."""
+
+    print("\n" + "="*70)
+    print("DIAGNOSTIC 3: Decoder Bias vs Data Means")
+    print("="*70)
+
+    # Find the final decoder bias
+    final_bias = None
+    for key in state_dict.keys():
+        if 'decoder.decoder.4.bias' in key:  # Last linear layer bias
+            final_bias = state_dict[key].numpy()
+            break
+
+    if final_bias is None:
+        print("Could not find decoder bias layer")
+        return
+
+    # Compare with per-CpG means
+    n = min(len(final_bias), len(cpg_means), vocab_size)
+    bias = final_bias[:n]
+    means = cpg_means[:n]
+
+    # Since there's a sigmoid, we need to convert bias to [0,1] range
+    # Sigmoid(bias) should approximate means
+    sigmoid_bias = 1 / (1 + np.exp(-bias))
+
+    valid_mask = ~np.isnan(means)
+    if valid_mask.sum() > 10:
+        corr, p_val = pearsonr(sigmoid_bias[valid_mask], means[valid_mask])
+        print(f"Correlation between sigmoid(decoder_bias) and per-CpG means: r={corr:.4f}")
+
+        if corr > 0.8:
+            print("\n⚠️  HIGH CORRELATION!")
+            print("   The decoder bias has learned the per-CpG means.")
+            print("   This confirms the model predicts averages, ignoring CLS.")
+        elif corr > 0.5:
+            print("\n⚠️  Moderate correlation with per-CpG means.")
+        else:
+            print("\n✓ Low correlation - decoder is not just predicting means.")
+
+
+def analyze_sample_variance(data_path: str, vocab_size: int = 2048):
+    """Analyze how much samples vary from per-CpG means."""
+
+    print("\n" + "="*70)
+    print("DIAGNOSTIC 4: Sample-Specific Variance")
+    print("="*70)
+
+    adata = sc.read_h5ad(data_path)
+    X = adata.X
+    if hasattr(X, 'toarray'):
+        X = X.toarray()
+
+    X = X[:, :vocab_size]
+
+    # Per-CpG means
+    cpg_means = np.nanmean(X, axis=0)
+
+    # Per-sample deviation from means
+    deviations = X - cpg_means
+
+    # Variance explained by means vs sample-specific
+    total_var = np.nanvar(X)
+    mean_var = np.nanvar(cpg_means)
+    residual_var = np.nanvar(deviations)
+
+    print(f"Total variance in data: {total_var:.6f}")
+    print(f"Variance from per-CpG means: {mean_var:.6f}")
+    print(f"Residual (sample-specific) variance: {residual_var:.6f}")
+
+    frac_explained = mean_var / total_var if total_var > 0 else 0
+    print(f"\nFraction of variance explained by per-CpG means: {frac_explained:.4f}")
+
+    if frac_explained > 0.8:
+        print("\n⚠️  Per-CpG means explain >80% of variance!")
+        print("   Sample-specific signal is weak relative to CpG patterns.")
+        print("   This makes reconstruction from CLS very challenging.")
+
+    # Check age correlation with residuals
+    if 'labels' in adata.obs.columns or 'age' in adata.obs.columns:
+        age_col = 'labels' if 'labels' in adata.obs.columns else 'age'
+        ages = adata.obs[age_col].values.astype(float)
+
+        # Correlate residual deviations with age
+        # For each CpG, compute correlation of deviation with age
+        cpg_age_corrs = []
+        for j in range(min(vocab_size, X.shape[1])):
+            dev = deviations[:, j]
+            valid = ~np.isnan(dev)
+            if valid.sum() > 10:
+                corr, _ = pearsonr(dev[valid], ages[valid])
+                cpg_age_corrs.append(abs(corr))
+
+        mean_abs_corr = np.mean(cpg_age_corrs)
+        max_corr = np.max(cpg_age_corrs)
+        high_corr_count = sum(1 for c in cpg_age_corrs if c > 0.3)
+
+        print(f"\nAge correlation with sample deviations:")
+        print(f"  Mean |correlation|: {mean_abs_corr:.4f}")
+        print(f"  Max |correlation|: {max_corr:.4f}")
+        print(f"  CpGs with |r| > 0.3: {high_corr_count} / {len(cpg_age_corrs)}")
+
+        if mean_abs_corr < 0.1:
+            print("\n⚠️  Sample deviations have LOW age correlation.")
+            print("   Age signal may be too weak for CLS to capture.")
+
+
+def create_visualizations(cpg_means, state_dict, output_dir, vocab_size=2048):
+    """Create diagnostic visualizations."""
 
     print("\n" + "="*70)
     print("Creating Visualizations...")
@@ -303,53 +253,47 @@ def visualize_cls_embeddings(cls_embeddings, ages, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # PCA visualization
-    pca = PCA(n_components=2)
-    cls_pca = pca.fit_transform(cls_embeddings)
+    # Find decoder bias
+    final_bias = None
+    for key in state_dict.keys():
+        if 'decoder.decoder.4.bias' in key:
+            final_bias = state_dict[key].numpy()
+            break
 
+    if final_bias is None:
+        print("Could not find decoder bias for visualization")
+        return
+
+    n = min(len(final_bias), len(cpg_means), vocab_size)
+    sigmoid_bias = 1 / (1 + np.exp(-final_bias[:n]))
+    means = cpg_means[:n]
+
+    # Plot 1: Decoder bias vs per-CpG means
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # PCA colored by age
-    scatter = axes[0].scatter(cls_pca[:, 0], cls_pca[:, 1], c=ages, cmap='viridis', alpha=0.7)
-    axes[0].set_xlabel('PC1')
-    axes[0].set_ylabel('PC2')
-    axes[0].set_title('CLS Embeddings (PCA) colored by Age')
-    plt.colorbar(scatter, ax=axes[0], label='Age')
+    valid = ~np.isnan(means)
+    axes[0].scatter(means[valid], sigmoid_bias[valid], alpha=0.3, s=5)
+    axes[0].plot([0, 1], [0, 1], 'r--', label='y=x')
+    axes[0].set_xlabel('Per-CpG Mean (from data)')
+    axes[0].set_ylabel('Sigmoid(Decoder Bias)')
+    axes[0].set_title('Decoder Bias vs Data Means')
+    axes[0].legend()
 
-    # t-SNE
-    if len(cls_embeddings) > 30:
-        tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(cls_embeddings)-1))
-        cls_tsne = tsne.fit_transform(cls_embeddings)
-
-        scatter = axes[1].scatter(cls_tsne[:, 0], cls_tsne[:, 1], c=ages, cmap='viridis', alpha=0.7)
-        axes[1].set_xlabel('t-SNE 1')
-        axes[1].set_ylabel('t-SNE 2')
-        axes[1].set_title('CLS Embeddings (t-SNE) colored by Age')
-        plt.colorbar(scatter, ax=axes[1], label='Age')
+    # Plot 2: Distribution of biases and means
+    axes[1].hist(means[valid], bins=50, alpha=0.5, label='Data means', density=True)
+    axes[1].hist(sigmoid_bias, bins=50, alpha=0.5, label='Sigmoid(bias)', density=True)
+    axes[1].set_xlabel('Value')
+    axes[1].set_ylabel('Density')
+    axes[1].set_title('Distribution Comparison')
+    axes[1].legend()
 
     plt.tight_layout()
-    plt.savefig(output_dir / 'cls_embeddings_visualization.png', dpi=150)
-    print(f"Saved: {output_dir / 'cls_embeddings_visualization.png'}")
-
-    # Histogram of pairwise similarities
-    from sklearn.metrics.pairwise import cosine_similarity
-    sim_matrix = cosine_similarity(cls_embeddings)
-    upper_tri = sim_matrix[np.triu_indices(len(cls_embeddings), k=1)]
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.hist(upper_tri, bins=50, edgecolor='black', alpha=0.7)
-    ax.axvline(np.mean(upper_tri), color='red', linestyle='--', label=f'Mean: {np.mean(upper_tri):.4f}')
-    ax.set_xlabel('Cosine Similarity')
-    ax.set_ylabel('Count')
-    ax.set_title('Pairwise CLS Embedding Similarities')
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(output_dir / 'cls_similarity_histogram.png', dpi=150)
-    print(f"Saved: {output_dir / 'cls_similarity_histogram.png'}")
+    plt.savefig(output_dir / 'decoder_analysis.png', dpi=150)
+    print(f"Saved: {output_dir / 'decoder_analysis.png'}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Diagnose WCED CLS embeddings')
+    parser = argparse.ArgumentParser(description='Diagnose WCED - Simplified Version')
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to WCED checkpoint')
     parser.add_argument('--data', type=str, required=True, help='Path to h5ad data file')
     parser.add_argument('--output', type=str, default='./wced_diagnosis', help='Output directory')
@@ -360,67 +304,55 @@ def main():
     args = parser.parse_args()
 
     print("="*70)
-    print("WCED DIAGNOSTIC ANALYSIS")
+    print("WCED DIAGNOSTIC ANALYSIS (Simplified)")
     print("="*70)
     print(f"Checkpoint: {args.checkpoint}")
     print(f"Data: {args.data}")
     print(f"Vocab size: {args.vocab_size}")
     print("="*70)
 
-    # Load model and data
-    checkpoint, data_module, collator, adata = load_model_and_data(
-        args.checkpoint, args.data, args.vocab_size
-    )
+    # Diagnostic 1: Analyze decoder weights
+    state_dict = analyze_decoder_weights(args.checkpoint)
 
-    # Reconstruct model from checkpoint
-    # This requires knowing the model config - we'll extract from checkpoint
-    from bmfm_targets.config import SCBertConfig
-    from bmfm_methylation.config import PretrainingConfig
+    # Diagnostic 2: Analyze data statistics
+    cpg_means, cpg_stds, adata = analyze_data_statistics(args.data, args.vocab_size)
 
-    hparams = checkpoint.get('hyper_parameters', {})
-    model_config = checkpoint.get('model_config', None)
+    # Diagnostic 3: Compare decoder with data
+    analyze_decoder_vs_data(state_dict, cpg_means, args.vocab_size)
 
-    if model_config is None:
-        # Create default config
-        model_config = SCBertConfig(
-            num_hidden_layers=6,
-            num_attention_heads=8,
-            hidden_size=512,
-            intermediate_size=2048,
-        )
-
-    pretrain_config = PretrainingConfig(mode="wced", decoder_dropout=0.1)
-
-    model = WCEDTrainingModule(
-        model_config=model_config,
-        pretrain_config=pretrain_config,
-        vocab_size=args.vocab_size,
-    )
-
-    # Load state dict
-    model.load_state_dict(checkpoint['state_dict'], strict=False)
-
-    # Extract CLS embeddings
-    cls_embeddings, predictions, targets, ages = extract_cls_embeddings(
-        model, data_module, collator, device=args.device, max_samples=args.max_samples
-    )
-
-    # Run diagnostics
-    analyze_cls_variance(cls_embeddings)
-    analyze_cls_age_correlation(cls_embeddings, ages)
-    analyze_predictions(predictions, targets)
+    # Diagnostic 4: Analyze sample variance
+    analyze_sample_variance(args.data, args.vocab_size)
 
     # Create visualizations
-    visualize_cls_embeddings(cls_embeddings, ages, args.output)
+    create_visualizations(cpg_means, state_dict, args.output, args.vocab_size)
 
     print("\n" + "="*70)
-    print("DIAGNOSIS COMPLETE")
+    print("DIAGNOSIS SUMMARY")
     print("="*70)
+    print("""
+Key Questions:
+1. Has the decoder learned per-CpG means as biases?
+   → If sigmoid(bias) correlates highly with data means, YES.
+
+2. How much variance is sample-specific vs CpG-specific?
+   → If CpG means explain >80% variance, sample signal is weak.
+
+3. Is the baseline (predicting means) already high PCC?
+   → If baseline PCC > 0.9, model can cheat by ignoring CLS.
+
+If all three are problematic, WCED fundamentally struggles because:
+- CpG-specific patterns dominate (high bias variance)
+- Sample-specific signal is weak (low residual variance)
+- Model achieves high PCC without learning sample info
+
+Potential fixes:
+1. normalize_loss=true: Forces model to predict relative patterns
+2. Larger hidden_size: More capacity to encode samples
+3. Different architecture: Skip-connections from encoder to decoder
+4. Multi-task: Add auxiliary objectives (e.g., age prediction)
+""")
+
     print(f"\nResults saved to: {args.output}")
-    print("\nKey questions answered:")
-    print("1. Do CLS embeddings vary across samples?")
-    print("2. Do CLS embeddings correlate with age?")
-    print("3. Does the model predict sample-specific values or just averages?")
 
 
 if __name__ == "__main__":
