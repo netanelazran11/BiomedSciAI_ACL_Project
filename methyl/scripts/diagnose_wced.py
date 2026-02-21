@@ -56,7 +56,7 @@ def load_model_and_data(checkpoint_path: str, data_path: str, vocab_size: int = 
 
     # Create tokenizer
     cpg_sites = list(adata.var_names)
-    tokenizer = create_methylation_multifield_tokenizer(cpg_sites=cpg_sites)
+    tokenizer = create_methylation_multifield_tokenizer(cpg_sites=cpg_sites, output_dir="/tmp/wced_diag_tokenizer")
 
     # Create fields
     fields = [
