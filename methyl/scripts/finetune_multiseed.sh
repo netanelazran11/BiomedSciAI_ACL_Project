@@ -26,19 +26,19 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
-# Pretrained checkpoint (loss=0.0013)
-CHECKPOINT='/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=234-val_loss=validation/loss=0.0013.ckpt'
+# Pretrained checkpoint - FULL 8K CpGs (PCC=0.9963, epoch 288)
+CHECKPOINT='/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-full8k-bmfm-rna-methylation/add-full8k-44199523/pretrain/checkpoints/epoch=epoch=288-val_loss=validation/loss=0.0013.ckpt'
 
-# CpG subset settings - MUST MATCH PRETRAINING!
-SUBSET_K="${SUBSET_K:-2048}"
+# CpG subset settings - FULL 8K CpGs (MUST MATCH PRETRAINING!)
+SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # W&B naming - include seed
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="finetune-bmfm-multiseed"
-WANDB_RUN_NAME="finetune-seed${SEED}-${SLURM_JOB_ID}"
-WANDB_GROUP="multiseed-experiment"
+WANDB_PROJECT="finetune-full8k-multiseed"
+WANDB_RUN_NAME="finetune-full8k-seed${SEED}-${SLURM_JOB_ID}"
+WANDB_GROUP="full8k-multiseed-experiment"
 
 # Output directory (unique per seed)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
@@ -103,8 +103,9 @@ python3 -m bmfm_methylation.finetune \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    data_module.batch_size=32 \
+    data_module.batch_size=16 \
     data_module.num_workers=0 \
+    accumulate_grad_batches=4 \
     freeze_encoder=true \
     unfreeze_encoder_epoch=5 \
     track_wandb.enabled=true \
