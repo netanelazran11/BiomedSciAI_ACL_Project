@@ -93,6 +93,12 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
+# Optimized hyperparameters based on MethylGPT comparison:
+#   - Higher LR (1e-3 head, 1e-4 encoder via 0.1x multiplier)
+#   - Shorter freeze (3 epochs instead of 5)
+#   - Lower dropout (0.1 instead of 0.2)
+#   - More warmup (200 steps)
+#   - Smaller batch for better generalization
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -105,15 +111,18 @@ python3 -m bmfm_methylation.finetune \
     data_module.max_length=$((SUBSET_K + 2)) \
     data_module.batch_size=16 \
     data_module.num_workers=0 \
-    accumulate_grad_batches=4 \
+    accumulate_grad_batches=2 \
+    trainer.learning_rate=1e-3 \
+    trainer.warmup_steps=200 \
+    regression_head.dropout=0.1 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=5 \
+    unfreeze_encoder_epoch=3 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
     +track_wandb.group="${WANDB_GROUP}" \
-    early_stopping.patience=100
+    early_stopping.patience=60
 
 echo "============================================================"
 echo "Seed ${SEED} - Job finished: $(date)"
