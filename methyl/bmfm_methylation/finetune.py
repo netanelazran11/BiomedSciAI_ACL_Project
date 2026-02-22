@@ -234,7 +234,7 @@ class MethylationAgeRegressor(pl.LightningModule):
         # Forward pass
         predictions = self(cpg_ids, beta_values, attention_mask)
 
-        # DEBUG: Check predictions on first few steps
+        # DEBUG: Check predictions and encoder output on first few steps
         if not hasattr(self, '_debug_pred_count'):
             self._debug_pred_count = 0
         if self._debug_pred_count < 3:
@@ -242,6 +242,29 @@ class MethylationAgeRegressor(pl.LightningModule):
             preds_flat = predictions.detach()[:5, 0].tolist()
             labels_flat = labels[:5, 0].tolist()
             logger.info(f"DEBUG step {self._debug_pred_count}: preds={preds_flat}, labels={labels_flat}")
+
+            # Also check encoder output statistics
+            if self._debug_pred_count == 1:
+                # Do a forward pass inspection
+                with torch.no_grad():
+                    input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
+                    enc_out = self.encoder(input_ids, attention_mask=attention_mask)
+                    hidden = enc_out.last_hidden_state
+                    logger.info("=" * 70)
+                    logger.info("DEBUG: ENCODER OUTPUT INSPECTION")
+                    logger.info(f"  Hidden state shape: {hidden.shape}")
+                    logger.info(f"  Hidden state stats: mean={hidden.mean():.6f}, std={hidden.std():.6f}")
+                    logger.info(f"  Hidden state min/max: {hidden.min():.4f} / {hidden.max():.4f}")
+                    logger.info(f"  Hidden state sample[0,0,:10]: {hidden[0, 0, :10].tolist()}")
+                    logger.info(f"  Hidden state sample[0,100,:10]: {hidden[0, 100, :10].tolist()}")
+                    # Check if hidden states vary across positions
+                    pos_variance = hidden[0].var(dim=0).mean()
+                    logger.info(f"  Variance across positions: {pos_variance:.6f}")
+                    # Check if hidden states vary across samples
+                    if hidden.shape[0] > 1:
+                        sample_variance = hidden[:, 100, :].var(dim=0).mean()
+                        logger.info(f"  Variance across samples (pos 100): {sample_variance:.6f}")
+                    logger.info("=" * 70)
 
         # Loss (on normalized values)
         loss = self.loss_fn(predictions, labels)
@@ -549,6 +572,33 @@ def main(cfg: DictConfig):
         )
         encoder = pretrained_module.model.scbert
         logger.info("Loaded pretrained encoder (CpG IDs + beta values + transformer layers)")
+
+        # DEBUG: Verify checkpoint loaded correctly
+        logger.info("=" * 70)
+        logger.info("DEBUG: CHECKPOINT VERIFICATION")
+        # Check embedding weights - should NOT be all zeros or random-like
+        cpg_embed_weight = encoder.embeddings.cpg_sites_embeddings.weight
+        logger.info(f"  CpG embedding shape: {cpg_embed_weight.shape}")
+        logger.info(f"  CpG embedding stats: mean={cpg_embed_weight.mean():.6f}, std={cpg_embed_weight.std():.6f}")
+        logger.info(f"  CpG embedding[0,:5]: {cpg_embed_weight[0, :5].tolist()}")
+        logger.info(f"  CpG embedding[100,:5]: {cpg_embed_weight[100, :5].tolist()}")
+
+        # Check continuous value encoder
+        if hasattr(encoder.embeddings, 'beta_values_embeddings'):
+            beta_encoder = encoder.embeddings.beta_values_embeddings
+            if hasattr(beta_encoder, 'continuous_encoder'):
+                cont_enc = beta_encoder.continuous_encoder
+                if hasattr(cont_enc, 'linear_layers'):
+                    for i, layer in enumerate(cont_enc.linear_layers):
+                        if hasattr(layer, 'weight'):
+                            logger.info(f"  Beta encoder layer {i} weight stats: mean={layer.weight.mean():.6f}, std={layer.weight.std():.6f}")
+
+        # Check encoder layers
+        if hasattr(encoder, 'encoder') and hasattr(encoder.encoder, 'layer'):
+            for i, layer in enumerate(encoder.encoder.layer[:2]):  # First 2 layers
+                attn_weight = layer.attention.self.query.weight
+                logger.info(f"  Encoder layer {i} query weight: mean={attn_weight.mean():.6f}, std={attn_weight.std():.6f}")
+        logger.info("=" * 70)
     else:
         logger.info("Training from scratch (no pretraining)")
         encoder = SCBertModel(model_config)

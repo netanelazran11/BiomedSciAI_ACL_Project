@@ -271,6 +271,13 @@ def main(cfg: DictConfig):
 
     logger.info(f"Data module: mlm={use_mlm}, mask_ratio={mask_ratio}")
 
+    # Get CpG subset settings from config
+    subset_k = cfg.data_module.get("subset_k", 8000)
+    fixed_subset = cfg.data_module.get("fixed_subset", True)
+    fixed_subset_seed = cfg.data_module.get("fixed_subset_seed", 42)
+
+    logger.info(f"CpG subset: k={subset_k}, fixed={fixed_subset}, seed={fixed_subset_seed}")
+
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -286,6 +293,10 @@ def main(cfg: DictConfig):
         mask_ratio=mask_ratio,
         switch_ratio=cfg.data_module.switch_ratio if use_mlm else 0.0,
         collation_strategy="language_modeling",
+        # CRITICAL: Pass CpG subset settings to match finetune!
+        subset_k=subset_k,
+        fixed_subset=fixed_subset,
+        fixed_subset_seed=fixed_subset_seed,
     )
     # Get vocab_size and WCED settings
     vocab_size = cfg.data_module.get("subset_k", 2048)
