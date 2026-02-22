@@ -22,7 +22,7 @@ checkpoint_path: ???  # Required: path to pretrained checkpoint
 
 # Training settings
 finetune_epochs: 100
-accumulate_grad_batches: 2
+accumulate_grad_batches: 4  # Effective batch = 16 × 4 = 64 (adjusted for 8k seq length)
 
 # Disable MLM for fine-tuning
 mlm_enabled: false

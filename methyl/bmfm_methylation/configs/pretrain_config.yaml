@@ -32,8 +32,8 @@ checkpoint_path: null  # No checkpoint for pretraining from scratch
 
 # Training settings
 pretrain_epochs: 300  # May need longer for good representations
-accumulate_grad_batches: 4  # Effective batch = 32 × 4 = 128
-early_stop_patience: 15  # Stop after 15 epochs without improvement
+accumulate_grad_batches: 8  # Effective batch = 16 × 8 = 128 (reduced for 8k seq length)
+early_stop_patience: 60  # Stop after 60 epochs without improvement
 
 # Embedding combination style
 # "add" (default): h = CpG_embed + β_embed (standard BMFM)
@@ -47,9 +47,10 @@ collation_strategy: "language_modeling"
 # WCED settings (used when pretraining_mode=wced)
 wced_input_ratio: 0.5  # Fraction of CpGs per view (0.5 for non-overlapping contrastive views)
 wced_contrastive: false  # Enable contrastive learning (two views per sample)
-wced_contrastive_weight: 0.5  # λ for contrastive loss (Loss = Recon + λ * Contrastive)
+wced_contrastive_weight: 0.0  # λ for contrastive loss (Loss = Recon + λ * Contrastive)
 wced_contrastive_temp: 0.1  # Temperature for InfoNCE loss
 wced_normalize_loss: false  # Per-sample normalize before loss (removes "predict averages" shortcut)
+wced_age_weight: 1.0  # λ for age prediction loss (Loss = Recon + λ * Age_MSE) - forces CLS to encode age
 wced_decoder_dropout: 0.1
 
 # Seed

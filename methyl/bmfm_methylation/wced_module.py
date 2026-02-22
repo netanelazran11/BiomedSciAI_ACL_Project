@@ -1,19 +1,19 @@
 """
-Contrastive WCED Training Module - Whole Cell Expression Decoder for Methylation
+Multi-task WCED Training Module - Whole Cell Expression Decoder for Methylation
 
 Key insight: Standard WCED fails because CLS doesn't encode sample-specific info.
-The decoder just learns per-CpG averages (PCC stuck at ~0.94).
+The decoder just learns per-CpG averages (PCC stuck at ~0.94, CLS collapses).
 
-Solution: Contrastive learning forces CLS to encode sample identity.
-- Two random views of same sample → should have similar CLS embeddings
-- Different samples → should have different CLS embeddings
+Solution: Add age prediction as auxiliary task to directly supervise CLS.
+- CLS → Age prediction forces CLS to encode age-relevant information
+- This prevents CLS collapse and enables sample-specific predictions
 
 Architecture:
-    Input:  Two random subsets of CpGs (view1, view2)
-    Encoder: Transformer → CLS1, CLS2
-    Projection: MLP(CLS) → z1, z2 (for contrastive loss)
-    Decoder: Linear(CLS) → ALL CpG betas
-    Loss:   Reconstruction + λ * Contrastive (InfoNCE)
+    Input:  Subset of CpGs
+    Encoder: Transformer → CLS
+    Decoder: Linear(CLS) → ALL CpG betas (reconstruction)
+    Age Head: Linear(CLS) → age (auxiliary supervision)
+    Loss:   Reconstruction + λ_age * MSE(age_pred, age_true)
 """
 
 import logging
@@ -112,9 +112,10 @@ class WCEDTrainingModule(pl.LightningModule):
         warmup_steps: int = 100,
         lr_decay_steps: int = 10000,
         vocab_size: int = 2048,
-        contrastive_weight: float = 0.5,  # λ for contrastive loss
+        contrastive_weight: float = 0.0,  # λ for contrastive loss (disabled by default)
         contrastive_temp: float = 0.1,    # Temperature for InfoNCE
         normalize_loss: bool = False,     # Per-sample normalize before loss
+        age_weight: float = 1.0,          # λ for age prediction loss
         betas: tuple = (0.9, 0.999),
         epsilon: float = 1e-8,
     ):
@@ -129,6 +130,7 @@ class WCEDTrainingModule(pl.LightningModule):
         self.contrastive_weight = contrastive_weight
         self.contrastive_temp = contrastive_temp
         self.normalize_loss = normalize_loss
+        self.age_weight = age_weight
 
         # Encoder
         self.encoder = SCBertModel(model_config, add_pooling_layer=True)
@@ -150,22 +152,33 @@ class WCEDTrainingModule(pl.LightningModule):
             output_dim=128,
         )
 
+        # Age prediction head - directly supervises CLS to encode sample info
+        self.age_head = nn.Sequential(
+            nn.Linear(model_config.hidden_size, model_config.hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(model_config.hidden_size // 2, 1),
+        )
+
         # Loss functions
         self.recon_loss_fn = nn.MSELoss(reduction='none')
+        self.age_loss_fn = nn.MSELoss()
 
         # Log model info
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
         decoder_params = sum(p.numel() for p in self.decoder.parameters())
         proj_params = sum(p.numel() for p in self.projection_head.parameters())
+        age_params = sum(p.numel() for p in self.age_head.parameters())
 
-        logger.info(f"Contrastive WCED Training Module initialized:")
+        logger.info(f"Multi-task WCED Training Module initialized:")
         logger.info(f"  Encoder params: {encoder_params:,}")
         logger.info(f"  Decoder params: {decoder_params:,}")
         logger.info(f"  Projection params: {proj_params:,}")
-        logger.info(f"  Total params: {encoder_params + decoder_params + proj_params:,}")
+        logger.info(f"  Age head params: {age_params:,}")
+        logger.info(f"  Total params: {encoder_params + decoder_params + proj_params + age_params:,}")
         logger.info(f"  Vocab size: {vocab_size}")
+        logger.info(f"  Age weight: {age_weight}")
         logger.info(f"  Contrastive weight: {contrastive_weight}")
-        logger.info(f"  Contrastive temp: {contrastive_temp}")
         logger.info(f"  Normalize loss: {normalize_loss}")
 
     def _patch_embeddings_add_stabilized(self, initial_cpg_scale: float = 0.1):
@@ -207,7 +220,7 @@ class WCEDTrainingModule(pl.LightningModule):
         beta_values: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
-        """Encode a view and return CLS embedding and projection."""
+        """Encode a view and return CLS embedding, predictions, and age."""
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
 
         encoder_output = self.encoder(
@@ -218,11 +231,13 @@ class WCEDTrainingModule(pl.LightningModule):
         cls_embedding = encoder_output.pooler_output
         projection = self.projection_head(cls_embedding)
         predicted_betas = self.decoder(cls_embedding)
+        predicted_age = self.age_head(cls_embedding).squeeze(-1)  # [batch]
 
         return {
             "cls_embedding": cls_embedding,
             "projection": projection,
             "predicted_betas": predicted_betas,
+            "predicted_age": predicted_age,
         }
 
     def forward(
@@ -281,7 +296,7 @@ class WCEDTrainingModule(pl.LightningModule):
         return (loss_12 + loss_21) / 2
 
     def _shared_step(self, batch: Dict[str, torch.Tensor], stage: str) -> Dict[str, torch.Tensor]:
-        """Shared step for train/val/test with contrastive learning."""
+        """Shared step for train/val/test with age supervision."""
 
         # View 1
         cpg_ids_v1 = batch["cpg_ids"]
@@ -292,10 +307,14 @@ class WCEDTrainingModule(pl.LightningModule):
         # Target
         all_betas = batch["all_betas"]
 
+        # Age labels (if available)
+        age_labels = batch.get("age")  # [batch]
+
         # Encode view 1
         out_v1 = self.encode(cpg_ids_v1, beta_values_v1, attention_mask_v1)
         pred_v1 = out_v1["predicted_betas"]
         z1 = out_v1["projection"]
+        age_pred_v1 = out_v1["predicted_age"]
 
         # Reconstruction loss for view 1 (on non-input CpGs)
         non_input_mask_v1 = ~input_mask_v1
@@ -311,8 +330,14 @@ class WCEDTrainingModule(pl.LightningModule):
         masked_loss_v1 = loss_per_cpg_v1 * non_input_mask_v1.float()
         recon_loss_v1 = masked_loss_v1.sum() / non_input_mask_v1.float().sum().clamp(min=1)
 
+        # Age prediction loss
+        if age_labels is not None and self.age_weight > 0:
+            age_loss = self.age_loss_fn(age_pred_v1, age_labels.float())
+        else:
+            age_loss = torch.tensor(0.0, device=recon_loss_v1.device)
+
         # Check if we have view 2 (contrastive mode)
-        if "cpg_ids_v2" in batch:
+        if "cpg_ids_v2" in batch and self.contrastive_weight > 0:
             cpg_ids_v2 = batch["cpg_ids_v2"]
             beta_values_v2 = batch["beta_values_v2"]
             attention_mask_v2 = batch.get("attention_mask_v2")
@@ -343,16 +368,16 @@ class WCEDTrainingModule(pl.LightningModule):
             contrastive_loss = self.info_nce_loss(z1, z2)
 
             # Combined loss
-            loss = recon_loss + self.contrastive_weight * contrastive_loss
+            loss = recon_loss + self.contrastive_weight * contrastive_loss + self.age_weight * age_loss
 
             # Use view 1 for metrics
             predicted_betas = pred_v1
             non_input_mask = non_input_mask_v1
         else:
-            # Non-contrastive mode (fallback)
+            # Non-contrastive mode
             recon_loss = recon_loss_v1
             contrastive_loss = torch.tensor(0.0, device=recon_loss.device)
-            loss = recon_loss
+            loss = recon_loss + self.age_weight * age_loss
             predicted_betas = pred_v1
             non_input_mask = non_input_mask_v1
 
@@ -366,10 +391,18 @@ class WCEDTrainingModule(pl.LightningModule):
             all_mae = torch.abs(predicted_betas - all_betas).mean()
             all_mse = ((predicted_betas - all_betas) ** 2).mean()
 
+            # Age prediction metrics
+            if age_labels is not None:
+                age_mae = torch.abs(age_pred_v1 - age_labels).mean()
+            else:
+                age_mae = torch.tensor(0.0, device=mae.device)
+
         return {
             "loss": loss,
             "recon_loss": recon_loss,
             "contrastive_loss": contrastive_loss,
+            "age_loss": age_loss,
+            "age_mae": age_mae,
             "mae": mae,
             "mse": mse,
             "all_mae": all_mae,
@@ -379,6 +412,7 @@ class WCEDTrainingModule(pl.LightningModule):
             "non_input_mask": non_input_mask,
             "z1": z1,
             "cls_embedding": out_v1["cls_embedding"],  # For diagnostics
+            "predicted_age": age_pred_v1,
         }
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -386,6 +420,8 @@ class WCEDTrainingModule(pl.LightningModule):
 
         self.log("train/loss", outputs["loss"], on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/recon_loss", outputs["recon_loss"], on_step=False, on_epoch=True)
+        self.log("train/age_loss", outputs["age_loss"], on_step=False, on_epoch=True)
+        self.log("train/age_mae", outputs["age_mae"], on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/contrastive_loss", outputs["contrastive_loss"], on_step=False, on_epoch=True)
         self.log("train/mae", outputs["mae"], on_step=False, on_epoch=True)
         self.log("train/mse", outputs["mse"], on_step=False, on_epoch=True)
@@ -398,6 +434,8 @@ class WCEDTrainingModule(pl.LightningModule):
 
         self.log("validation/loss", outputs["loss"], on_epoch=True, prog_bar=True)
         self.log("validation/recon_loss", outputs["recon_loss"], on_epoch=True)
+        self.log("validation/age_loss", outputs["age_loss"], on_epoch=True)
+        self.log("validation/age_mae", outputs["age_mae"], on_epoch=True, prog_bar=True)
         self.log("validation/contrastive_loss", outputs["contrastive_loss"], on_epoch=True)
         self.log("validation/mae", outputs["mae"], on_epoch=True)
         self.log("validation/mse", outputs["mse"], on_epoch=True)
@@ -438,6 +476,8 @@ class WCEDTrainingModule(pl.LightningModule):
 
         self.log("test/loss", outputs["loss"], on_epoch=True)
         self.log("test/recon_loss", outputs["recon_loss"], on_epoch=True)
+        self.log("test/age_loss", outputs["age_loss"], on_epoch=True)
+        self.log("test/age_mae", outputs["age_mae"], on_epoch=True)
         self.log("test/contrastive_loss", outputs["contrastive_loss"], on_epoch=True)
         self.log("test/mae", outputs["mae"], on_epoch=True)
         self.log("test/mse", outputs["mse"], on_epoch=True)

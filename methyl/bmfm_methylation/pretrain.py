@@ -287,13 +287,14 @@ def main(cfg: DictConfig):
         switch_ratio=cfg.data_module.switch_ratio if use_mlm else 0.0,
         collation_strategy="language_modeling",
     )
-    # Get vocab_size and contrastive settings for WCED
+    # Get vocab_size and WCED settings
     vocab_size = cfg.data_module.get("subset_k", 2048)
     wced_input_ratio = cfg.get("wced_input_ratio", 0.5)  # Default 50% for contrastive
-    wced_contrastive = cfg.get("wced_contrastive", True)  # Enable contrastive by default
-    wced_contrastive_weight = cfg.get("wced_contrastive_weight", 0.5)
+    wced_contrastive = cfg.get("wced_contrastive", False)  # Disabled by default
+    wced_contrastive_weight = cfg.get("wced_contrastive_weight", 0.0)
     wced_contrastive_temp = cfg.get("wced_contrastive_temp", 0.1)
     wced_normalize_loss = cfg.get("wced_normalize_loss", False)  # Per-sample normalize
+    wced_age_weight = cfg.get("wced_age_weight", 1.0)  # Age supervision weight
 
     def _wrap_collator():
         base_collator = data_module.collator
@@ -443,13 +444,17 @@ def main(cfg: DictConfig):
         mode_str = "CONTRASTIVE" if wced_contrastive else "STANDARD"
         logger.info("=" * 70)
         logger.info(f"WCED PRETRAINING MODE ({mode_str})")
+        if wced_age_weight > 0:
+            logger.info("Strategy: Multi-task (Reconstruction + Age Prediction)")
+            logger.info(f"  - Age prediction: Linear(CLS) → age")
+            logger.info(f"  - Age weight: {wced_age_weight}")
+            logger.info(f"  - This forces CLS to encode age-relevant information")
         if wced_contrastive:
             logger.info("Strategy: Contrastive learning + Reconstruction")
             logger.info(f"  - Two views per sample: {input_pct}% CpGs each (non-overlapping)")
             logger.info(f"  - Contrastive: Same-sample views → similar CLS")
             logger.info(f"  - Contrastive weight: {wced_contrastive_weight}, temp: {wced_contrastive_temp}")
         else:
-            logger.info("Strategy: Reconstruction only")
             logger.info(f"  - Input: Random {input_pct}% of {vocab_size} CpGs")
         if wced_normalize_loss:
             logger.info("  - Normalize loss: ENABLED (removes 'predict averages' shortcut)")
@@ -458,6 +463,9 @@ def main(cfg: DictConfig):
         logger.info("=" * 70)
         print("\n" + "=" * 70)
         print(f"WCED PRETRAINING MODE ({mode_str})")
+        if wced_age_weight > 0:
+            print(f"MULTI-TASK: Reconstruction + Age Prediction")
+            print(f"Age head: Linear([CLS]) → age (weight={wced_age_weight})")
         if wced_contrastive:
             print(f"Two views: {input_pct}% CpGs each → CLS1, CLS2")
             print(f"Contrastive: CLS1 ≈ CLS2 (same sample)")
@@ -489,6 +497,7 @@ def main(cfg: DictConfig):
             contrastive_weight=wced_contrastive_weight,
             contrastive_temp=wced_contrastive_temp,
             normalize_loss=wced_normalize_loss,
+            age_weight=wced_age_weight,
             betas=tuple(cfg.trainer.betas),
             epsilon=cfg.trainer.epsilon,
         )

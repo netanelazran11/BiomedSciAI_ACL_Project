@@ -33,26 +33,29 @@ FIXED_SUBSET_SEED="42"
 # For contrastive: 0.5 = non-overlapping views
 INPUT_RATIO="${INPUT_RATIO:-0.5}"
 
-# Contrastive learning settings
-CONTRASTIVE="${CONTRASTIVE:-true}"
-CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.5}"
+# Age supervision (multi-task learning)
+AGE_WEIGHT="${AGE_WEIGHT:-1.0}"
+
+# Contrastive learning settings (disabled by default)
+CONTRASTIVE="${CONTRASTIVE:-false}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 
 # Normalize loss (removes "predict averages" shortcut)
 NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
 
 # ============================================================
-# CONTRASTIVE WCED SETTINGS
+# MULTI-TASK WCED SETTINGS
 # ============================================================
 # Architecture:
-#   Input:   Two random views (50% CpGs each) per sample
-#   Encoder: Transformer → CLS1, CLS2
-#   Contrastive: Same-sample views → similar CLS embeddings
+#   Input:   Random subset (50%) of CpGs
+#   Encoder: Transformer → CLS
 #   Decoder: Linear(CLS) → ALL vocab_size beta predictions
-#   Loss:    Reconstruction + λ * Contrastive (InfoNCE)
+#   Age Head: Linear(CLS) → age prediction
+#   Loss:    Reconstruction + λ_age * MSE(age_pred, age_true)
 #
-# Key insight: Contrastive loss forces CLS to encode sample
-# identity, enabling sample-specific predictions.
+# Key insight: Age supervision forces CLS to encode sample-
+# specific information (age), preventing CLS collapse.
 # ============================================================
 
 # Standard encoder settings
@@ -95,7 +98,8 @@ echo "  Loss: Reconstruction + ${CONTRASTIVE_WEIGHT} * Contrastive"
 echo "============================================================"
 echo "CpG Vocab:   ${SUBSET_K} CpGs"
 echo "Input ratio: ${INPUT_RATIO} per view"
-echo "Contrastive: ${CONTRASTIVE} (weight=${CONTRASTIVE_WEIGHT}, temp=${CONTRASTIVE_TEMP})"
+echo "Age weight:  ${AGE_WEIGHT} (multi-task supervision)"
+echo "Contrastive: ${CONTRASTIVE} (weight=${CONTRASTIVE_WEIGHT})"
 echo "Normalize:   ${NORMALIZE_LOSS}"
 echo "Combine:     ${COMBINE_STYLE}"
 echo "Model:       hidden=${HIDDEN_SIZE}, heads=${NUM_ATTENTION_HEADS}"
@@ -143,6 +147,7 @@ python -m bmfm_methylation.pretrain \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
     wced_input_ratio="${INPUT_RATIO}" \
+    wced_age_weight="${AGE_WEIGHT}" \
     wced_contrastive="${CONTRASTIVE}" \
     wced_contrastive_weight="${CONTRASTIVE_WEIGHT}" \
     wced_contrastive_temp="${CONTRASTIVE_TEMP}" \

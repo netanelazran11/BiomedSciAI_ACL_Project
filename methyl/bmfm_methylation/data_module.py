@@ -679,6 +679,15 @@ class WCEDCollator:
                 attention_mask_v2[i] = attn
                 input_mask_v2[i] = mask
 
+        # Extract age labels from metadata (if available)
+        ages = []
+        for ex in examples:
+            if ex.metadata and 'labels' in ex.metadata:
+                ages.append(float(ex.metadata['labels']))
+            else:
+                ages.append(0.0)  # Default if no age label
+        age_tensor = torch.tensor(ages, dtype=torch.float32)
+
         result = {
             # View 1
             "cpg_ids": cpg_ids_v1,
@@ -687,6 +696,8 @@ class WCEDCollator:
             "input_mask": input_mask_v1,
             # Target
             "all_betas": all_betas,
+            # Age labels for multi-task learning
+            "age": age_tensor,
         }
 
         if self.contrastive:

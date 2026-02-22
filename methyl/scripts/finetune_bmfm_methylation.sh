@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=finetune-fixed2k-bmfm
+#SBATCH --job-name=finetune-full8k-bmfm
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
@@ -23,17 +23,19 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 
 # Pretrained checkpoint - UPDATE THIS after pretraining!
 # Should point to the checkpoint from pretrain with SAME fixed subset settings
-CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=240-val_loss=validation/loss=0.0013.ckpt"
+# TODO: Update this path after full 8k pretraining completes
+CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-full8k-bmfm-rna-methylation/REPLACE_WITH_RUN_NAME/pretrain/checkpoints/REPLACE_WITH_BEST_CKPT.ckpt"
 
 # CpG subset settings - MUST MATCH PRETRAINING!
-SUBSET_K="${SUBSET_K:-2048}"
+# Using ALL 8k CpGs (same as pretraining)
+SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="finetune-fixed${SUBSET_K}-bmfm-rna-methylation"
-WANDB_RUN_NAME="finetune-fixed${SUBSET_K}-${SLURM_JOB_ID}"
+WANDB_PROJECT="finetune-full8k-bmfm-rna-methylation"
+WANDB_RUN_NAME="finetune-full8k-${SLURM_JOB_ID}"
 
 # Output directory (unique per run to avoid overwriting checkpoints)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"

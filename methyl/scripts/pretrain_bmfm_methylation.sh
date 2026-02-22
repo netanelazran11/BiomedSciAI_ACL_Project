@@ -25,14 +25,15 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 COMBINE_STYLE="${COMBINE_STYLE:-add}"
 
 # CpG subset settings (FIXED subset - same CpGs for all samples)
-SUBSET_K="${SUBSET_K:-2048}"
+# Use ALL 8k CpGs to train all CpG embeddings properly
+SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
-WANDB_PROJECT="pretrain-fixed${SUBSET_K}-bmfm-rna-methylation"
-WANDB_RUN_NAME="${COMBINE_STYLE}-fixed${SUBSET_K}-${SLURM_JOB_ID}"
+WANDB_PROJECT="pretrain-full8k-bmfm-rna-methylation"
+WANDB_RUN_NAME="${COMBINE_STYLE}-full8k-${SLURM_JOB_ID}"
 
 # Output directory (unique per run to avoid overwriting checkpoints)
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
