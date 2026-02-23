@@ -582,6 +582,7 @@ def main(cfg: DictConfig):
         devices=1,
         precision=cfg.task[0].precision if isinstance(cfg.task, list) else "16-mixed",
         accumulate_grad_batches=cfg.accumulate_grad_batches,
+        gradient_clip_val=1.0,
         logger=wandb_logger,
         callbacks=callbacks,
         default_root_dir=str(output_dir / "pretrain"),
