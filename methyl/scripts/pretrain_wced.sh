@@ -36,9 +36,9 @@ INPUT_RATIO="${INPUT_RATIO:-0.5}"
 # Age supervision (multi-task learning)
 AGE_WEIGHT="${AGE_WEIGHT:-1.0}"
 
-# Contrastive learning settings (disabled by default)
-CONTRASTIVE="${CONTRASTIVE:-false}"
-CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
+# Contrastive learning settings
+CONTRASTIVE="${CONTRASTIVE:-true}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 
 # Normalize loss (removes "predict averages" shortcut)
