@@ -42,7 +42,7 @@ CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 
 # Normalize loss (removes "predict averages" shortcut)
-NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
+NORMALIZE_LOSS="${NORMALIZE_LOSS:-true}"
 
 # ============================================================
 # MULTI-TASK WCED SETTINGS
