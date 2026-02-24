@@ -25,7 +25,7 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 COMBINE_STYLE="${COMBINE_STYLE:-add}"
 
 # CpG subset settings
-SUBSET_K="${SUBSET_K:-2048}"
+SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
