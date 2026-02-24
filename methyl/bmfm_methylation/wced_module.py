@@ -364,8 +364,12 @@ class WCEDTrainingModule(pl.LightningModule):
             # Average reconstruction loss
             recon_loss = (recon_loss_v1 + recon_loss_v2) / 2
 
-            # Contrastive loss
-            contrastive_loss = self.info_nce_loss(z1, z2)
+            # Contrastive loss — applied directly on CLS (not projection head)
+            # Projection head can collapse CLS while itself being diverse,
+            # so we force CLS diversity by computing InfoNCE on normalized CLS embeddings
+            cls1_norm = F.normalize(out_v1["cls_embedding"], dim=-1)
+            cls2_norm = F.normalize(out_v2["cls_embedding"], dim=-1)
+            contrastive_loss = self.info_nce_loss(cls1_norm, cls2_norm)
 
             # Combined loss
             loss = recon_loss + self.contrastive_weight * contrastive_loss + self.age_weight * age_loss
