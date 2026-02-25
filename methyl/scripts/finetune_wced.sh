@@ -34,8 +34,8 @@ FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # Fine-tuning hyperparameters
-LEARNING_RATE="${LEARNING_RATE:-1e-3}"       # Head LR; encoder gets LR * 0.1 = 1e-4
-FREEZE_EPOCHS="${FREEZE_EPOCHS:-5}"           # Epochs to keep encoder frozen
+LEARNING_RATE="${LEARNING_RATE:-1e-3}"       # Head LR only (encoder stays frozen)
+FREEZE_EPOCHS="${FREEZE_EPOCHS:-9999}"        # Keep encoder frozen — WCED CLS already encodes age R²≈0.90
 BATCH_SIZE="${BATCH_SIZE:-16}"
 ACCUMULATE_GRAD="${ACCUMULATE_GRAD:-4}"       # Effective batch = 16 * 4 = 64
 FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-300}"
