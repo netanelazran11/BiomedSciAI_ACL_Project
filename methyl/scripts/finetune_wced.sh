@@ -29,13 +29,13 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt}"
 
 # CpG subset settings — MUST match pretraining exactly
-SUBSET_K="${SUBSET_K:-4000}"
+SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 
 # Fine-tuning hyperparameters
-LEARNING_RATE="${LEARNING_RATE:-1e-3}"       # Head LR only (encoder stays frozen)
-FREEZE_EPOCHS="${FREEZE_EPOCHS:-9999}"        # Keep encoder frozen — WCED CLS already encodes age R²≈0.90
+LEARNING_RATE="${LEARNING_RATE:-1e-3}"       # Head LR; encoder LR = 0.01x = 1e-5
+FREEZE_EPOCHS="${FREEZE_EPOCHS:-9999}"        # Unused — encoder unfrozen from start
 BATCH_SIZE="${BATCH_SIZE:-16}"
 ACCUMULATE_GRAD="${ACCUMULATE_GRAD:-4}"       # Effective batch = 16 * 4 = 64
 FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-300}"
@@ -114,8 +114,8 @@ python -m bmfm_methylation.finetune_wced \
     accumulate_grad_batches=${ACCUMULATE_GRAD} \
     trainer.learning_rate=${LEARNING_RATE} \
     regression_head.dropout=${HEAD_DROPOUT} \
-    freeze_encoder=true \
-    unfreeze_encoder_epoch=${FREEZE_EPOCHS} \
+    freeze_encoder=false \
+    unfreeze_encoder_epoch=9999 \
     early_stopping.patience=${EARLY_STOP_PATIENCE} \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
