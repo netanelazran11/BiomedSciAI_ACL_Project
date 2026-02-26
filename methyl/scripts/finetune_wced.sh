@@ -28,10 +28,10 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 # -------------------------
 CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt}"
 
-# CpG subset settings — MUST match pretraining exactly
-SUBSET_K="${SUBSET_K:-8000}"
-FIXED_SUBSET="true"
-FIXED_SUBSET_SEED="42"
+# CpG subset settings — random 4k matches WCED pretraining distribution exactly
+SUBSET_K="${SUBSET_K:-4000}"
+FIXED_SUBSET="false"          # random subset per epoch = regularization + matches pretraining
+FIXED_SUBSET_SEED="42"        # unused when FIXED_SUBSET=false
 
 # Fine-tuning hyperparameters
 LEARNING_RATE="${LEARNING_RATE:-1e-3}"       # Head LR; encoder LR = 0.01x = 1e-5
