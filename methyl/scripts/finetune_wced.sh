@@ -115,7 +115,6 @@ python -m bmfm_methylation.finetune_wced \
     trainer.learning_rate=${LEARNING_RATE} \
     regression_head.dropout=${HEAD_DROPOUT} \
     freeze_encoder=false \
-    unfreeze_encoder_epoch=9999 \
     early_stopping.patience=${EARLY_STOP_PATIENCE} \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
