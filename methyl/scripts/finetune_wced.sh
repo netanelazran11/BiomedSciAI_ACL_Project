@@ -29,7 +29,7 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_
 CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt}"
 
 # CpG subset settings — MUST match pretraining exactly
-SUBSET_K="${SUBSET_K:-8000}"
+SUBSET_K="${SUBSET_K:-4000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
 

@@ -217,7 +217,7 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
 
     def configure_optimizers(self):
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
-        encoder_lr = self.hparams.learning_rate * 0.1
+        encoder_lr = self.hparams.learning_rate * 0.01
 
         optimizer_grouped_parameters = [
             {
