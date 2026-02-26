@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """
-Fine-tuning script for Methylation Age Prediction — WCED pretrained encoder
+Fine-tuning script for Methylation Age Prediction — WCED pretrained encoder.
 
-This script fine-tunes a WCED-pretrained WCEDTrainingModule encoder for age
-prediction from methylation data.
+WCED-CORRECT fine-tuning: keeps the decoder as a reconstruction regularizer.
+
+During WCED pretraining, CLS was forced to encode ALL 8k CpG information
+because the decoder had to reconstruct all CpGs from partial input.
+Dropping the decoder during fine-tuning lets the encoder forget this global
+representation. Keeping it as a regularizer maintains the WCED objective:
+
+    loss = age_MSE + recon_weight * reconstruction_loss
+
+Pipeline:
+    Random 4k CpGs → Encoder → CLS ─┬─► MLP head → age prediction (primary)
+                                  └─► Decoder → all 8k betas  (regularizer)
 
 Key differences from finetune.py (MLM):
-  1. Loads checkpoint as WCEDTrainingModule (not MLMTrainingModule)
-  2. Uses CLS pooling (pooler_output) — WCED explicitly trained CLS to
-     aggregate global sample information; mean pooling would throw this away
-  3. Encoder extracted from pretrained_module.encoder (not model.scbert)
-
-Usage:
-    python -m bmfm_methylation.finetune_wced \
-        data_path=/path/to/methylation.h5ad \
-        checkpoint_path=/path/to/wced_pretrain.ckpt \
-        output_directory=./outputs
+  1. Loads WCEDTrainingModule (not MLMTrainingModule) — preserves cpg_scale
+  2. Extracts both encoder AND decoder from checkpoint
+  3. Uses WCEDCollator (not MethylationCollator) — provides all_betas + input_mask
+  4. Multi-task loss: age prediction + reconstruction regularizer
+  5. CLS pooling (pooler_output) — WCED trained CLS to encode global sample info
 """
 
 # =============================================================================
@@ -37,6 +42,7 @@ torch.serialization.load = _patched_torch_load
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 import hydra
 import pytorch_lightning as pl
@@ -56,45 +62,53 @@ logger = logging.getLogger(__name__)
 
 class MethylationAgeRegressorWCED(pl.LightningModule):
     """
-    Lightning module for methylation age regression with WCED pretrained encoder.
+    WCED-correct fine-tuning module for methylation age regression.
 
-    Uses CLS pooling (pooler_output) since WCED specifically trained CLS to
-    aggregate global sample information. Mean pooling would discard this.
+    Keeps the pretrained WCED decoder as a reconstruction regularizer so the
+    encoder is not free to forget its global methylation representation.
 
-    Pipeline:
-        [CpG IDs + β-values] → WCED Encoder → CLS (pooler_output) → MLP head → age
+    Multi-task loss:
+        total = age_MSE(CLS → head → age) + recon_weight * recon_MSE(CLS → decoder → all_betas)
+
+    The reconstruction loss is computed only on NON-input CpGs (same as WCED
+    pretraining), preventing trivial copying and forcing CLS to stay globally
+    informative about the full methylation profile.
     """
 
     def __init__(
         self,
         encoder,
+        decoder=None,
         hidden_size: int = 512,
         head_hidden_size: int = 256,
         head_dropout: float = 0.1,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
-        warmup_steps: int = 1000,
+        warmup_steps: int = 500,
         max_steps: int = 10000,
         age_mean: float = 0.0,
         age_std: float = 1.0,
-        freeze_encoder: bool = True,
-        unfreeze_encoder_epoch: int = 5,
+        freeze_encoder: bool = False,
+        unfreeze_encoder_epoch: int = 9999,
         use_huber_loss: bool = False,
         huber_delta: float = 2.0,
+        recon_weight: float = 0.1,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=['encoder'])
+        self.save_hyperparameters(ignore=['encoder', 'decoder'])
 
         self.encoder = encoder
+        self.decoder = decoder
         self.age_mean = age_mean
         self.age_std = age_std
+        self.recon_weight = recon_weight
 
         if freeze_encoder:
             for param in self.encoder.parameters():
                 param.requires_grad = False
-            logger.info(f"Encoder frozen (will unfreeze at epoch {unfreeze_encoder_epoch})")
+            logger.info(f"Encoder frozen (unfreeze at epoch {unfreeze_encoder_epoch})")
 
-        # MLP head: hidden_size -> head_hidden_size -> head_hidden_size//2 -> 1
+        # MLP age head: hidden_size → head_hidden_size → head_hidden_size//2 → 1
         self.age_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
@@ -107,11 +121,12 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
             nn.Linear(head_hidden_size // 2, 1),
         )
 
-        if use_huber_loss:
-            self.loss_fn = nn.HuberLoss(delta=huber_delta)
-        else:
-            self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.HuberLoss(delta=huber_delta) if use_huber_loss else nn.MSELoss()
 
+        # Per-element MSE for reconstruction (masked per non-input CpG)
+        self.recon_loss_fn = nn.MSELoss(reduction='none')
+
+        # Buffers for epoch-level R²
         self._val_preds = []
         self._val_labels = []
         self._test_preds = []
@@ -119,12 +134,18 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
 
         head_params = sum(p.numel() for p in self.age_head.parameters())
         encoder_params = sum(p.numel() for p in self.encoder.parameters())
+        decoder_params = sum(p.numel() for p in self.decoder.parameters()) if decoder else 0
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info(f"Encoder params: {encoder_params:,}")
-        logger.info(f"Age head params: {head_params:,}")
-        logger.info(f"Trainable params (head only, encoder frozen): {trainable:,}")
 
-    def forward(self, cpg_ids, beta_values, attention_mask=None):
+        logger.info(f"WCED Fine-tuning module:")
+        logger.info(f"  Encoder params:  {encoder_params:,}")
+        logger.info(f"  Decoder params:  {decoder_params:,}  {'(regularizer)' if decoder else '(not used)'}")
+        logger.info(f"  Age head params: {head_params:,}")
+        logger.info(f"  Trainable:       {trainable:,}")
+        logger.info(f"  Recon weight:    {recon_weight}")
+
+    def _encode(self, cpg_ids, beta_values, attention_mask=None):
+        """Run encoder, return CLS embedding (pooler_output)."""
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
         batch_size = input_ids.size(0)
         seq_length = input_ids.size(2)
@@ -137,11 +158,11 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
             )
 
         encoder_output = self.encoder(input_ids, attention_mask=attention_mask)
+        return encoder_output.pooler_output  # [batch, hidden_size]
 
-        # CLS pooling — WCED trained pooler_output to aggregate sample-level info
-        pooled = encoder_output.pooler_output  # [batch, hidden_size]
-
-        return self.age_head(pooled)
+    def forward(self, cpg_ids, beta_values, attention_mask=None):
+        cls = self._encode(cpg_ids, beta_values, attention_mask)
+        return self.age_head(cls)
 
     def on_train_epoch_start(self):
         epoch = self.current_epoch
@@ -151,36 +172,71 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
             for param in self.encoder.parameters():
                 param.requires_grad = True
             trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-            logger.info(f"[EPOCH {epoch}] Trainable params after unfreeze: {trainable:,}")
+            logger.info(f"[EPOCH {epoch}] Trainable params: {trainable:,}")
 
     def _shared_step(self, batch, stage: str):
         cpg_ids = batch["cpg_ids"]
         beta_values = batch["beta_values"]
         attention_mask = batch.get("attention_mask")
-        labels = batch["labels"].float().view(-1, 1)
 
-        predictions = self(cpg_ids, beta_values, attention_mask)
-        loss = self.loss_fn(predictions, labels)
+        # WCEDCollator uses "age"; MethylationCollator uses "labels"
+        if "age" in batch:
+            labels = batch["age"].float().view(-1, 1)
+        else:
+            labels = batch["labels"].float().view(-1, 1)
 
-        preds_denorm = predictions * self.age_std + self.age_mean
+        # Encode: get CLS embedding
+        cls_embedding = self._encode(cpg_ids, beta_values, attention_mask)
+
+        # Age prediction
+        age_pred = self.age_head(cls_embedding)
+        age_loss = self.loss_fn(age_pred, labels)
+
+        # Reconstruction regularizer — keeps CLS globally informative
+        recon_loss = torch.tensor(0.0, device=cls_embedding.device)
+        if self.decoder is not None and "all_betas" in batch:
+            predicted_betas = self.decoder(cls_embedding)       # [batch, vocab_size]
+            all_betas = batch["all_betas"]                      # [batch, vocab_size]
+            input_mask = batch.get("input_mask")                # [batch, vocab_size] bool
+
+            recon_per_cpg = self.recon_loss_fn(predicted_betas, all_betas)
+
+            if input_mask is not None:
+                # Loss only on CpGs NOT in input (same as WCED pretraining)
+                non_input = ~input_mask
+                recon_loss = (
+                    (recon_per_cpg * non_input.float()).sum()
+                    / non_input.float().sum().clamp(min=1)
+                )
+            else:
+                recon_loss = recon_per_cpg.mean()
+
+        total_loss = age_loss + self.recon_weight * recon_loss
+
+        # Denormalize for MAE in years
+        preds_denorm = age_pred * self.age_std + self.age_mean
         labels_denorm = labels * self.age_std + self.age_mean
         mae = torch.abs(preds_denorm - labels_denorm).mean()
 
-        return loss, mae, preds_denorm, labels_denorm
+        return total_loss, age_loss, recon_loss, preds_denorm, labels_denorm, mae
 
     def training_step(self, batch, batch_idx):
-        loss, mae, _, _ = self._shared_step(batch, "train")
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        total_loss, age_loss, recon_loss, _, _, mae = self._shared_step(batch, "train")
+        self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/age_loss", age_loss, on_step=False, on_epoch=True)
+        self.log("train/recon_loss", recon_loss, on_step=False, on_epoch=True)
         self.log("train/mae", mae, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
-        loss, mae, preds, labels = self._shared_step(batch, "val")
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        total_loss, age_loss, recon_loss, preds, labels, mae = self._shared_step(batch, "val")
+        self.log("val/loss", total_loss, on_epoch=True, prog_bar=True)
+        self.log("val/age_loss", age_loss, on_epoch=True)
+        self.log("val/recon_loss", recon_loss, on_epoch=True)
         self.log("val/mae", mae, on_epoch=True, prog_bar=True)
         self._val_preds.append(preds.detach())
         self._val_labels.append(labels.detach())
-        return loss
+        return total_loss
 
     def on_validation_epoch_end(self):
         if self._val_preds:
@@ -195,11 +251,11 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
         self._val_labels.clear()
 
     def test_step(self, batch, batch_idx):
-        loss, mae, preds, labels = self._shared_step(batch, "test")
+        total_loss, age_loss, recon_loss, preds, labels, mae = self._shared_step(batch, "test")
         self.log("test/mae", mae, on_epoch=True)
         self._test_preds.append(preds.detach())
         self._test_labels.append(labels.detach())
-        return loss
+        return total_loss
 
     def on_test_epoch_end(self):
         if self._test_preds:
@@ -211,15 +267,16 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
             self.log("test/r2", r2)
             epoch_mae = torch.abs(all_preds - all_labels).mean()
             self.log("test/mae_epoch", epoch_mae)
-            logger.info(f"Test MAE: {epoch_mae:.2f} years, R2: {r2:.4f}")
+            logger.info(f"Test MAE: {epoch_mae:.2f} years, R²: {r2:.4f}")
         self._test_preds.clear()
         self._test_labels.clear()
 
     def configure_optimizers(self):
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
-        encoder_lr = self.hparams.learning_rate * 0.01
+        encoder_lr = self.hparams.learning_rate * 0.01  # 1e-5 when head_lr=1e-3
 
         optimizer_grouped_parameters = [
+            # Age head — fast learning
             {
                 "params": [p for n, p in self.age_head.named_parameters()
                            if not any(nd in n for nd in no_decay)],
@@ -232,6 +289,7 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
                 "weight_decay": 0.0,
                 "lr": self.hparams.learning_rate,
             },
+            # Encoder — gentle adaptation to preserve pretrained features
             {
                 "params": [p for n, p in self.encoder.named_parameters()
                            if not any(nd in n for nd in no_decay)],
@@ -245,6 +303,24 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
                 "lr": encoder_lr,
             },
         ]
+
+        # Decoder — same LR as encoder (jointly pretrained)
+        if self.decoder is not None:
+            optimizer_grouped_parameters.extend([
+                {
+                    "params": [p for n, p in self.decoder.named_parameters()
+                               if not any(nd in n for nd in no_decay)],
+                    "weight_decay": self.hparams.weight_decay,
+                    "lr": encoder_lr,
+                },
+                {
+                    "params": [p for n, p in self.decoder.named_parameters()
+                               if any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0,
+                    "lr": encoder_lr,
+                },
+            ])
+
         optimizer_grouped_parameters = [
             g for g in optimizer_grouped_parameters if len(g["params"]) > 0
         ]
@@ -306,7 +382,7 @@ def setup_wandb(cfg: DictConfig):
 )
 def main(cfg: DictConfig):
     logger.info("=" * 70)
-    logger.info("METHYLATION AGE FINE-TUNING (WCED pretrained encoder)")
+    logger.info("METHYLATION AGE FINE-TUNING — WCED-CORRECT (encoder + decoder)")
     logger.info("=" * 70)
     logger.info(f"\nConfiguration:\n{OmegaConf.to_yaml(cfg)}")
 
@@ -325,7 +401,12 @@ def main(cfg: DictConfig):
         field_dict.pop('_target_', None)
         fields.append(FieldInfo(**field_dict))
 
-    # Data module — subset settings MUST match pretraining
+    # -------------------------------------------------------------------------
+    # Data module — WCEDCollator provides all_betas + input_mask + age labels
+    # subset_k = vocab size (must match pretraining)
+    # input_ratio = 0.5 (matches WCED pretraining: 50% of vocab per view)
+    # -------------------------------------------------------------------------
+    subset_k = cfg.data_module.get('subset_k', 8000)
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -338,9 +419,11 @@ def main(cfg: DictConfig):
         max_length=cfg.data_module.max_length,
         mlm=False,
         collation_strategy="sequence_classification",
-        subset_k=cfg.data_module.get('subset_k', 8000),
-        fixed_subset=cfg.data_module.get('fixed_subset', True),
+        subset_k=subset_k,
+        fixed_subset=cfg.data_module.get('fixed_subset', False),
         fixed_subset_seed=cfg.data_module.get('fixed_subset_seed', 42),
+        use_wced_collator=True,     # Use WCEDCollator → provides all_betas + input_mask
+        wced_input_ratio=0.5,       # Match WCED pretraining: 50% of vocab per view
     )
     data_module.setup()
 
@@ -349,13 +432,10 @@ def main(cfg: DictConfig):
     model_config = model_config_partial(fields=fields)
 
     # -------------------------------------------------------------------------
-    # Load WCED pretrained encoder
+    # Load WCED pretrained checkpoint — extract BOTH encoder AND decoder
     # -------------------------------------------------------------------------
     if not cfg.checkpoint_path or cfg.checkpoint_path == "null":
-        raise ValueError(
-            "checkpoint_path is required for WCED fine-tuning. "
-            "Pass the best checkpoint from pretrain_wced.sh."
-        )
+        raise ValueError("checkpoint_path is required for WCED fine-tuning.")
 
     logger.info(f"Loading WCED checkpoint: {cfg.checkpoint_path}")
 
@@ -374,22 +454,30 @@ def main(cfg: DictConfig):
         pretrain_config=wced_config,
     )
 
-    # Extract the encoder — it has the learned cpg_scale and patched embedding forward
-    encoder = pretrained_module.encoder
+    encoder = pretrained_module.encoder   # SCBertModel with learned cpg_scale + add_forward
+    decoder = pretrained_module.decoder   # WCEDDecoder: CLS → all vocab_size betas
 
-    logger.info("WCED encoder loaded successfully")
+    logger.info("WCED encoder + decoder loaded successfully")
     logger.info(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
-    cpg_embed = encoder.embeddings.cpg_sites_embeddings.weight
-    logger.info(f"  CpG embedding shape: {cpg_embed.shape}, std={cpg_embed.std():.4f}")
+    logger.info(f"  Decoder params: {sum(p.numel() for p in decoder.parameters()):,}")
     if hasattr(encoder.embeddings, 'cpg_scale'):
         logger.info(f"  Learned cpg_scale: {encoder.embeddings.cpg_scale.item():.4f}")
-    logger.info("  Pooling: CLS (pooler_output) — WCED trained CLS to aggregate sample info")
+    logger.info(f"  Decoder vocab_size: {pretrained_module.vocab_size}")
+    logger.info(f"  WCEDCollator vocab_size: {subset_k}")
+
+    if pretrained_module.vocab_size != subset_k:
+        raise ValueError(
+            f"Mismatch! Decoder was trained with vocab_size={pretrained_module.vocab_size} "
+            f"but data module uses subset_k={subset_k}. "
+            f"Set subset_k={pretrained_module.vocab_size} in finetune_wced.sh."
+        )
 
     # -------------------------------------------------------------------------
     # Fine-tuning model
     # -------------------------------------------------------------------------
-    freeze_encoder = cfg.get('freeze_encoder', True)
-    unfreeze_encoder_epoch = cfg.get('unfreeze_encoder_epoch', 5)
+    freeze_encoder = cfg.get('freeze_encoder', False)
+    unfreeze_encoder_epoch = cfg.get('unfreeze_encoder_epoch', 9999)
+    recon_weight = cfg.get('recon_weight', 0.1)
 
     effective_batch = cfg.data_module.batch_size * cfg.accumulate_grad_batches
     steps_per_epoch = len(data_module.train_dataset) // effective_batch
@@ -398,9 +486,11 @@ def main(cfg: DictConfig):
     logger.info(f"Train samples: {len(data_module.train_dataset)}")
     logger.info(f"Effective batch: {effective_batch}, steps/epoch: {steps_per_epoch}, total: {total_steps}")
     logger.info(f"Age stats: mean={data_module.age_mean:.2f}, std={data_module.age_std:.2f}")
+    logger.info(f"Recon weight: {recon_weight}")
 
     model = MethylationAgeRegressorWCED(
         encoder=encoder,
+        decoder=decoder,
         hidden_size=model_config.hidden_size,
         head_hidden_size=cfg.regression_head.hidden_size,
         head_dropout=cfg.regression_head.dropout,
@@ -414,6 +504,7 @@ def main(cfg: DictConfig):
         unfreeze_encoder_epoch=unfreeze_encoder_epoch,
         use_huber_loss=cfg.get('use_huber_loss', False),
         huber_delta=cfg.get('huber_delta', 2.0),
+        recon_weight=recon_weight,
     )
 
     wandb_logger = setup_wandb(cfg)
@@ -448,7 +539,7 @@ def main(cfg: DictConfig):
         log_every_n_steps=10,
     )
 
-    logger.info("Starting WCED fine-tuning...")
+    logger.info("Starting WCED-correct fine-tuning...")
     trainer.fit(model, data_module)
 
     logger.info("Running test evaluation...")

@@ -38,6 +38,11 @@ unfreeze_encoder_epoch: 5
 use_huber_loss: false
 huber_delta: 2.0
 
+# WCED reconstruction regularizer weight
+# loss = age_MSE + recon_weight * recon_MSE(non-input CpGs)
+# Keeps encoder globally informative — prevents forgetting WCED pretraining
+recon_weight: 0.1
+
 # Seed
 seed:
   seed_value: 42

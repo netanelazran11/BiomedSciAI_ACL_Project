@@ -183,6 +183,8 @@ class MethylationDataModule(pl.LightningDataModule):
         subset_k: int = 2048,
         fixed_subset: bool = True,  # NEW: Use fixed CpG subset (not random)
         fixed_subset_seed: int = 42,  # Seed for selecting fixed subset
+        use_wced_collator: bool = False,  # Use WCEDCollator (provides all_betas + input_mask)
+        wced_input_ratio: float = 0.5,    # Fraction of vocab per view (matches pretraining)
     ):
         """
         Args:
@@ -237,6 +239,8 @@ class MethylationDataModule(pl.LightningDataModule):
         self.subset_k = subset_k
         self.fixed_subset = fixed_subset
         self.fixed_subset_seed = fixed_subset_seed
+        self.use_wced_collator = use_wced_collator
+        self.wced_input_ratio = wced_input_ratio
 
         # Will be set during setup
         self.train_dataset = None
@@ -282,6 +286,27 @@ class MethylationDataModule(pl.LightningDataModule):
                 self.test_dataset.age_std = self.train_dataset.age_std
 
         # Create collator
+        if self.use_wced_collator:
+            # WCED-correct fine-tuning: provides all_betas + input_mask + age
+            cpg_sites = None
+            if self.train_dataset is not None:
+                cpg_sites = self.train_dataset.cpg_sites
+            elif self.val_dataset is not None:
+                cpg_sites = self.val_dataset.cpg_sites
+            elif self.test_dataset is not None:
+                cpg_sites = self.test_dataset.cpg_sites
+            if cpg_sites is None:
+                raise ValueError("No CpG site list available for WCEDCollator.")
+            self.collator = WCEDCollator(
+                tokenizer=self.tokenizer,
+                cpg_sites=cpg_sites,
+                vocab_size=self.subset_k,
+                input_ratio=self.wced_input_ratio,
+                contrastive=False,
+                fixed_subset_seed=self.fixed_subset_seed,
+            )
+            return
+
         if self.use_subset_collator:
             cpg_sites = None
             if self.train_dataset is not None:

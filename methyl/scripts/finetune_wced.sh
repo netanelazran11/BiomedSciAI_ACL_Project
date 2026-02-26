@@ -41,6 +41,7 @@ ACCUMULATE_GRAD="${ACCUMULATE_GRAD:-4}"       # Effective batch = 16 * 4 = 64
 FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-300}"
 EARLY_STOP_PATIENCE="${EARLY_STOP_PATIENCE:-60}"
 HEAD_DROPOUT="${HEAD_DROPOUT:-0.1}"
+RECON_WEIGHT="${RECON_WEIGHT:-0.1}"           # Reconstruction loss weight (WCED regularizer)
 
 # W&B naming
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -62,11 +63,12 @@ echo "Host: $(hostname)"
 echo "JobID: ${SLURM_JOB_ID}"
 echo "============================================================"
 echo "Checkpoint:  ${CHECKPOINT}"
-echo "CpG Subset:  ${SUBSET_K} CpGs  fixed=${FIXED_SUBSET} (seed=${FIXED_SUBSET_SEED})"
+echo "CpG Subset:  ${SUBSET_K} vocab, random 50% per view (WCEDCollator)"
 echo "Pooling:     CLS (pooler_output) — WCED-trained global representation"
-echo "Head LR:     ${LEARNING_RATE}  |  Encoder LR: $(python3 -c "print(${LEARNING_RATE} * 0.01)")"
+echo "Head LR:     ${LEARNING_RATE}  |  Encoder+Decoder LR: $(python3 -c "print(${LEARNING_RATE} * 0.01)")"
 echo "Batch:       ${BATCH_SIZE} x ${ACCUMULATE_GRAD} = $((BATCH_SIZE * ACCUMULATE_GRAD)) effective"
 echo "Encoder:     UNFROZEN from epoch 0 (differential LR)"
+echo "Recon:       weight=${RECON_WEIGHT} — decoder kept as WCED regularizer"
 echo "W&B project: ${WANDB_PROJECT}"
 echo "W&B run:     ${WANDB_RUN_NAME}"
 echo "Output dir:  ${OUTDIR}"
@@ -114,6 +116,7 @@ python -m bmfm_methylation.finetune_wced \
     accumulate_grad_batches=${ACCUMULATE_GRAD} \
     trainer.learning_rate=${LEARNING_RATE} \
     regression_head.dropout=${HEAD_DROPOUT} \
+    recon_weight=${RECON_WEIGHT} \
     freeze_encoder=false \
     early_stopping.patience=${EARLY_STOP_PATIENCE} \
     track_wandb.enabled=true \
