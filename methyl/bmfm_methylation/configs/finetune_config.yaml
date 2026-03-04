@@ -43,10 +43,11 @@ huber_delta: 2.0
 # Keeps encoder globally informative — prevents forgetting WCED pretraining
 recon_weight: 0.1
 
-# LoRA hyperparameters (used by finetune_lora.py)
+# LoRA hyperparameters (used by finetune_lora.py and finetune_lora_twostage.py)
 lora_rank: 8        # rank of adapter matrices (A: in×r, B: r×out)
 lora_alpha: 16.0    # scaling = alpha/rank = 2.0
 lora_lr: 1e-4       # LoRA adapter LR (between head 1e-3 and frozen 0)
+lora_warmup_epochs: 50  # Stage 1: head only; Stage 2: LoRA unlocked (two-stage only)
 
 # Seed
 seed:
