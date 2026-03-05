@@ -74,7 +74,20 @@ class LoRAUnlockCallback(pl.Callback):
     def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
         if not self.unlocked and trainer.current_epoch >= self.warmup_epochs:
             optimizer = trainer.optimizers[0]
+
+            # Set the current LR for this param group
             optimizer.param_groups[LORA_PARAM_GROUP_IDX]['lr'] = self.lora_lr
+            # Some PyTorch versions track initial_lr separately
+            optimizer.param_groups[LORA_PARAM_GROUP_IDX]['initial_lr'] = self.lora_lr
+
+            # CRITICAL: LambdaLR stores base_lrs and computes lr = base_lr * lambda.
+            # If base_lr=0, scheduler overrides our change every step → LoRA stays frozen.
+            # Fix: update base_lrs so the scheduler uses the correct base.
+            for sch_config in trainer.lr_scheduler_configs:
+                sch = sch_config.scheduler
+                if hasattr(sch, 'base_lrs') and len(sch.base_lrs) > LORA_PARAM_GROUP_IDX:
+                    sch.base_lrs[LORA_PARAM_GROUP_IDX] = self.lora_lr
+
             self.unlocked = True
             logger.info(
                 f"[TwoStage] Epoch {trainer.current_epoch}: "
