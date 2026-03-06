@@ -29,8 +29,8 @@ TOKENIZER_PATH="${REPO}/tokenizer_21k"
 # 21k-specific settings
 # -------------------------
 # Use ALL 21,368 CpGs as vocabulary (decoder reconstructs all of them)
-# Set higher than actual CpG count so WCEDCollator uses every CpG
-SUBSET_K="${SUBSET_K:-99999}"
+# Must match the actual CpG count in the h5ad — decoder is built with this size
+SUBSET_K="${SUBSET_K:-21368}"
 
 # Input ratio: 4000 / 21368 = 0.187
 # → each view sees ~4,000 CpGs (same sequence length as 8k pretraining)
@@ -96,7 +96,7 @@ echo "JobID:         ${SLURM_JOB_ID}"
 echo "============================================================"
 echo "Data:          ${DATA}"
 echo "Tokenizer:     ${TOKENIZER_PATH}  (auto-built if missing)"
-echo "CpG vocab:     ALL ~21k CpGs  (SUBSET_K=${SUBSET_K})"
+echo "CpG vocab:     ALL 21,368 CpGs  (SUBSET_K=${SUBSET_K})"
 echo "Input/view:    ${INPUT_RATIO} × 21368 ≈ 4000 CpGs per view (same speed as 8k)"
 echo "Views:         2 non-overlapping (contrastive=${CONTRASTIVE})"
 echo "Max pos emb:   ${MAX_POS_EMB}"
