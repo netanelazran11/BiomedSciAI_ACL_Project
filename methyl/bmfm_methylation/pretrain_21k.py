@@ -7,7 +7,7 @@ has no 'valid' label (e.g. altumage_21k_combined.h5ad).
 
 Usage:
     python -m bmfm_methylation.pretrain_21k \\
-        data_path=/path/to/altumage_21k_pretrain.h5ad \\
+        data_path=/path/to/altumage_21k_combined.h5ad \\
         output_directory=./outputs/pretrain-wced-21k \\
         pretraining_mode=wced
 
@@ -30,13 +30,30 @@ torch.load = _patched_torch_load
 torch.serialization.load = _patched_torch_load
 # =============================================================================
 
-# Swap in the 21k-aware data module before pretrain.py is executed
+from pathlib import Path
+import hydra
+from omegaconf import DictConfig
+
+# Swap in the 21k-aware data module BEFORE pretrain.py runs any logic
 import bmfm_methylation.pretrain as _pretrain_module
 from bmfm_methylation.data_module_21k import MethylationDataModule21k
 
 _pretrain_module.MethylationDataModule = MethylationDataModule21k
 
-# Run the original main (Hydra config path stays relative to pretrain.py)
-from bmfm_methylation.pretrain import main  # noqa: E402
 
-main()
+# Own Hydra entry point with explicit absolute config path.
+# This avoids Hydra's confusion about which module owns "configs/" when
+# the decorated main() lives in pretrain.py but __main__ is pretrain_21k.py.
+@hydra.main(
+    config_path=str(Path(__file__).parent / "configs"),
+    config_name="pretrain_config",
+    version_base="1.2",
+)
+def main(cfg: DictConfig):
+    # Call pretrain.py's actual logic (the unwrapped function, bypassing its
+    # own Hydra decorator which would re-initialise Hydra and crash).
+    _pretrain_module.main.__wrapped__(cfg)
+
+
+if __name__ == "__main__":
+    main()
