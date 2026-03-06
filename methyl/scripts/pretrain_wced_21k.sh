@@ -142,6 +142,7 @@ python -m bmfm_methylation.pretrain_21k \
     output_directory="${OUTDIR}" \
     tokenizer_path="${TOKENIZER_PATH}" \
     pretraining_mode=wced \
+    fields=methylation_21k \
     combine_style="${COMBINE_STYLE}" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset="true" \
