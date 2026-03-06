@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WCED Methylation Age Prediction</title>
+  <style>
+    :root {
+      --bg:       #f8f9fc;
+      --white:    #ffffff;
+      --border:   #e2e8f0;
+      --text:     #1a202c;
+      --muted:    #64748b;
+      --blue:     #3b82f6;
+      --green:    #10b981;
+      --orange:   #f59e0b;
+      --purple:   #8b5cf6;
+      --red:      #ef4444;
+      --blue-bg:  #eff6ff;
+      --green-bg: #ecfdf5;
+      --orange-bg:#fffbeb;
+      --purple-bg:#f5f3ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    /* ── Page layout ── */
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 60px 32px 100px;
+    }
+
+    /* ── Top header ── */
+    .header {
+      text-align: center;
+      padding-bottom: 48px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 60px;
+    }
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+    .header p {
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 1rem;
+    }
+
+    /* ── Section ── */
+    .section { margin-bottom: 70px; }
+
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .section-sub {
+      color: var(--muted);
+      font-size: 0.93rem;
+      margin-bottom: 28px;
+      max-width: 620px;
+    }
+
+    /* ── Divider ── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 60px 0;
+    }
+
+    /* ── Goal pills ── */
+    .goal-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 28px;
+    }
+    .goal-pill {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      flex: 1;
+      min-width: 160px;
+    }
+    .goal-pill .gl { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
+    .goal-pill .gv { font-size: 1rem; font-weight: 700; color: var(--text); margin-top: 4px; }
+
+    /* ── Explain box ── */
+    .explain {
+      background: var(--blue-bg);
+      border-left: 4px solid var(--blue);
+      border-radius: 0 10px 10px 0;
+      padding: 18px 22px;
+      margin: 20px 0;
+      font-size: 0.92rem;
+      color: var(--text);
+    }
+    .explain strong { color: var(--blue); }
+
+    /* ── Architecture flow ── */
+    .arch-flow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      margin: 24px auto;
+      max-width: 500px;
+    }
+    .arch-block {
+      width: 100%;
+      background: var(--white);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 20px;
+      text-align: center;
+    }
+    .arch-block .ab-title { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+    .arch-block .ab-sub   { font-size: 0.8rem; color: var(--muted); margin-top: 3px; }
+    .arch-block.frozen    { border-color: var(--green); background: var(--green-bg); }
+    .arch-block.frozen .ab-title { color: var(--green); }
+    .arch-block.trainable { border-color: var(--blue); background: var(--blue-bg); }
+    .arch-block.trainable .ab-title { color: var(--blue); }
+    .arch-block.cls-block { border-color: #6366f1; background: #eef2ff; max-width: 200px; }
+    .arch-block.cls-block .ab-title { color: #6366f1; }
+    .arch-block.lora-block { border-color: var(--purple); background: var(--purple-bg); }
+    .arch-block.lora-block .ab-title { color: var(--purple); }
+    .arch-arrow { font-size: 1.3rem; color: var(--muted); }
+
+    /* ── WCED three-column diagram ── */
+    .wced-grid {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0 20px;
+      align-items: start;
+      margin: 24px 0;
+    }
+    .wced-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .wced-mid { display: flex; align-items: center; justify-content: center; padding-top: 90px; }
+    .wced-mid span { color: var(--muted); font-size: 0.78rem; writing-mode: vertical-rl; text-align: center; }
+    .wced-block {
+      width: 100%;
+      background: var(--white);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 0.83rem;
+    }
+    .wced-block.enc { border-color: var(--blue); }
+    .wced-block .wb-title { font-weight: 700; color: var(--text); }
+    .wced-block .wb-sub   { color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+    .wced-block.cls { border-color: #6366f1; background: #eef2ff; }
+    .wced-block.cls .wb-title { color: #6366f1; }
+    .wced-block.dec { border-color: var(--orange); }
+    .wced-block.con { border-color: #06b6d4; }
+    .wced-block.age { border-color: var(--purple); }
+
+    .loss-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 16px 0;
+    }
+    .loss-pill {
+      flex: 1;
+      min-width: 180px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .loss-pill .lp-title { font-weight: 700; font-size: 0.85rem; color: var(--text); margin-bottom: 6px; }
+    .loss-pill .lp-body  { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+    /* ── Result badge ── */
+    .result-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--green-bg);
+      border: 1.5px solid var(--green);
+      border-radius: 10px;
+      padding: 10px 18px;
+      margin-top: 16px;
+    }
+    .result-tag .rt-num { font-size: 1.5rem; font-weight: 800; color: var(--green); }
+    .result-tag .rt-lbl { font-size: 0.8rem; color: var(--muted); }
+
+    /* ── Method cards ── */
+    .method-card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 30px;
+      margin-bottom: 28px;
+    }
+    .method-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .method-num {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .method-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .score-box {
+      text-align: right;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 18px;
+      flex-shrink: 0;
+    }
+    .score-box .sb-r2  { font-size: 1.6rem; font-weight: 800; }
+    .score-box .sb-mae { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    .score-box.best  { border-color: var(--green); background: var(--green-bg); }
+    .score-box.best  .sb-r2 { color: var(--green); }
+    .score-box.mid   { border-color: var(--orange); background: var(--orange-bg); }
+    .score-box.mid   .sb-r2 { color: var(--orange); }
+    .score-box.worse { border-color: var(--purple); background: var(--purple-bg); }
+    .score-box.worse .sb-r2 { color: var(--purple); }
+
+    .method-body p { color: var(--muted); font-size: 0.92rem; margin-bottom: 14px; }
+
+    .tag-frozen {
+      display: inline-block;
+      background: var(--green-bg);
+      color: var(--green);
+      border: 1px solid var(--green);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      margin-left: 6px;
+    }
+    .tag-trainable {
+      display: inline-block;
+      background: var(--blue-bg);
+      color: var(--blue);
+      border: 1px solid var(--blue);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      margin-left: 6px;
+    }
+    .tag-lora {
+      display: inline-block;
+      background: var(--purple-bg);
+      color: var(--purple);
+      border: 1px solid var(--purple);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      margin-left: 6px;
+    }
+
+    .why-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 14px;
+    }
+    .why-box strong { color: var(--text); }
+
+    /* ── Comparison table ── */
+    .cmp-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--white);
+    }
+    .cmp-table thead tr { background: var(--bg); }
+    .cmp-table th {
+      padding: 14px 20px;
+      text-align: left;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .cmp-table td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--text);
+      vertical-align: middle;
+    }
+    .cmp-table tr:last-child td { border-bottom: none; }
+    .cmp-table tr.best-row td  { background: var(--green-bg); }
+
+    .bar-wrap { display: flex; align-items: center; gap: 10px; }
+    .bar-bg {
+      flex: 1;
+      background: var(--bg);
+      border-radius: 6px;
+      height: 22px;
+      overflow: hidden;
+    }
+    .bar-inner {
+      height: 100%;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      padding-left: 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .bar-green  { background: var(--green); }
+    .bar-orange { background: var(--orange); }
+    .bar-purple { background: var(--purple); }
+    .bar-blue   { background: var(--blue); }
+
+    .pill-best  { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green);  border-radius: 20px; font-size: 0.72rem; font-weight: 700; padding: 2px 10px; display: inline-block; }
+    .pill-other { background: var(--bg);         color: var(--muted);  border: 1px solid var(--border); border-radius: 20px; font-size: 0.72rem; font-weight: 700; padding: 2px 10px; display: inline-block; }
+
+    /* ── Conclusion ── */
+    .conclusion {
+      background: linear-gradient(135deg, #1e3a5f, #1a2e4a);
+      border-radius: 16px;
+      padding: 40px;
+      color: #fff;
+      text-align: center;
+    }
+    .conclusion h2 { font-size: 1.3rem; font-weight: 800; margin-bottom: 24px; color: #fff; }
+    .conclusion-metrics {
+      display: flex;
+      justify-content: center;
+      gap: 50px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .cm-num { font-size: 2.8rem; font-weight: 800; color: #34d399; }
+    .cm-lbl { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+    .conclusion p { color: #94a3b8; font-size: 0.9rem; max-width: 520px; margin: 0 auto; line-height: 1.7; }
+
+    @media(max-width:600px) {
+      .wced-grid { grid-template-columns: 1fr; }
+      .wced-mid { display: none; }
+      .method-header { flex-direction: column; }
+      .score-box { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>Methylation Biological Age Prediction</h1>
+    <p>Using WCED Pretraining · Implementation &amp; Results</p>
+  </div>
+
+
+  <!-- ══════════ 1. GOAL ══════════ -->
+  <div class="section">
+    <div class="section-label">Overview</div>
+    <div class="section-title">What We Are Solving</div>
+    <div class="section-sub">Predict a person's biological age from their DNA methylation profile using a pretrained transformer model.</div>
+
+    <div class="goal-row">
+      <div class="goal-pill">
+        <div class="gl">Input</div>
+        <div class="gv">8,000 CpG methylation sites per person</div>
+      </div>
+      <div class="goal-pill">
+        <div class="gl">Each CpG value</div>
+        <div class="gv">Beta value (0 = unmethylated, 1 = fully methylated)</div>
+      </div>
+      <div class="goal-pill">
+        <div class="gl">Output</div>
+        <div class="gv">Predicted biological age (years)</div>
+      </div>
+      <div class="goal-pill">
+        <div class="gl">Success Metric</div>
+        <div class="gv">R² (max = 1.0) &amp; MAE in years</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 2. BASE MODEL ══════════ -->
+  <div class="section">
+    <div class="section-label">Architecture</div>
+    <div class="section-title">The Base Model</div>
+    <div class="section-sub">A transformer encoder that converts 8,000 CpG values into a single summary vector, then predicts age from it.</div>
+
+    <div class="arch-flow">
+      <div class="arch-block">
+        <div class="ab-title">8,000 CpG Sites</div>
+        <div class="ab-sub">Each token = CpG identity + beta value + position</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-block">
+        <div class="ab-title">Transformer Encoder (SCBert)</div>
+        <div class="ab-sub">6 layers · 8 heads · 512 hidden dim · ~27 million parameters</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-block cls-block">
+        <div class="ab-title">[CLS] Token</div>
+        <div class="ab-sub">512-dim global summary of the whole person</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-block">
+        <div class="ab-title">MLP Age Head</div>
+        <div class="ab-sub">512 → 256 → 128 → 1 · ~165k parameters</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-block">
+        <div class="ab-title">Predicted Age (years)</div>
+      </div>
+    </div>
+
+    <div class="explain">
+      <strong>What is the CLS token?</strong><br/>
+      After the transformer processes all 8,000 CpG tokens, there is a special token called CLS (Classification token).
+      Its job is to be a <strong>single summary</strong> of the entire methylation profile.
+      All fine-tuning methods read from this one 512-dim vector to predict age.
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 3. WCED PRETRAINING ══════════ -->
+  <div class="section">
+    <div class="section-label">Phase 1</div>
+    <div class="section-title">WCED Pretraining</div>
+    <div class="section-sub">
+      Before predicting age, we train the encoder to understand methylation biology.
+      WCED forces the CLS token to encode the full methylation profile of each person.
+    </div>
+
+    <div class="explain">
+      <strong>How WCED works:</strong><br/>
+      For each person, we take two different random subsets of 4,000 CpGs (out of 8,000).
+      The encoder sees each subset separately, produces a CLS for each —
+      then must <strong>reconstruct all 8,000 CpG values</strong> from that single CLS vector.
+      This forces CLS to memorize the full profile, not just the CpGs it was given.
+    </div>
+
+    <div class="wced-grid">
+      <div class="wced-col">
+        <div class="wced-block"><div class="wb-title">View 1</div><div class="wb-sub">4,000 random CpGs</div></div>
+        <div class="arch-arrow">↓</div>
+        <div class="wced-block enc"><div class="wb-title">Encoder</div><div class="wb-sub">Transformer</div></div>
+        <div class="arch-arrow">↓</div>
+        <div class="wced-block cls"><div class="wb-title">CLS₁</div></div>
+        <div class="arch-arrow">↓</div>
+        <div style="display:flex;gap:8px;width:100%;">
+          <div class="wced-block dec" style="flex:1"><div class="wb-title">Decoder</div><div class="wb-sub">→ all 8k betas</div></div>
+          <div class="wced-block con" style="flex:1"><div class="wb-title">Contrast</div><div class="wb-sub">InfoNCE</div></div>
+          <div class="wced-block age" style="flex:1"><div class="wb-title">Age</div><div class="wb-sub">auxiliary</div></div>
+        </div>
+      </div>
+
+      <div class="wced-mid"><span>same person · shared weights</span></div>
+
+      <div class="wced-col">
+        <div class="wced-block"><div class="wb-title">View 2</div><div class="wb-sub">4,000 different CpGs</div></div>
+        <div class="arch-arrow">↓</div>
+        <div class="wced-block enc"><div class="wb-title">Encoder</div><div class="wb-sub">Transformer</div></div>
+        <div class="arch-arrow">↓</div>
+        <div class="wced-block cls"><div class="wb-title">CLS₂</div></div>
+        <div class="arch-arrow">↓</div>
+        <div style="display:flex;gap:8px;width:100%;">
+          <div class="wced-block dec" style="flex:1"><div class="wb-title">Decoder</div><div class="wb-sub">→ all 8k betas</div></div>
+          <div class="wced-block con" style="flex:1"><div class="wb-title">Contrast</div><div class="wb-sub">InfoNCE</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="loss-pills">
+      <div class="loss-pill">
+        <div class="lp-title">① Reconstruction</div>
+        <div class="lp-body">CLS must reconstruct all 8,000 beta values via the decoder. Loss is only on CpGs that were NOT given as input — forces CLS to memorize the whole profile.</div>
+      </div>
+      <div class="loss-pill">
+        <div class="lp-title">② Contrastive (InfoNCE)</div>
+        <div class="lp-body">CLS of two views of the <em>same person</em> must be similar. CLS of <em>different people</em> must differ. Forces CLS to encode sample identity.</div>
+      </div>
+      <div class="loss-pill">
+        <div class="lp-title">③ Age Auxiliary</div>
+        <div class="lp-body">CLS → small head → predict age. Directly injects age signal into CLS during pretraining, so the representation already understands age.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;padding:20px 24px;background:var(--white);border:1px solid var(--border);border-radius:12px;">
+      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:700;margin-bottom:14px;">Pretraining Result — Epoch 190</div>
+      <div style="display:flex;gap:36px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:2rem;font-weight:800;color:var(--green);">0.9866</div>
+          <div style="font-size:0.8rem;color:var(--muted);">test / PCC</div>
+        </div>
+        <div>
+          <div style="font-size:2rem;font-weight:800;color:var(--blue);">≈ 0.90</div>
+          <div style="font-size:0.8rem;color:var(--muted);">age R² with frozen CLS + linear probe</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;font-size:0.85rem;color:var(--muted);">
+        Even before any fine-tuning, a simple linear regression on the frozen CLS already predicts age with R²≈0.90.
+        This proves the pretraining successfully embedded age information into the CLS representation.
+      </p>
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 4. ADAPTATION ══════════ -->
+  <div class="section">
+    <div class="section-label">Model Adaptation</div>
+    <div class="section-title">Original WCED vs Our Methylation Adaptation</div>
+    <div class="section-sub">
+      The original WCED was designed for scRNA-seq data (gene expression). We adapted it for DNA methylation.
+      Here is what changed and why.
+    </div>
+
+    <!-- Side-by-side header -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+      <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:14px 18px;">
+        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:4px;">Original — BiomedSciAI</div>
+        <div style="font-weight:700;font-size:1rem;color:var(--text);">WCED for scRNA-seq</div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-top:4px;">Gene expression data · 20,000+ genes</div>
+      </div>
+      <div style="background:var(--blue-bg);border:1.5px solid var(--blue);border-radius:10px;padding:14px 18px;">
+        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--blue);margin-bottom:4px;">Our Adaptation</div>
+        <div style="font-weight:700;font-size:1rem;color:var(--text);">WCED for DNA Methylation</div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-top:4px;">Beta values 0–1 · 8,000 CpG sites</div>
+      </div>
+    </div>
+
+    <!-- Comparison rows -->
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px;">
+
+      <!-- Row header -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;background:var(--bg);border-bottom:1px solid var(--border);">
+        <div style="padding:10px 16px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">Component</div>
+        <div style="padding:10px 16px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-left:1px solid var(--border);">Original (BiomedSciAI)</div>
+        <div style="padding:10px 16px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--blue);border-left:1px solid var(--border);">Our Adaptation</div>
+      </div>
+
+      <!-- Decoder input -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;border-bottom:1px solid var(--border);">
+        <div style="padding:16px;font-weight:600;font-size:0.85rem;background:var(--bg);border-right:1px solid var(--border);">Decoder Input</div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--muted);">
+          Raw CLS hidden state from encoder output (position 0 of sequence)<br/>
+          <span style="font-size:0.78rem;color:var(--muted);margin-top:6px;display:block;">The CLS vector is used as-is, straight from the transformer.</span>
+        </div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--text);background:var(--blue-bg);">
+          <code style="background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px;font-size:0.8rem;">pooler_output</code> — CLS goes through an extra Dense(512,512) + Tanh layer first<br/>
+          <span style="font-size:0.78rem;color:var(--blue);margin-top:6px;display:block;">The pooler is a non-linear projection added by BERT. It gives the decoder a more compressed, stable summary of CLS before reconstruction.</span>
+        </div>
+      </div>
+
+      <!-- Decoder architecture -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;border-bottom:1px solid var(--border);">
+        <div style="padding:16px;font-weight:600;font-size:0.85rem;background:var(--bg);border-right:1px solid var(--border);">Decoder Architecture</div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--muted);">
+          Single linear layer:<br/>
+          <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.8rem;">Linear(512 → vocab_size)</code><br/>
+          No activation — raw logits<br/>
+          <span style="font-size:0.78rem;color:var(--muted);margin-top:6px;display:block;">Works for gene expression because outputs are unbounded counts.</span>
+        </div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--text);background:var(--blue-bg);">
+          Deeper MLP:<br/>
+          <code style="background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px;font-size:0.8rem;">Linear → LayerNorm → GELU → Dropout → Linear → <strong>Sigmoid</strong></code><br/>
+          <span style="color:var(--blue);font-size:0.8rem;">Sigmoid forces output to 0–1, matching beta value range</span><br/>
+          <span style="font-size:0.78rem;color:var(--blue);margin-top:6px;display:block;">Beta values (methylation level) are always between 0 and 1 by definition. Sigmoid guarantees the decoder never predicts invalid values.</span>
+        </div>
+      </div>
+
+      <!-- Training losses -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;border-bottom:1px solid var(--border);">
+        <div style="padding:16px;font-weight:600;font-size:0.85rem;background:var(--bg);border-right:1px solid var(--border);">Training Losses</div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--muted);">
+          ✅ Reconstruction MSE (non-input genes)<br/>
+          ✅ <strong>IsZeroFocal</strong> — extra penalty for missed zeros in expression<br/>
+          ❌ No contrastive<br/>
+          ❌ No age supervision<br/>
+          <span style="font-size:0.78rem;color:var(--muted);margin-top:6px;display:block;">IsZeroFocal handles zero-inflation: gene expression data has many exact zeros (gene not expressed), and a standard MSE underweights these errors.</span>
+        </div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--text);background:var(--blue-bg);">
+          ✅ Reconstruction MSE (non-input CpGs)<br/>
+          ❌ No IsZeroFocal — <em>not needed</em>, beta values are continuous 0–1<br/>
+          <span style="color:var(--blue);font-weight:600;">✅ InfoNCE Contrastive (added)</span><br/>
+          <span style="color:var(--blue);font-weight:600;">✅ Age Auxiliary Head (added)</span><br/>
+          <span style="font-size:0.78rem;color:var(--blue);margin-top:6px;display:block;">Without contrastive loss, the encoder collapses (learns average methylation, ignores individual differences). InfoNCE and the age head force CLS to stay individual-specific.</span>
+        </div>
+      </div>
+
+      <!-- Two views -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;border-bottom:1px solid var(--border);">
+        <div style="padding:16px;font-weight:600;font-size:0.85rem;background:var(--bg);border-right:1px solid var(--border);">Input Views</div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--muted);">One random subset of genes per sample</div>
+        <div style="padding:16px;font-size:0.85rem;color:var(--text);background:var(--blue-bg);">
+          <span style="color:var(--blue);font-weight:600;">Two different random subsets</span> of CpGs per sample — needed for InfoNCE contrastive loss
+        </div>
+      </div>
+
+      <!-- Source files -->
+      <div style="display:grid;grid-template-columns:160px 1fr 1fr;">
+        <div style="padding:16px;font-weight:600;font-size:0.85rem;background:var(--bg);border-right:1px solid var(--border);">Implementation</div>
+        <div style="padding:16px;font-size:0.82rem;color:var(--muted);line-height:1.8;">
+          Split across 5 files:<br/>
+          <code style="font-size:0.75rem;">losses/sources.py</code> · <code style="font-size:0.75rem;">losses/task.py</code><br/>
+          <code style="font-size:0.75rem;">losses/objectives.py</code><br/>
+          <code style="font-size:0.75rem;">masking/strategy.py</code><br/>
+          <code style="font-size:0.75rem;">models/predictive/layers.py</code>
+        </div>
+        <div style="padding:16px;font-size:0.82rem;color:var(--text);background:var(--blue-bg);line-height:1.8;">
+          Single self-contained module:<br/>
+          <code style="font-size:0.75rem;background:rgba(59,130,246,0.1);padding:1px 5px;border-radius:3px;">bmfm_methylation/wced_module.py</code><br/>
+          Contains: <code style="font-size:0.75rem;">WCEDTrainingModule</code>, <code style="font-size:0.75rem;">WCEDDecoder</code>, <code style="font-size:0.75rem;">ProjectionHead</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Why we added contrastive + age -->
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px 28px;">
+      <div style="font-weight:700;font-size:1rem;color:var(--text);margin-bottom:16px;">Why We Added Contrastive Learning + Age Supervision</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="background:var(--bg);border-radius:10px;padding:16px;">
+          <div style="font-weight:700;font-size:0.85rem;color:var(--text);margin-bottom:8px;">Problem with bare WCED on methylation</div>
+          <p style="font-size:0.83rem;color:var(--muted);line-height:1.6;">
+            In scRNA-seq, gene expression varies dramatically between cell types — CLS naturally learns sample identity.<br/><br/>
+            In methylation, CpG beta values vary much less between people. Without extra supervision, CLS collapses: it learns to predict <em>population-average beta values</em> instead of individual-specific patterns.
+          </p>
+        </div>
+        <div style="background:var(--blue-bg);border-radius:10px;padding:16px;">
+          <div style="font-weight:700;font-size:0.85rem;color:var(--blue);margin-bottom:8px;">How we solved it</div>
+          <p style="font-size:0.83rem;color:var(--text);line-height:1.6;">
+            <strong>InfoNCE (contrastive):</strong> Two random subsets of the same person must produce similar CLS. Different people must be different. Forces CLS to encode individual identity.<br/><br/>
+            <strong>Age auxiliary head:</strong> CLS → age prediction during pretraining directly injects age signal. Result: frozen CLS achieves R²≈0.90 before any fine-tuning.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 4. WHAT IS FROZEN ══════════ -->
+  <div class="section">
+    <div class="section-label">Key Concept</div>
+    <div class="section-title">What Does "Frozen" Mean?</div>
+
+    <div class="explain" style="border-color:var(--green);background:var(--green-bg);">
+      <strong style="color:var(--green);">Frozen encoder</strong> means the 27 million parameters of the transformer are <strong>locked</strong> — they do not change during fine-tuning.<br/><br/>
+      Only the small MLP age head (~165k parameters) is trained. The head learns to <em>read</em> the CLS representation that the encoder already produces from pretraining.<br/><br/>
+      <strong style="color:var(--green);">Why freeze?</strong> The encoder was trained for 190 epochs with 3 objectives. If we let it train on age alone, it forgets everything else — this is called <em>catastrophic forgetting</em>.
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 5. FINE-TUNING METHODS ══════════ -->
+  <div class="section">
+    <div class="section-label">Phase 2</div>
+    <div class="section-title">Fine-tuning Methods</div>
+    <div class="section-sub">
+      Three different approaches were tested to extract age from the pretrained encoder.
+      All start from the same WCED checkpoint (epoch 190).
+    </div>
+
+    <!-- METHOD 1 -->
+    <div class="method-card">
+      <div class="method-header">
+        <div>
+          <div class="method-num">Method 1</div>
+          <div class="method-name">Frozen Encoder + Fixed 8k Input</div>
+        </div>
+        <div class="score-box best">
+          <div class="sb-r2">R² = 0.9327</div>
+          <div class="sb-mae">MAE = 4.61 years</div>
+        </div>
+      </div>
+      <div class="method-body">
+        <p>
+          The encoder is completely <strong>frozen</strong> <span class="tag-frozen">NO GRADIENT</span>.
+          Only the MLP age head trains.
+          Every batch uses the exact <strong>same fixed 8,000 CpG sites</strong>.
+        </p>
+
+        <div class="arch-flow" style="max-width:420px;margin:16px auto;">
+          <div class="arch-block frozen">
+            <div class="ab-title">Encoder · 27M params</div>
+            <div class="ab-sub">Frozen — weights never change</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block cls-block" style="max-width:180px;align-self:center;">
+            <div class="ab-title">CLS Token</div>
+            <div class="ab-sub">from pretraining</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block trainable">
+            <div class="ab-title">MLP Age Head · 165k params</div>
+            <div class="ab-sub">Trainable · lr = 1e-3</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block">
+            <div class="ab-title">Predicted Age</div>
+            <div class="ab-sub">Loss = MSE(predicted, true)</div>
+          </div>
+        </div>
+
+        <div class="why-box">
+          <strong>Why 8k fixed?</strong> Using the same 8,000 CpGs every batch gives the head
+          stable, consistent gradients — it always sees the same input pattern and learns faster.
+          Using all 8,000 CpGs gives maximum information per step.
+        </div>
+      </div>
+    </div>
+
+    <!-- METHOD 2 -->
+    <div class="method-card">
+      <div class="method-header">
+        <div>
+          <div class="method-num">Method 2</div>
+          <div class="method-name">WCED Decoder as Regularizer</div>
+        </div>
+        <div class="score-box mid">
+          <div class="sb-r2">R² = 0.9156</div>
+          <div class="sb-mae">MAE = 5.22 years</div>
+        </div>
+      </div>
+      <div class="method-body">
+        <p>
+          The encoder is <strong>unfrozen but adapts very slowly</strong> <span class="tag-trainable">lr = 1e-5</span>.
+          The pretrained decoder is kept alive as a regularizer — it keeps forcing
+          CLS to stay globally informative (same as during pretraining), preventing forgetting.
+        </p>
+
+        <div class="arch-flow" style="max-width:480px;margin:16px auto;">
+          <div class="arch-block" style="border-color:var(--orange);background:var(--orange-bg);">
+            <div class="ab-title" style="color:var(--orange);">4,000 Random CpGs per batch</div>
+            <div class="ab-sub">Random each epoch — must be partial so decoder has something to reconstruct</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block" style="border-color:#94a3b8;">
+            <div class="ab-title">Encoder · 27M params</div>
+            <div class="ab-sub">Trainable · lr = 1e-5 (100× slower than head)</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block cls-block" style="max-width:180px;align-self:center;">
+            <div class="ab-title">CLS Token</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div style="display:flex;gap:14px;width:100%;max-width:480px;">
+            <div class="arch-block trainable" style="flex:1;">
+              <div class="ab-title">Age Head</div>
+              <div class="ab-sub">lr = 1e-3 (fast)</div>
+            </div>
+            <div class="arch-block" style="flex:1;border-color:var(--orange);background:var(--orange-bg);">
+              <div class="ab-title" style="color:var(--orange);">Decoder</div>
+              <div class="ab-sub">→ all 8k betas · lr = 1e-5</div>
+            </div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block">
+            <div class="ab-title">Loss = Age MSE + 0.1 × Reconstruction MSE</div>
+          </div>
+        </div>
+
+        <div class="why-box">
+          <strong>Why it underperforms Method 1:</strong>
+          With 4k input, only half the CpG information is used per step — less than Method 1's 8k.
+          This is unavoidable: the decoder needs non-input CpGs to reconstruct.
+          With 8k input all CpGs are already given → nothing to reconstruct → decoder loss = 0.
+          So we are forced to use 4k, trading information for regularization.
+        </div>
+      </div>
+    </div>
+
+    <!-- METHOD 3 -->
+    <div class="method-card">
+      <div class="method-header">
+        <div>
+          <div class="method-num">Method 3</div>
+          <div class="method-name">LoRA Adaptation</div>
+        </div>
+        <div class="score-box worse">
+          <div class="sb-r2">R² = 0.873</div>
+          <div class="sb-mae">MAE = 6.64 years</div>
+        </div>
+      </div>
+      <div class="method-body">
+        <p>
+          LoRA injects tiny trainable adapter matrices inside the frozen attention layers.
+          The original 27M weights never change — only <strong>98k small adapter parameters</strong>
+          (0.4% of the encoder) train.
+        </p>
+
+        <div class="arch-flow" style="max-width:480px;margin:16px auto;">
+          <div class="arch-block frozen">
+            <div class="ab-title">Encoder · 27M params — Frozen</div>
+          </div>
+          <div class="arch-block lora-block" style="margin: -10px 30px; z-index:1; position:relative;">
+            <div class="ab-title">LoRA Adapters · 98k params</div>
+            <div class="ab-sub">Injected into Query + Value of all 6 attention layers · lr = 1e-4</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block cls-block" style="max-width:180px;align-self:center;">
+            <div class="ab-title">CLS Token</div>
+            <div class="ab-sub">slightly adapted</div>
+          </div>
+          <div class="arch-arrow">↓</div>
+          <div class="arch-block trainable">
+            <div class="ab-title">Age Head · 165k params · lr = 1e-3</div>
+          </div>
+        </div>
+
+        <div style="background:var(--purple-bg);border:1px solid var(--purple);border-radius:8px;padding:14px 16px;font-size:0.85rem;margin-top:14px;">
+          <strong style="color:var(--purple);">LoRA math:</strong><br/>
+          Each attention layer computes:
+          <code style="background:rgba(0,0,0,0.06);padding:2px 6px;border-radius:4px;">output = W_original × input + (α/rank) × B( A(input) )</code><br/>
+          A and B are small matrices (512×8 and 8×512). B is initialized to zero so the adapter starts with zero effect and learns gradually.
+        </div>
+
+        <div class="why-box">
+          <strong>Why it underperforms the frozen baseline:</strong>
+          WCED pretraining shaped the attention patterns over 190 epochs with 3 objectives.
+          Even a 0.4% change to query/value projections disrupts these finely-tuned patterns —
+          and the CLS representation degrades. The evidence: when the LoRA adapter was accidentally
+          kept at zero (due to a scheduler bug), the result was 0.920 — better than when
+          LoRA actually trained (0.873). Any modification to the encoder hurts.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 6. COMPARISON ══════════ -->
+  <div class="section">
+    <div class="section-label">Results</div>
+    <div class="section-title">Method Comparison</div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Encoder</th>
+          <th>Input</th>
+          <th>val R²</th>
+          <th>val MAE</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--muted);font-size:0.85rem;">WCED pretrain (linear probe)</td>
+          <td>Frozen</td>
+          <td>4k random</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-inner bar-blue" style="width:90%"></div></div>
+              <span style="font-size:0.82rem;color:var(--muted);">≈0.90</span>
+            </div>
+          </td>
+          <td style="color:var(--muted);">—</td>
+        </tr>
+        <tr class="best-row">
+          <td><strong>Method 1 · Frozen + 8k Fixed</strong> <span class="pill-best">BEST</span></td>
+          <td><span style="color:var(--green);font-weight:600;">Frozen</span></td>
+          <td>8k fixed</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-inner bar-green" style="width:93.27%"></div></div>
+              <span style="font-size:0.82rem;font-weight:700;color:var(--green);">0.9327</span>
+            </div>
+          </td>
+          <td><strong style="color:var(--green);">4.61 yr</strong></td>
+        </tr>
+        <tr>
+          <td>Method 2 · WCED Decoder FT</td>
+          <td><span style="color:var(--orange);font-weight:600;">lr = 1e-5</span></td>
+          <td>4k random</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-inner bar-orange" style="width:91.56%"></div></div>
+              <span style="font-size:0.82rem;color:var(--muted);">0.9156</span>
+            </div>
+          </td>
+          <td style="color:var(--muted);">5.22 yr</td>
+        </tr>
+        <tr>
+          <td>Method 3 · LoRA</td>
+          <td><span style="color:var(--purple);font-weight:600;">Frozen + LoRA</span></td>
+          <td>8k fixed</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-inner bar-purple" style="width:87.31%"></div></div>
+              <span style="font-size:0.82rem;color:var(--muted);">0.8731</span>
+            </div>
+          </td>
+          <td style="color:var(--muted);">6.83 yr</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="explain" style="margin-top:20px;">
+      <strong>Key finding:</strong> Every approach that modifies the encoder — even gently —
+      performs worse than leaving it completely frozen.
+      The WCED pretraining built a CLS representation so well-suited to age prediction
+      that the best strategy is to leave the encoder untouched and train only the lightweight head on top.
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+
+  <!-- ══════════ 7. CONCLUSION ══════════ -->
+  <div class="conclusion">
+    <h2>Best Result</h2>
+    <div class="conclusion-metrics">
+      <div>
+        <div class="cm-num">0.9327</div>
+        <div class="cm-lbl">Val R²</div>
+      </div>
+      <div>
+        <div class="cm-num">4.61</div>
+        <div class="cm-lbl">Val MAE (years)</div>
+      </div>
+      <div>
+        <div class="cm-num">165k</div>
+        <div class="cm-lbl">Trained Parameters</div>
+      </div>
+    </div>
+    <p>
+      Achieved with a completely frozen WCED encoder and a simple MLP head trained on
+      all 8,000 fixed CpG sites. Out of all strategies tested, the simplest approach
+      — trust the pretraining and train only the head — gave the best result.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>
