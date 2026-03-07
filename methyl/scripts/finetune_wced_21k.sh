@@ -29,7 +29,7 @@ TOKENIZER_PATH="${REPO}/tokenizer_21k"
 # UPDATE THIS: find the best epoch in your 21k pretrain run output
 # e.g. outputs/pretrain-wced-21k/<run_name>/pretrain/checkpoints/epoch=...ckpt
 # -------------------------
-CHECKPOINT="${CHECKPOINT:-REPLACE_WITH_21K_PRETRAIN_CHECKPOINT_PATH}"
+CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-21k/wced-21k-contrastive-w0.1-44223479/pretrain/checkpoints/epoch=epoch=270-val_loss=validation/loss=0.2574.ckpt}"
 
 # -------------------------
 # 21k-specific settings
