@@ -130,7 +130,7 @@ python -m bmfm_methylation.finetune_wced_21k \
     fields=methylation_21k \
     finetune_epochs=${FINETUNE_EPOCHS} \
     data_module.subset_k="${SUBSET_K}" \
-    data_module.wced_input_ratio="${INPUT_RATIO}" \
+    +data_module.wced_input_ratio="${INPUT_RATIO}" \
     data_module.fixed_subset="false" \
     data_module.fixed_subset_seed="42" \
     data_module.max_length=${MAX_LENGTH} \
