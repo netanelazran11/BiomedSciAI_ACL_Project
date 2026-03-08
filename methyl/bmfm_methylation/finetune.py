@@ -90,6 +90,7 @@ class MethylationAgeRegressor(pl.LightningModule):
         age_std: float = 1.0,
         freeze_encoder: bool = True,
         unfreeze_encoder_epoch: int = 5,
+        encoder_lr_multiplier: float = 0.1,
         use_huber_loss: bool = False,
         huber_delta: float = 2.0,
     ):
@@ -346,7 +347,7 @@ class MethylationAgeRegressor(pl.LightningModule):
 
     def configure_optimizers(self):
         no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias"]
-        encoder_lr = self.hparams.learning_rate * 0.1
+        encoder_lr = self.hparams.learning_rate * self.hparams.encoder_lr_multiplier
 
         # Include ALL params from the start (head + encoder).
         # Encoder params start frozen (requires_grad=False), so optimizer
@@ -606,6 +607,7 @@ def main(cfg: DictConfig):
     # Create regression model
     freeze_encoder = cfg.get('freeze_encoder', True)
     unfreeze_encoder_epoch = cfg.get('unfreeze_encoder_epoch', 5)
+    encoder_lr_multiplier = cfg.get('encoder_lr_multiplier', 0.1)
     use_huber_loss = cfg.get('use_huber_loss', False)
     huber_delta = cfg.get('huber_delta', 2.0)
 
@@ -619,6 +621,7 @@ def main(cfg: DictConfig):
     logger.info(f"Total steps: {total_steps}")
     logger.info(f"Age stats: mean={data_module.age_mean:.2f}, std={data_module.age_std:.2f}")
     logger.info(f"Freeze encoder: {freeze_encoder}, unfreeze at epoch {unfreeze_encoder_epoch}")
+    logger.info(f"Encoder LR multiplier: {encoder_lr_multiplier} → encoder_lr={cfg.trainer.learning_rate * encoder_lr_multiplier:.2e}")
     logger.info(f"Loss: {'Huber(delta=' + str(huber_delta) + ')' if use_huber_loss else 'MSE'}")
 
     num_cpg_sites = cfg.data_module.max_length - 2
@@ -642,6 +645,7 @@ def main(cfg: DictConfig):
         age_std=data_module.age_std,
         freeze_encoder=freeze_encoder,
         unfreeze_encoder_epoch=unfreeze_encoder_epoch,
+        encoder_lr_multiplier=encoder_lr_multiplier,
         use_huber_loss=use_huber_loss,
         huber_delta=huber_delta,
     )

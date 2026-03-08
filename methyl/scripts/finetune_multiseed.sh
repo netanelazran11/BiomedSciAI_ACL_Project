@@ -93,12 +93,13 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
-# Optimized hyperparameters based on MethylGPT comparison:
-#   - Higher LR (1e-3 head, 1e-4 encoder via 0.1x multiplier)
-#   - Shorter freeze (3 epochs instead of 5)
-#   - Lower dropout (0.1 instead of 0.2)
-#   - More warmup (200 steps)
-#   - Smaller batch for better generalization
+# Overfitting fix (vs original run that had train/mae=2.32 vs val/mae=5.19):
+#   - unfreeze_encoder_epoch: 3  -> 20  (head stabilizes before encoder moves)
+#   - encoder_lr_multiplier:  0.1 -> 0.01 (encoder_lr = 1e-5, was 1e-4)
+#   - effective batch:        32  -> 128 (bs=32 x accum=4, was 16 x 2)
+#   - weight_decay:           0.01 -> 0.05
+#   - head dropout:           0.1  -> 0.2
+#   - early_stop patience:    60   -> 80
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -109,20 +110,22 @@ python3 -m bmfm_methylation.finetune \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    data_module.batch_size=16 \
+    data_module.batch_size=32 \
     data_module.num_workers=0 \
-    accumulate_grad_batches=2 \
+    accumulate_grad_batches=4 \
     trainer.learning_rate=1e-3 \
-    trainer.warmup_steps=200 \
-    regression_head.dropout=0.1 \
+    trainer.warmup_steps=300 \
+    trainer.weight_decay=0.05 \
+    regression_head.dropout=0.2 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=3 \
+    unfreeze_encoder_epoch=20 \
+    encoder_lr_multiplier=0.01 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
     +track_wandb.group="${WANDB_GROUP}" \
-    early_stopping.patience=60
+    early_stopping.patience=80
 
 echo "============================================================"
 echo "Seed ${SEED} - Job finished: $(date)"
