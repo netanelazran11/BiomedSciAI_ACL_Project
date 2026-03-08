@@ -119,7 +119,7 @@ python3 -m bmfm_methylation.finetune \
     regression_head.dropout=0.2 \
     freeze_encoder=true \
     unfreeze_encoder_epoch=20 \
-    encoder_lr_multiplier=0.01 \
+    +encoder_lr_multiplier=0.01 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
