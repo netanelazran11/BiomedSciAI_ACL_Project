@@ -93,13 +93,10 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
-# Overfitting fix (vs original run that had train/mae=2.32 vs val/mae=5.19):
+# Overfitting fix — only two targeted changes vs original multiseed:
 #   - unfreeze_encoder_epoch: 3  -> 20  (head stabilizes before encoder moves)
 #   - encoder_lr_multiplier:  0.1 -> 0.01 (encoder_lr = 1e-5, was 1e-4)
-#   - effective batch:        32  -> 128 (bs=32 x accum=4, was 16 x 2)
-#   - weight_decay:           0.01 -> 0.05
-#   - head dropout:           0.1  -> 0.2
-#   - early_stop patience:    60   -> 80
+# Everything else kept at original values to avoid under-regularizing.
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -110,13 +107,12 @@ python3 -m bmfm_methylation.finetune \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    data_module.batch_size=32 \
+    data_module.batch_size=16 \
     data_module.num_workers=0 \
-    accumulate_grad_batches=4 \
+    accumulate_grad_batches=2 \
     trainer.learning_rate=1e-3 \
-    trainer.warmup_steps=300 \
-    trainer.weight_decay=0.05 \
-    regression_head.dropout=0.2 \
+    trainer.warmup_steps=200 \
+    regression_head.dropout=0.1 \
     freeze_encoder=true \
     unfreeze_encoder_epoch=20 \
     +encoder_lr_multiplier=0.01 \
@@ -125,7 +121,7 @@ python3 -m bmfm_methylation.finetune \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
     +track_wandb.group="${WANDB_GROUP}" \
-    early_stopping.patience=80
+    early_stopping.patience=60
 
 echo "============================================================"
 echo "Seed ${SEED} - Job finished: $(date)"
