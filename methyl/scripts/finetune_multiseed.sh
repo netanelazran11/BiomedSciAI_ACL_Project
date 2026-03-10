@@ -93,10 +93,10 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
-# Overfitting fix — only two targeted changes vs original multiseed:
-#   - unfreeze_encoder_epoch: 3  -> 20  (head stabilizes before encoder moves)
-#   - encoder_lr_multiplier:  0.1 -> 0.01 (encoder_lr = 1e-5, was 1e-4)
-# Everything else kept at original values to avoid under-regularizing.
+# Hyperparameters from paper Section 7.5 (Table 6):
+#   lr=5e-4, batch=32 x accum=2 → eff 64, dropout=0.2
+#   freeze epochs 0-4, unfreeze epoch 5+ with 10x lower encoder LR (5e-5)
+#   → Paper results: Test R²=0.926±0.005, Test MAE=4.67yr
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -107,15 +107,14 @@ python3 -m bmfm_methylation.finetune \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    data_module.batch_size=16 \
+    data_module.batch_size=32 \
     data_module.num_workers=0 \
     accumulate_grad_batches=2 \
-    trainer.learning_rate=1e-3 \
+    trainer.learning_rate=5e-4 \
     trainer.warmup_steps=200 \
-    regression_head.dropout=0.1 \
+    regression_head.dropout=0.2 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=20 \
-    +encoder_lr_multiplier=0.01 \
+    unfreeze_encoder_epoch=5 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
