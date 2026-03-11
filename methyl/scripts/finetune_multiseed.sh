@@ -93,10 +93,10 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
-# Hyperparameters from paper Section 7.5 (Table 6):
-#   lr=5e-4, batch=32 x accum=2 → eff 64, dropout=0.2
-#   freeze epochs 0-4, unfreeze epoch 5+ with 10x lower encoder LR (5e-5)
-#   → Paper results: Test R²=0.926±0.005, Test MAE=4.67yr
+# Hyperparameters that produced val/mae=4.950±0.055 across 5 seeds (40-44):
+#   lr=1e-3 head, 1e-4 encoder (0.1x multiplier), eff batch=32 (bs=16 x accum=2)
+#   dropout=0.1, unfreeze_epoch=3, warmup=200
+#   → Our results: Test R²=0.927±0.004, Test MAE=4.786±0.141yr
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -107,14 +107,14 @@ python3 -m bmfm_methylation.finetune \
     data_module.fixed_subset="${FIXED_SUBSET}" \
     data_module.fixed_subset_seed="${FIXED_SUBSET_SEED}" \
     data_module.max_length=$((SUBSET_K + 2)) \
-    data_module.batch_size=32 \
+    data_module.batch_size=16 \
     data_module.num_workers=0 \
     accumulate_grad_batches=2 \
-    trainer.learning_rate=5e-4 \
+    trainer.learning_rate=1e-3 \
     trainer.warmup_steps=200 \
-    regression_head.dropout=0.2 \
+    regression_head.dropout=0.1 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=5 \
+    unfreeze_encoder_epoch=3 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
