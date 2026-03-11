@@ -93,10 +93,11 @@ PY
 # -------------------------
 # Fine-tuning with specific seed
 # -------------------------
-# Hyperparameters that produced val/mae=4.950±0.055 across 5 seeds (40-44):
-#   lr=1e-3 head, 1e-4 encoder (0.1x multiplier), eff batch=32 (bs=16 x accum=2)
-#   dropout=0.1, unfreeze_epoch=3, warmup=200
-#   → Our results: Test R²=0.927±0.004, Test MAE=4.786±0.141yr
+# Encoder collapse fix: keep encoder frozen, train head only.
+#   Previous joint training (encoder_lr=1e-4) caused encoder to forget
+#   pretrained representations → collapse to predicting mean age.
+#   Strategy: freeze encoder permanently, train head only (lr=1e-3).
+#   This avoids corrupting pretrained weights while learning the age mapping.
 python3 -m bmfm_methylation.finetune \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
@@ -114,7 +115,7 @@ python3 -m bmfm_methylation.finetune \
     trainer.warmup_steps=200 \
     regression_head.dropout=0.1 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=3 \
+    unfreeze_encoder_epoch=9999 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
