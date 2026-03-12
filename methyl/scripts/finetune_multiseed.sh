@@ -115,7 +115,7 @@ python3 -m bmfm_methylation.finetune \
     trainer.warmup_steps=200 \
     regression_head.dropout=0.1 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=9999 \
+    unfreeze_encoder_epoch=3 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
