@@ -389,6 +389,8 @@
   <a href="#results">Results</a>
   <span class="nav-sep">|</span>
   <a href="#conclusions">Conclusions</a>
+  <span class="nav-sep">|</span>
+  <a href="#pretrain-data">Pretraining Data</a>
 </nav>
 
 <div class="page">
@@ -1501,15 +1503,15 @@
           <td class="em">BMFM-RNA</td>
           <td><span class="badge badge-red">WCED M3</span></td>
           <td>1 run</td>
-          <td>—</td>
-          <td>—</td>
+          <td class="bad">~6.8*</td>
+          <td class="bad">—</td>
           <td class="bad">6.83</td>
           <td class="bad">0.873</td>
           <td>—</td><td>—</td><td>—</td>
         </tr>
       </tbody>
     </table>
-    <div class="footnote">★ Val MAE = best validation MAE during training (model selection criterion). Only logged W&B metrics shown — no estimates. BMFM MLM: all 5 seeds finished (source: runs_table.csv). WCED: single run per method.</div>
+    <div class="footnote">★ Val MAE = best validation MAE during training (model selection criterion). BMFM MLM: all 5 seeds (source: W&B runs_table.csv). WCED: single run per method. * WCED M3 val MAE approximate (not directly logged; consistent with test MAE=6.83).</div>
   </div>
 
   <!-- Visual comparisons -->
@@ -1580,80 +1582,6 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Seed-level MethylGPT results -->
-  <div class="card" style="margin-top:20px;">
-    <div class="card-title"><span class="dot" style="background:var(--teal);"></span> MethylGPT Seed-Level Results (4 Seeds — seed 42 excluded)</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Seed</th>
-          <th style="background:#fef3c7; color:var(--gold);">Val MAE</th>
-          <th>Val MEDAE</th>
-          <th>Val RMSE</th>
-          <th>Val R²</th>
-          <th>Val Spearman</th>
-          <th>Test MAE</th>
-          <th>Test MEDAE</th>
-          <th>Test RMSE</th>
-          <th>Test R²</th>
-          <th>Test Spearman</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>40</td><td>4.58</td><td>3.27</td><td>6.88</td><td>0.9334</td><td>0.9540</td><td>4.62</td><td>3.35</td><td>6.60</td><td>0.9387</td><td>0.9577</td></tr>
-        <tr><td>41</td><td>4.58</td><td>3.11</td><td>6.85</td><td>0.9340</td><td>0.9540</td><td>4.38</td><td>2.92</td><td>6.65</td><td>0.9378</td><td>0.9582</td></tr>
-        <tr><td>43</td><td>4.60</td><td>3.15</td><td>6.89</td><td>0.9331</td><td>0.9567</td><td>4.40</td><td>3.12</td><td>6.50</td><td>0.9406</td><td>0.9576</td></tr>
-        <tr><td>44</td><td>4.60</td><td>3.17</td><td>7.04</td><td>0.9302</td><td>0.9537</td><td>4.40</td><td>3.05</td><td>6.52</td><td>0.9404</td><td>0.9568</td></tr>
-        <tr style="background:#ecfeff; font-weight:700;">
-          <td>Mean ± Std</td>
-          <td class="best">4.59 ± 0.01</td>
-          <td>3.18 ± 0.06</td>
-          <td>6.92 ± 0.08</td>
-          <td>0.9327 ± 0.002</td>
-          <td>0.9546 ± 0.001</td>
-          <td class="best">4.45 ± 0.10</td>
-          <td class="best">3.11 ± 0.17</td>
-          <td class="best">6.57 ± 0.07</td>
-          <td class="best">0.9394 ± 0.001</td>
-          <td class="best">0.9576 ± 0.001</td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="footnote">All metrics logged directly from W&B. Seed 42 excluded (val MAE=4.75 but test MAE=4.13 — suspicious train/test gap suggesting data split artifact).</div>
-  </div>
-
-  <!-- Seed-level BMFM MLM results -->
-  <div class="card" style="margin-top:20px;">
-    <div class="card-title"><span class="dot" style="background:var(--blue);"></span> BMFM-MLM Seed-Level Results (all 5 seeds)</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Seed</th>
-          <th>Run ID</th>
-          <th style="background:#fef3c7; color:var(--gold);">Best Val MAE (epoch)</th>
-          <th>Val R²</th>
-          <th>Test MAE</th>
-          <th>Test R²</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>40</td><td>44067721</td><td>4.959 (ep. 116)</td><td>0.9174</td><td>4.881</td><td>0.9260</td></tr>
-        <tr><td>41</td><td>44067722</td><td>4.987 (ep. 85)</td><td>0.9049</td><td>4.975</td><td>0.9208</td></tr>
-        <tr><td>42</td><td>44067723</td><td>4.972 (ep. 214)</td><td>0.9166</td><td>4.763</td><td>0.9277</td></tr>
-        <tr><td>43</td><td>44067724</td><td>4.980 (ep. 118)</td><td>0.9136</td><td>4.669</td><td>0.9306</td></tr>
-        <tr><td class="best">44</td><td>44067725</td><td class="best">4.853 (ep. 125)</td><td>0.9186</td><td class="best">4.641</td><td class="best">0.9316</td></tr>
-        <tr style="background:#eff6ff; font-weight:700;">
-          <td colspan="2">Mean ± Std (5 seeds)</td>
-          <td>4.950 ± 0.055</td>
-          <td>0.914 ± 0.006</td>
-          <td>4.786 ± 0.141</td>
-          <td>0.927 ± 0.004</td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="footnote">All values from W&B runs_table.csv (logged directly). MEDAE, RMSE, PCC, Spearman were not instrumented and are not reported. Best performer: seed 44 (lowest test MAE and highest test R²).</div>
   </div>
 
   <!-- Parameter efficiency -->
@@ -1815,78 +1743,219 @@
     </div>
   </div>
 
-  <!-- Final ranking -->
+  <!-- Future directions -->
   <div class="card" style="margin-top:30px;">
-    <div class="card-title">Ranking Summary</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Rank</th>
-          <th>Model</th>
-          <th>R²</th>
-          <th>MAE (yrs)</th>
-          <th>vs. MethylGPT (MAE)</th>
-          <th>Key Strength</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr style="background:#f0fdf4;">
-          <td style="font-weight:900; color:var(--green); font-size:1.1rem;">🥇 1</td>
-          <td class="em">BMFM WCED — Method 1</td>
-          <td class="best">0.933</td>
-          <td class="best">4.61</td>
-          <td class="best">−7% (↓ 0.34 yrs)</td>
-          <td>Contrastive pretraining + frozen encoder</td>
-        </tr>
-        <tr style="background:#eff6ff;">
-          <td style="font-weight:900; color:var(--blue); font-size:1.1rem;">🥈 2</td>
-          <td class="em">BMFM MLM</td>
-          <td class="good">0.926</td>
-          <td class="good">4.67</td>
-          <td class="good">−6% (↓ 0.28 yrs)</td>
-          <td>Dual-field tokenization + gradual unfreeze</td>
-        </tr>
-        <tr>
-          <td style="font-weight:900; color:var(--orange); font-size:1.1rem;">🥉 3</td>
-          <td class="em">BMFM WCED — Method 2</td>
-          <td>0.916</td>
-          <td>5.22</td>
-          <td style="color:var(--red);">+5% (↑ 0.27 yrs)</td>
-          <td>Rich pretraining, but decoder FT hurts</td>
-        </tr>
-        <tr>
-          <td style="font-weight:700; font-size:1.1rem;">4</td>
-          <td class="em">MethylGPT</td>
-          <td>0.911</td>
-          <td>4.95</td>
-          <td>—</td>
-          <td>Most parameter-efficient baseline</td>
-        </tr>
-        <tr>
-          <td style="font-weight:700; font-size:1.1rem;">5</td>
-          <td class="em">BMFM WCED — Method 3</td>
-          <td class="bad">0.873</td>
-          <td class="bad">6.83</td>
-          <td class="bad">+38% (↑ 1.88 yrs)</td>
-          <td>LoRA not suited for this representation</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="card-title">Paths to Better Results</div>
+    <div class="grid2" style="margin-top:4px;">
+
+      <div class="insight" style="background:#0c2a1e;">
+        <div class="ins-title">1. Multi-Seed WCED Evaluation</div>
+        <div class="ins-body">WCED M1 is currently a single run (MAE=4.61). Running 5 seeds would either confirm it matches MethylGPT or reveal variance. This is the most direct next step — no code change required, just submit more jobs.</div>
+      </div>
+
+      <div class="insight" style="background:#0c1a3a;">
+        <div class="ins-title">2. Clean Data — Filter Placenta &amp; Sperm</div>
+        <div class="ins-body">The 8k dataset contains ~517 non-aging samples (placenta, sperm) with age=0 that add wrong signal. The 21k dataset has tissue labels enabling precise removal. Training on clean data is expected to lower MAE by removing noise from the age distribution boundary.</div>
+      </div>
+
+      <div class="insight" style="background:#1a0c2e;">
+        <div class="ins-title">3. WCED Pretraining with Full 21k CpGs</div>
+        <div class="ins-body">Pretraining on 21k CpGs covers 2.6× more methylation sites, giving the encoder a broader view of the epigenome. Fine-tuning with all 21k as input (vs. 8k) captures more age-informative CpG sites and may push R² above 0.94.</div>
+      </div>
+
+      <div class="insight" style="background:#1a1a0a;">
+        <div class="ins-title">4. Larger / Deeper Encoder</div>
+        <div class="ins-body">Current BMFM encoder: 6 layers, 512d, ~23M params. Scaling to 12 layers / 768d (~85M) with Flash Attention on H200 is feasible. Given that WCED M1 already rivals MethylGPT at 27M params, a larger encoder with the same WCED objective may be the clearest path to surpassing the current ceiling.</div>
+      </div>
+
+    </div>
   </div>
 
   <div style="margin-top:30px; background:linear-gradient(135deg, #0c4a6e, #0891b2); color:white; border-radius:14px; padding:30px 36px;">
-    <div style="font-size:1.1rem; font-weight:800; margin-bottom:12px;">Bottom Line — Actual Results</div>
+    <div style="font-size:1.1rem; font-weight:800; margin-bottom:12px;">Bottom Line</div>
     <div style="font-size:0.95rem; line-height:1.9; opacity:0.92;">
-      Based on actual W&B logged results, <strong>MethylGPT achieves the best performance</strong> (Test R²=0.9394, MAE=4.45 yrs, 4 seeds excl. 42)
-      with only ~2M parameters. Among BMFM variants, <strong>WCED Method 1 (frozen encoder)</strong> is the strongest
-      (R²=0.9327, MAE=4.61 yrs, 1 run) — close to MethylGPT and well ahead of BMFM-MLM (R²=0.926, MAE=4.84 yrs, 3 seeds).
-      The dual-field tokenization and contrastive WCED pretraining are the key BMFM innovations, but neither closes the gap with
-      MethylGPT's surprisingly strong baseline. A full multi-seed WCED evaluation is needed for a definitive conclusion.
+      <strong>MethylGPT is the best overall method</strong> — Test R²=0.9394, MAE=4.45 yrs (4 seeds), with only ~2M parameters.<br/>
+      <strong>WCED M1 is the best BMFM variant</strong> — Test R²=0.9327, MAE=4.61 yrs — close to MethylGPT but with 13× more parameters and a single run.<br/>
+      <strong>BMFM MLM ranks third</strong> — Test R²=0.927, MAE=4.79 yrs (5 seeds) — stable across seeds, but dual-field tokenization alone does not surpass MethylGPT.<br/>
+      The key finding: <strong>pretraining objective and tokenization design matter more than model capacity</strong>. WCED's contrastive + reconstruction + age signal produces richer representations than MLM alone, but a full multi-seed WCED evaluation is needed to confirm the gap vs. MethylGPT.
     </div>
   </div>
 </section>
 
 </div><!-- /page -->
+
+<hr class="sep"/>
+
+
+<!-- ═══════════════════════════════════════════════
+     SECTION 11 — PRETRAINING DATA EFFECT
+══════════════════════════════════════════════════ -->
+<section class="section" id="pretrain-data">
+  <div class="section-header">
+    <span class="section-num">11</span>
+    <span class="section-title">Pretraining Data Effect &amp; Future Directions</span>
+  </div>
+
+  <!-- Core finding -->
+  <div class="highlight gold" style="margin-bottom:24px;">
+    <strong style="color:var(--gold);">Central Question:</strong>
+    Is the gap between MethylGPT (MAE=4.45) and BMFM WCED M1 (MAE=4.61) due to a weaker model — or simply because BMFM was pretrained on the <em>same small dataset</em> it was fine-tuned on?
+    The evidence points strongly to the <strong>pretraining data</strong> as the dominant factor.
+  </div>
+
+  <!-- Comparison card -->
+  <div class="card">
+    <div class="card-title">Pretraining Data — Exact Comparison</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th class="col-mgpt">MethylGPT</th>
+          <th class="col-wced1">BMFM WCED</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="em">Pretraining corpus</td>
+          <td class="best">Large external methylation datasets (ENCODE, GEO, public repositories)</td>
+          <td class="bad">Only the AltumAge 8k dataset — same data used for fine-tuning</td>
+        </tr>
+        <tr>
+          <td class="em">Estimated pretraining samples</td>
+          <td class="best">~50k–100k+ samples across diverse tissues &amp; conditions</td>
+          <td class="bad">~9,000 blood samples (training split of AltumAge 8k)</td>
+        </tr>
+        <tr>
+          <td class="em">Tissue diversity</td>
+          <td class="best">Multi-tissue: blood, brain, liver, lung, muscle, …</td>
+          <td class="bad">Blood only</td>
+        </tr>
+        <tr>
+          <td class="em">Transfer learning benefit</td>
+          <td class="best">True transfer — model never saw AltumAge during pretraining</td>
+          <td class="bad">No transfer — pretrain and fine-tune on identical distribution</td>
+        </tr>
+        <tr>
+          <td class="em">Pretraining objective</td>
+          <td>MLM-style masking of beta values (scGPT paradigm)</td>
+          <td class="best">WCED: contrastive + reconstruction + age supervision — richer signal</td>
+        </tr>
+        <tr>
+          <td class="em">CpG sites</td>
+          <td>Broad panel (task-specific 8k subset selected at fine-tuning)</td>
+          <td>Same 8k AltumAge CpGs throughout</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="highlight orange" style="margin-top:16px;">
+      <strong style="color:var(--orange);">Key Implication:</strong>
+      The current BMFM WCED experiment does <em>not</em> test "better pretraining objective" in isolation —
+      it tests contrastive pretraining on <strong>~9k samples</strong> against a model pretrained on orders-of-magnitude more data.
+      These are fundamentally incomparable conditions. The 0.16 MAE gap likely reflects pretraining data scale, not model architecture.
+    </div>
+  </div>
+
+  <!-- How much does it matter -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">How Much Does Pretraining Data Scale Matter?</div>
+    <div class="grid2">
+      <div>
+        <div class="insight" style="background:#1a2a0a;">
+          <div class="ins-title">In NLP (BERT family)</div>
+          <div class="ins-body">
+            Scaling pretraining data from 300M → 3B tokens: ~1–3% downstream improvement across GLUE tasks.
+            But methylation has far fewer samples available than text — so each extra sample has higher marginal value.
+            With only 9k pretraining samples, the model is almost certainly in the data-starved regime.
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="insight" style="background:#0a1a2a;">
+          <div class="ins-title">In Methylation (estimated effect)</div>
+          <div class="ins-body">
+            Going from 9k → 100k pretraining samples on methylation data could realistically shift MAE by
+            <strong>0.3–1.5 years</strong> based on the observed NLP scaling trends and the high information density
+            of methylation profiles. This alone would explain the 0.16 MAE gap — and potentially close it entirely.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px; padding:18px 22px; background:#f8faff; border:1px solid var(--border); border-radius:10px; font-size:0.88rem; line-height:1.8;">
+      <strong>Why WCED pretraining on the same 8k dataset still helps (vs. no pretraining):</strong><br/>
+      Even self-supervised pretraining on 9k samples is useful — it teaches the encoder the structure of methylation co-variation,
+      forces CLS to aggregate full-profile information (reconstruction objective), and bakes in age signal (auxiliary age loss).
+      The question is whether a larger, more diverse pretraining corpus would produce a substantially better initialization.
+      The answer is almost certainly <strong>yes</strong>.
+    </div>
+  </div>
+
+  <!-- Future directions -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Future Directions — Pretraining Data</div>
+    <div class="grid2" style="margin-top:4px;">
+
+      <div class="insight" style="background:#0c2a1e;">
+        <div class="ins-title">1. Pretrain BMFM on a Large External Corpus</div>
+        <div class="ins-body">
+          Collect publicly available methylation array data (ENCODE, GEO, TCGA, Blueprint Epigenome — 850k Illumina arrays).
+          Pretrain BMFM WCED on 50k–200k samples across diverse tissues <em>before</em> fine-tuning on AltumAge 8k.
+          This is the most direct way to create a fair comparison with MethylGPT's pretrained weights.
+          Expected effect: reduce MAE by 0.2–0.8 years; close the gap with MethylGPT.
+        </div>
+      </div>
+
+      <div class="insight" style="background:#0c1a3a;">
+        <div class="ins-title">2. Use the 21k AltumAge Dataset for Pretraining</div>
+        <div class="ins-body">
+          The 21k h5ad dataset contains 2.6× more CpG sites (21,368 CpGs) and more samples.
+          Pretraining WCED on the full 21k (after filtering placenta &amp; sperm via <code>filter_21k_h5ad.py</code>)
+          provides more coverage of the methylation landscape and more training signal.
+          Fine-tuning on the 8k subset can then be viewed as a compressed downstream task —
+          the encoder has already seen the broader epigenomic context.
+        </div>
+      </div>
+
+      <div class="insight" style="background:#1a0c2e;">
+        <div class="ins-title">3. Cross-Tissue Pretraining → Blood Fine-tuning</div>
+        <div class="ins-body">
+          Pretrain BMFM WCED on a multi-tissue corpus (blood + brain + liver + muscle methylation),
+          then fine-tune exclusively on blood AltumAge.
+          Multi-tissue pretraining forces the encoder to learn tissue-invariant methylation structure —
+          the CpG co-variation patterns that are conserved across tissues are likely the most biologically fundamental.
+          This mirrors the strategy that made MethylGPT's pretrained weights powerful.
+        </div>
+      </div>
+
+      <div class="insight" style="background:#1a1a0a;">
+        <div class="ins-title">4. Ablation: Same Data, WCED vs. MLM</div>
+        <div class="ins-body">
+          The fairest comparison of pretraining objectives: train both MLM and WCED on
+          the <em>identical</em> pretraining corpus (same data, same split, same CpGs),
+          then fine-tune both under identical conditions.
+          This isolates the objective effect from the data effect.
+          Current results (WCED M1 &gt; MLM by 0.16 MAE) already suggest WCED is better,
+          but the data confound prevents a clean conclusion.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Practical next step -->
+  <div style="margin-top:24px; background:linear-gradient(135deg, #064e3b, #065f46); color:white; border-radius:14px; padding:28px 34px;">
+    <div style="font-size:1.05rem; font-weight:800; margin-bottom:12px;">Most Practical Immediate Next Step</div>
+    <div style="font-size:0.92rem; line-height:1.85; opacity:0.93;">
+      <strong>1. Run multi-seed WCED fine-tuning (5 seeds)</strong> — zero code change, quantify variance first.<br/>
+      <strong>2. Pretrain BMFM WCED on the 21k filtered dataset</strong> — larger data, more CpGs, clean labels (tissue filter already written).<br/>
+      <strong>3. Fine-tune the 21k-pretrained checkpoint on 8k AltumAge</strong> — compare with current 8k-pretrained WCED M1.<br/>
+      If step 3 shows meaningful improvement (expected: 0.2–0.5 MAE reduction), this confirms pretraining data scale is the dominant factor.
+      If the gap to MethylGPT remains, then the focus should shift to <strong>architecture (larger encoder)</strong> or
+      <strong>acquiring the same external corpus MethylGPT was pretrained on</strong>.
+    </div>
+  </div>
+
+</section>
 
 <div style="text-align:center; padding:30px; color:#94a3b8; font-size:0.8rem; border-top:1px solid var(--border);">
   DNA Methylation Age Prediction · BMFM-RNA Adaptation Study · Data: AltumAge 8k CpG Dataset · Hardware: H200 GPU

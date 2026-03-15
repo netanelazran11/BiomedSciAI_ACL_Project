@@ -40,6 +40,14 @@ early_stop_patience: 60  # Stop after 60 epochs without improvement
 # "multiply": h = CpG_embed * β_value (scGPT style)
 combine_style: add
 
+# Beta encoder: ScaleAdaptEncoder (sinusoidal basis) vs default MLP
+# ScaleAdapt encodes beta values [0,1] via trainable sinusoidal frequencies,
+# providing higher resolution than a 2-layer MLP (better captures 0.85 vs 0.87)
+# Applies to both MLM and WCED pretraining modes
+use_scale_adapt: false          # set true to enable
+scale_adapt_n_sin_basis: 48     # number of sin/cos basis pairs → 96 total features
+scale_adapt_basis_scale: 1.5    # frequency init scale: freqs ~ N(0, 2π * basis_scale)
+
 # MLM settings (used when pretraining_mode=mlm)
 mlm_enabled: true
 collation_strategy: "language_modeling"

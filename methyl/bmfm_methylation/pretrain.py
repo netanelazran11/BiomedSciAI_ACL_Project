@@ -511,6 +511,9 @@ def main(cfg: DictConfig):
             age_weight=wced_age_weight,
             betas=tuple(cfg.trainer.betas),
             epsilon=cfg.trainer.epsilon,
+            use_scale_adapt=cfg.get('use_scale_adapt', False),
+            scale_adapt_n_sin_basis=cfg.get('scale_adapt_n_sin_basis', 48),
+            scale_adapt_basis_scale=cfg.get('scale_adapt_basis_scale', 1.5),
         )
 
     else:
@@ -547,6 +550,23 @@ def main(cfg: DictConfig):
         else:
             logger.info(f"Using ADD mode (standard): h = CpG_embed + β_embed")
             print(f"[MODE] ADD (standard): h = CpG_embed + β_embed")
+
+        # Apply ScaleAdapt beta encoder if configured
+        if cfg.get('use_scale_adapt', False):
+            from bmfm_methylation.scale_adapt import patch_scale_adapt_encoder
+            embeddings_layer = model.model.scbert.embeddings
+            ok = patch_scale_adapt_encoder(
+                embeddings_layer,
+                hidden_size=model_config.hidden_size,
+                n_sin_basis=cfg.get('scale_adapt_n_sin_basis', 48),
+                basis_scale=cfg.get('scale_adapt_basis_scale', 1.5),
+                trainable=True,
+                zero_as_special_token=True,
+            )
+            if ok:
+                print("[SCALE_ADAPT] Beta encoder replaced with ScaleAdaptEncoder")
+            else:
+                print("[SCALE_ADAPT] WARNING: patch failed — using original MLP encoder")
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 

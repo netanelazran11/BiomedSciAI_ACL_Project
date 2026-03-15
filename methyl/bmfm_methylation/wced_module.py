@@ -118,6 +118,9 @@ class WCEDTrainingModule(pl.LightningModule):
         age_weight: float = 1.0,          # λ for age prediction loss
         betas: tuple = (0.9, 0.999),
         epsilon: float = 1e-8,
+        use_scale_adapt: bool = False,    # Replace MLP beta encoder with ScaleAdaptEncoder
+        scale_adapt_n_sin_basis: int = 48,
+        scale_adapt_basis_scale: float = 1.5,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['model_config', 'pretrain_config'])
@@ -135,8 +138,24 @@ class WCEDTrainingModule(pl.LightningModule):
         # Encoder
         self.encoder = SCBertModel(model_config, add_pooling_layer=True)
 
-        # Apply ADD fusion stabilization
+        # Apply ADD fusion stabilization (cpg_scale * cpg_embed + beta_embed)
         self._patch_embeddings_add_stabilized()
+
+        # Optionally replace MLP beta encoder with ScaleAdaptEncoder
+        # Must be applied AFTER _patch_embeddings_add_stabilized so the
+        # add_forward patch picks up the new beta_values_embeddings automatically
+        if use_scale_adapt:
+            from bmfm_methylation.scale_adapt import patch_scale_adapt_encoder
+            ok = patch_scale_adapt_encoder(
+                self.encoder.embeddings,
+                hidden_size=model_config.hidden_size,
+                n_sin_basis=scale_adapt_n_sin_basis,
+                basis_scale=scale_adapt_basis_scale,
+                trainable=True,
+                zero_as_special_token=True,
+            )
+            if not ok:
+                logger.warning("ScaleAdaptEncoder patch failed — using original MLP encoder")
 
         # WCED Decoder
         self.decoder = WCEDDecoder(
@@ -330,9 +349,16 @@ class WCEDTrainingModule(pl.LightningModule):
         masked_loss_v1 = loss_per_cpg_v1 * non_input_mask_v1.float()
         recon_loss_v1 = masked_loss_v1.sum() / non_input_mask_v1.float().sum().clamp(min=1)
 
-        # Age prediction loss
+        # Age prediction loss — skip samples with NaN age (e.g. placenta, sperm)
         if age_labels is not None and self.age_weight > 0:
-            age_loss = self.age_loss_fn(age_pred_v1, age_labels.float())
+            valid_age_mask = ~torch.isnan(age_labels)
+            if valid_age_mask.any():
+                age_loss = self.age_loss_fn(
+                    age_pred_v1[valid_age_mask],
+                    age_labels[valid_age_mask].float(),
+                )
+            else:
+                age_loss = torch.tensor(0.0, device=recon_loss_v1.device)
         else:
             age_loss = torch.tensor(0.0, device=recon_loss_v1.device)
 
