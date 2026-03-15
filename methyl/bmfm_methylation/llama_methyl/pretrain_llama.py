@@ -171,10 +171,14 @@ def main(cfg: DictConfig):
 
     # Data module settings
     dm_cfg = cfg.get("data_module", {})
-    subset_k         = dm_cfg.get("subset_k", 8000)
-    fixed_subset     = dm_cfg.get("fixed_subset", True)
+    subset_k          = dm_cfg.get("subset_k", 8000)
+    fixed_subset      = dm_cfg.get("fixed_subset", True)
     fixed_subset_seed = dm_cfg.get("fixed_subset_seed", 42)
-    vocab_size       = subset_k
+
+    # wced_vocab_size: how many CpGs the decoder outputs per batch
+    # = subset_k (the random subset selected per training step from all available CpGs)
+    # This is SEPARATE from model_vocab_size (the CpG embedding table size)
+    wced_vocab_size = subset_k
 
     use_mlm  = (pretraining_mode == "mlm")
     mask_ratio = dm_cfg.get("mask_ratio", 0.3) if use_mlm else 0.0
@@ -224,7 +228,7 @@ def main(cfg: DictConfig):
             wced_collator = WCEDCollator(
                 tokenizer=data_module.tokenizer,
                 cpg_sites=cpg_sites,
-                vocab_size=vocab_size,
+                vocab_size=wced_vocab_size,
                 input_ratio=wced_input_ratio,
                 fixed_subset_seed=fixed_subset_seed,
                 contrastive=wced_contrastive,
@@ -262,13 +266,24 @@ def main(cfg: DictConfig):
     data_module.setup()
 
     # Build model config
-    # vocab_size = number of CpG sites in the h5ad + 5 special tokens
-    # (UNK=0, SEP=1, PAD=2, CLS=3, MASK=4, then CpG IDs start at 5)
-    # This must match the tokenizer — use subset_k only if h5ad has exactly subset_k CpGs.
-    # For AltumAge 8k dataset: subset_k=8000 → vocab_size=8005
-    n_special_tokens = 5
-    derived_vocab_size = subset_k + n_special_tokens  # 8005 for 8k CpG dataset
-    model_config = build_model_config(cfg, vocab_size=derived_vocab_size)
+    # model_vocab_size = size of the CpG embedding lookup table
+    # = ALL CpG sites in the h5ad file + 5 special tokens
+    # DIFFERENT from wced_vocab_size (decoder output = subset_k per batch)
+    #
+    # Example with 49k pretrain data:
+    #   model_vocab_size = 49156 + 5 = 49161  (embedding table covers all CpGs)
+    #   wced_vocab_size  = 8000               (decoder outputs 8k CpGs per batch)
+    #
+    # Example with 8k AltumAge data:
+    #   model_vocab_size = 8000 + 5 = 8005    (embedding table)
+    #   wced_vocab_size  = 8000               (decoder = all CpGs)
+    cpg_sites_all = extract_cpg_sites_from_h5ad(cfg.data_path)
+    n_special_tokens = 5  # UNK=0, SEP=1, PAD=2, CLS=3, MASK=4
+    model_vocab_size = len(cpg_sites_all) + n_special_tokens
+    logger.info(
+        f"Tokenizer vocab: {len(cpg_sites_all)} CpG sites + {n_special_tokens} special = {model_vocab_size}"
+    )
+    model_config = build_model_config(cfg, vocab_size=model_vocab_size)
     logger.info(
         f"Model: {model_config.num_hidden_layers}L × {model_config.hidden_size}D, "
         f"SwiGLU intermediate={model_config.intermediate_size}, "
@@ -279,8 +294,9 @@ def main(cfg: DictConfig):
     # Create training module
     if pretraining_mode == "wced":
         logger.info(
-            f"WCED: vocab={vocab_size}, input_ratio={wced_input_ratio}, "
-            f"age_weight={wced_age_weight}, contrastive_weight={wced_contrastive_wt}"
+            f"WCED: model_vocab={model_vocab_size}, decoder_vocab={wced_vocab_size}, "
+            f"input_ratio={wced_input_ratio}, age_weight={wced_age_weight}, "
+            f"contrastive_weight={wced_contrastive_wt}"
         )
 
         tr_cfg = cfg.get("trainer", {})
@@ -290,7 +306,7 @@ def main(cfg: DictConfig):
             weight_decay=tr_cfg.get("weight_decay", 0.01),
             warmup_steps=tr_cfg.get("warmup_steps", 100),
             lr_decay_steps=tr_cfg.get("lr_decay_steps", 0),
-            vocab_size=vocab_size,
+            vocab_size=wced_vocab_size,   # decoder output size = subset_k
             contrastive_weight=wced_contrastive_wt,
             contrastive_temp=wced_contrastive_temp,
             normalize_loss=wced_normalize_loss,

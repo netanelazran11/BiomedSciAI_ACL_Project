@@ -19,7 +19,11 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs"
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
+# ─── PRETRAIN DATA (large corpus: 169k samples × 49k CpGs) ──────────────────
+# Provide cluster path here:
+PRETRAIN_DATA="${PRETRAIN_DATA:-???_CLUSTER_PATH_TO_methylgpt_pretrain_type3.h5ad}"
+
+DATA="${PRETRAIN_DATA}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Architecture settings (MethylLlamaConfig)
@@ -61,12 +65,16 @@ EARLY_STOP="${EARLY_STOP:-60}"
 # ─────────────────────────────────────────────────────────────────────────────
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="pretrain-llama-wced"
-WANDB_RUN_NAME="llama-wced-k${SUBSET_K}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="llama-wced-pretrain49k-k${SUBSET_K}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
 
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
 OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 
-mkdir -p "${LOGDIR}" "${OUTDIR}"
+# Tokenizer saved here — finetune_llama_wced.sh must use the SAME path
+# because the CpG ID→index mapping must be consistent across pretrain and finetune
+TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
+
+mkdir -p "${LOGDIR}" "${OUTDIR}" "${TOKENIZER_PATH}"
 
 echo "============================================================"
 echo "METHYLLAMA WCED PRETRAINING"
@@ -119,6 +127,7 @@ PY
 # ─────────────────────────────────────────────────────────────────────────────
 python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_path="${DATA}" \
+    tokenizer_path="${TOKENIZER_PATH}" \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
     data_module.subset_k="${SUBSET_K}" \

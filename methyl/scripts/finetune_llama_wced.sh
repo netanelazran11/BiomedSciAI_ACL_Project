@@ -19,7 +19,15 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs"
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
+# ─── FINETUNE DATA (AltumAge 8k: labeled with age) ──────────────────────────
+# Provide cluster path here:
+FINETUNE_DATA="${FINETUNE_DATA:-/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad}"
+
+DATA="${FINETUNE_DATA}"
+
+# ─── TOKENIZER: MUST be the same one created during pretrain ─────────────────
+# Points to tokenizer built from 49k pretrain data so CpG IDs match the model
+TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 
 # REQUIRED: set to your pretrained LLaMA checkpoint path
 CHECKPOINT="${CHECKPOINT:-???}"
@@ -51,7 +59,10 @@ EARLY_STOP="${EARLY_STOP:-30}"
 # Set FREEZE_ENCODER=false for M2 (fine-tune encoder — risks corrupting WCED repr)
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-9999}"
-RECON_WEIGHT="${RECON_WEIGHT:-0.1}"
+# recon_weight=0.0: decoder was trained on random 8k subsets of 49k pretrain CpGs.
+# During finetune the 8k AltumAge CpGs are a fixed specific subset — IDs may not align.
+# Disable decoder regularizer to avoid mismatched reconstruction loss.
+RECON_WEIGHT="${RECON_WEIGHT:-0.0}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -97,6 +108,7 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 python -m bmfm_methylation.llama_methyl.finetune_wced_llama \
     data_path="${DATA}" \
     checkpoint_path="${CHECKPOINT}" \
+    tokenizer_path="${TOKENIZER_PATH}" \
     output_directory="${OUTDIR}" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset_seed=42 \
