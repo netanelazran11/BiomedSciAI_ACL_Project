@@ -1,0 +1,160 @@
+#!/bin/bash -l
+#SBATCH --job-name=pretrain-llama-wced
+#SBATCH --partition=goldfish
+#SBATCH --gres=gpu:h200:1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=50:00:00
+
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────────────────────────────────────
+REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
+LOGDIR="${REPO}/logs"
+
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Architecture settings (MethylLlamaConfig)
+# Defaults match: 6L × 512D × 8H, SwiGLU intermediate=1408
+# ─────────────────────────────────────────────────────────────────────────────
+HIDDEN_SIZE="${HIDDEN_SIZE:-512}"
+NUM_LAYERS="${NUM_LAYERS:-6}"
+NUM_HEADS="${NUM_HEADS:-8}"
+INTERMEDIATE_SIZE="${INTERMEDIATE_SIZE:-1408}"   # SwiGLU: round(2/3 × 4 × 512 / 64) × 64
+ROPE_THETA="${ROPE_THETA:-10000.0}"
+N_SIN_BASIS="${N_SIN_BASIS:-48}"
+BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]; upstream uses 1.5 for scRNA
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WCED settings
+# ─────────────────────────────────────────────────────────────────────────────
+SUBSET_K="${SUBSET_K:-8000}"
+INPUT_RATIO="${INPUT_RATIO:-0.5}"
+AGE_WEIGHT="${AGE_WEIGHT:-1.0}"
+CONTRASTIVE="${CONTRASTIVE:-true}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
+CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
+NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
+DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Training hyperparameters
+# ─────────────────────────────────────────────────────────────────────────────
+LR="${LR:-5e-4}"
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
+WARMUP_STEPS="${WARMUP_STEPS:-200}"       # Short warmup — Pre-LN is stable from step 1
+BATCH_SIZE="${BATCH_SIZE:-16}"
+ACCUM="${ACCUM:-8}"                        # Effective batch = 16 × 8 = 128
+PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
+EARLY_STOP="${EARLY_STOP:-60}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WandB
+# ─────────────────────────────────────────────────────────────────────────────
+WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
+WANDB_PROJECT="pretrain-llama-wced"
+WANDB_RUN_NAME="llama-wced-k${SUBSET_K}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
+
+OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
+OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
+
+mkdir -p "${LOGDIR}" "${OUTDIR}"
+
+echo "============================================================"
+echo "METHYLLAMA WCED PRETRAINING"
+echo "============================================================"
+echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
+echo "------------------------------------------------------------"
+echo "Architecture (LLaMA vs SCBert improvements):"
+echo "  RMSNorm + Pre-LN   (stable from step 1, no careful warmup)"
+echo "  SwiGLU FFN         (gated, more expressive)"
+echo "  RoPE               (relative position, no 4M pos-embed table)"
+echo "  ScaleAdaptEncoder  (sinusoidal basis, trainable freqs for beta [0,1])"
+echo "------------------------------------------------------------"
+echo "Model:   ${NUM_LAYERS}L × ${HIDDEN_SIZE}D × ${NUM_HEADS}H, intermediate=${INTERMEDIATE_SIZE}"
+echo "ScaleAdapt: n_sin_basis=${N_SIN_BASIS}, basis_scale=${BASIS_SCALE}"
+echo "------------------------------------------------------------"
+echo "Data:    ${SUBSET_K} CpGs, input_ratio=${INPUT_RATIO}"
+echo "WCED:    age_weight=${AGE_WEIGHT}, contrastive=${CONTRASTIVE} (w=${CONTRASTIVE_WEIGHT})"
+echo "Train:   lr=${LR}, batch=${BATCH_SIZE}×${ACCUM}=${BATCH_SIZE}*${ACCUM}, epochs=${PRETRAIN_EPOCHS}"
+echo "Output:  ${OUTDIR}"
+echo "W&B:     ${WANDB_PROJECT}/${WANDB_RUN_NAME}"
+echo "============================================================"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Environment
+# ─────────────────────────────────────────────────────────────────────────────
+source /etc/profile.d/modules.sh 2>/dev/null || source /usr/share/modules/init/bash 2>/dev/null || true
+
+module purge
+module load spack/all
+module load cuda/12.3.2-gcc-5bv3kyh
+
+cd "${REPO}"
+source bmfm_methyl_env/bin/activate
+
+export TOKENIZERS_PARALLELISM=false
+export PYTORCH_ALLOC_CONF="expandable_segments:True"
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+
+python - <<'PY'
+import torch
+torch.set_float32_matmul_precision("medium")
+print("torch:", torch.__version__, "cuda:", torch.version.cuda)
+print("CUDA available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("GPU:", torch.cuda.get_device_name(0))
+PY
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pretraining (WCEDLlamaModule using MethylLlamaModel)
+# ─────────────────────────────────────────────────────────────────────────────
+python -m bmfm_methylation.llama_methyl.pretrain_llama \
+    data_path="${DATA}" \
+    output_directory="${OUTDIR}" \
+    pretraining_mode=wced \
+    data_module.subset_k="${SUBSET_K}" \
+    data_module.fixed_subset=true \
+    data_module.fixed_subset_seed=42 \
+    data_module.max_length=$((SUBSET_K + 2)) \
+    data_module.batch_size="${BATCH_SIZE}" \
+    data_module.num_workers=8 \
+    model.hidden_size="${HIDDEN_SIZE}" \
+    model.num_hidden_layers="${NUM_LAYERS}" \
+    model.num_attention_heads="${NUM_HEADS}" \
+    model.intermediate_size="${INTERMEDIATE_SIZE}" \
+    model.rope_theta="${ROPE_THETA}" \
+    model.n_sin_basis="${N_SIN_BASIS}" \
+    model.basis_scale="${BASIS_SCALE}" \
+    trainer.learning_rate="${LR}" \
+    trainer.weight_decay="${WEIGHT_DECAY}" \
+    trainer.warmup_steps="${WARMUP_STEPS}" \
+    wced_input_ratio="${INPUT_RATIO}" \
+    wced_age_weight="${AGE_WEIGHT}" \
+    wced_contrastive="${CONTRASTIVE}" \
+    wced_contrastive_weight="${CONTRASTIVE_WEIGHT}" \
+    wced_contrastive_temp="${CONTRASTIVE_TEMP}" \
+    wced_normalize_loss="${NORMALIZE_LOSS}" \
+    wced_decoder_dropout="${DECODER_DROPOUT}" \
+    pretrain_epochs="${PRETRAIN_EPOCHS}" \
+    accumulate_grad_batches="${ACCUM}" \
+    early_stop_patience="${EARLY_STOP}" \
+    gradient_clip_val=1.0 \
+    precision="16-mixed" \
+    track_wandb.enabled=true \
+    track_wandb.project="${WANDB_PROJECT}" \
+    track_wandb.entity="${WANDB_ENTITY}" \
+    track_wandb.name="${WANDB_RUN_NAME}"
+
+echo "============================================================"
+echo "Pretraining finished: $(date)"
+echo "Checkpoint: ${OUTDIR}/checkpoints/"
+echo "============================================================"

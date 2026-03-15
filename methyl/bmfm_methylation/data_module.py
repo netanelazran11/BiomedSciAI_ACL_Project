@@ -58,6 +58,7 @@ class MethylationDataset(Dataset):
         age_column: str = "age",
         split_column: str = "split",
         normalize_age: bool = True,
+        min_age: Optional[float] = None,
     ):
         """
         Args:
@@ -72,6 +73,7 @@ class MethylationDataset(Dataset):
         self.age_column = age_column
         self.split_column = split_column
         self.normalize_age = normalize_age
+        self.min_age = min_age
 
         # Load data
         self.adata = sc.read_h5ad(h5ad_path)
@@ -88,15 +90,25 @@ class MethylationDataset(Dataset):
         # Get age values
         if age_column in self.adata.obs.columns:
             self.ages = self.adata.obs[age_column].values.astype(np.float32)
+            # Mark samples below min_age as NaN — they will be excluded from age loss
+            # (e.g. placenta/sperm have age=0 but this is NOT an aging signal)
+            if min_age is not None:
+                n_excluded = int(np.sum(self.ages < min_age))
+                self.ages[self.ages < min_age] = np.nan
+                if n_excluded:
+                    logger.warning(
+                        f"Excluded {n_excluded} samples with age < {min_age} from age loss "
+                        f"(set to NaN — reconstruction loss still applies)"
+                    )
             self.has_ages = True
         else:
-            self.ages = np.zeros(len(self.adata), dtype=np.float32)
+            self.ages = np.full(len(self.adata), np.nan, dtype=np.float32)
             self.has_ages = False
 
-        # Compute normalization statistics
+        # Compute normalization statistics (ignore NaN samples)
         if self.has_ages and normalize_age:
-            self.age_mean = float(np.mean(self.ages))
-            self.age_std = float(np.std(self.ages))
+            self.age_mean = float(np.nanmean(self.ages))
+            self.age_std = float(np.nanstd(self.ages))
             if self.age_std == 0:
                 self.age_std = 1.0
         else:
@@ -185,6 +197,7 @@ class MethylationDataModule(pl.LightningDataModule):
         fixed_subset_seed: int = 42,  # Seed for selecting fixed subset
         use_wced_collator: bool = False,  # Use WCEDCollator (provides all_betas + input_mask)
         wced_input_ratio: float = 0.5,    # Fraction of vocab per view (matches pretraining)
+        min_age: Optional[float] = None,  # Exclude samples below this age from age loss (e.g. 1.0 removes placenta/sperm)
     ):
         """
         Args:
@@ -241,6 +254,7 @@ class MethylationDataModule(pl.LightningDataModule):
         self.fixed_subset_seed = fixed_subset_seed
         self.use_wced_collator = use_wced_collator
         self.wced_input_ratio = wced_input_ratio
+        self.min_age = min_age
 
         # Will be set during setup
         self.train_dataset = None
@@ -261,6 +275,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 age_column=self.age_column,
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
+                min_age=self.min_age,
             )
             self.val_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
@@ -268,6 +283,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 age_column=self.age_column,
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
+                min_age=self.min_age,
             )
             # Share normalization stats from training
             self.val_dataset.age_mean = self.train_dataset.age_mean
@@ -280,6 +296,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 age_column=self.age_column,
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
+                min_age=self.min_age,
             )
             if self.train_dataset is not None:
                 self.test_dataset.age_mean = self.train_dataset.age_mean
@@ -710,7 +727,7 @@ class WCEDCollator:
             if ex.metadata and 'labels' in ex.metadata:
                 ages.append(float(ex.metadata['labels']))
             else:
-                ages.append(0.0)  # Default if no age label
+                ages.append(float('nan'))  # NaN = no age label (not 0 — 0 is a real age)
         age_tensor = torch.tensor(ages, dtype=torch.float32)
 
         result = {
