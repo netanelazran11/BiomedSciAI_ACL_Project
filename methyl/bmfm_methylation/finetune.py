@@ -564,14 +564,39 @@ def main(cfg: DictConfig):
         # The model structure is: MLMTrainingModule.model (SCBertForMaskedLM) -> .scbert (SCBertModel)
         # Null out checkpoint to prevent SCBertForMaskedLM.__init__ from double-loading
         model_config.checkpoint = None
+
+        # Detect if checkpoint was trained with ScaleAdaptEncoder
+        # (it will have 'model.scbert.embeddings.beta_values_embeddings.basis' in state_dict)
+        ckpt_data = torch.load(cfg.checkpoint_path, weights_only=False)
+        ckpt_state = ckpt_data.get('state_dict', {})
+        checkpoint_has_scale_adapt = any(
+            'beta_values_embeddings.basis' in k for k in ckpt_state
+        )
+        if checkpoint_has_scale_adapt:
+            logger.info("Checkpoint was trained with ScaleAdaptEncoder — will patch before loading")
+
         pretrained_module = MLMTrainingModule.load_from_checkpoint(
             cfg.checkpoint_path,
             model_config=model_config,
             trainer_config=trainer_config,
             tokenizer=tokenizer,
             weights_only=False,
+            strict=not checkpoint_has_scale_adapt,  # strict=False when ScaleAdapt mismatch
         )
         encoder = pretrained_module.model.scbert
+
+        # If checkpoint had ScaleAdapt: apply patch and load ScaleAdapt weights manually
+        if checkpoint_has_scale_adapt:
+            from bmfm_methylation.scale_adapt import patch_scale_adapt_encoder
+            patch_scale_adapt_encoder(encoder.embeddings, hidden_size=model_config.hidden_size)
+            # Load ScaleAdapt-specific weights from checkpoint state dict
+            prefix = 'model.scbert.embeddings.beta_values_embeddings.'
+            sa_weights = {
+                k[len(prefix):]: v for k, v in ckpt_state.items()
+                if k.startswith(prefix)
+            }
+            encoder.embeddings.beta_values_embeddings.load_state_dict(sa_weights, strict=False)
+            logger.info(f"ScaleAdaptEncoder weights restored ({len(sa_weights)} tensors)")
         logger.info("Loaded pretrained encoder (CpG IDs + beta values + transformer layers)")
 
         # DEBUG: Verify checkpoint loaded correctly
