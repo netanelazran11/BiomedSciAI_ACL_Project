@@ -120,7 +120,7 @@ class WCEDTrainingModule(pl.LightningModule):
         epsilon: float = 1e-8,
         use_scale_adapt: bool = False,    # Replace MLP beta encoder with ScaleAdaptEncoder
         scale_adapt_n_sin_basis: int = 48,
-        scale_adapt_basis_scale: float = 1.5,
+        scale_adapt_basis_scale: float = 2.0,  # Higher than upstream 1.5 — beta [0,1] needs finer resolution
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['model_config', 'pretrain_config'])

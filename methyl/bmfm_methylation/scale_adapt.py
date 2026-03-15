@@ -54,9 +54,9 @@ class ScaleAdaptEncoder(nn.Module):
         self,
         hidden_size: int,
         n_sin_basis: int = 48,
-        basis_scale: float = 1.5,
+        basis_scale: float = 2.0,
         trainable: bool = True,
-        zero_as_special_token: bool = True,
+        zero_as_special_token: bool = False,  # False=MLM (beta=0 is real), True=WCED (0 means special)
         n_special_tokens: int = 8,
     ):
         """
@@ -64,10 +64,18 @@ class ScaleAdaptEncoder(nn.Module):
             hidden_size:           Output embedding dimension (must match encoder hidden_size)
             n_sin_basis:           Number of sinusoidal basis pairs. Total features = 2*n_sin_basis.
             basis_scale:           Frequency init scale. Frequencies ~ N(0, 2π * basis_scale).
+                                   Upstream uses 1.5 for scRNA (range 0–10+).
+                                   Use 2.0 for methylation beta values (range [0,1]) — tighter
+                                   range needs higher initial frequencies to resolve fine differences.
+                                   Frequencies are trainable so this only affects initialization.
             trainable:             If True, frequencies are learned nn.Parameters.
                                    If False, fixed geometric progression (2^k).
-            zero_as_special_token: If True, x=0 is treated as a special token (not continuous).
-                                   Required when CLS/PAD are zeroed before embedding.
+            zero_as_special_token: Controls how beta=0 is handled.
+                                   False (MLM):  beta=0 is a real value (fully unmethylated CpG)
+                                                 → encode with sinusoidal basis like any other value
+                                   True  (WCED): WCED add_forward zeroes out CLS/special tokens
+                                                 → beta=0 means "was a special token"
+                                                 → route to learned special token embedding
             n_special_tokens:      Size of the special token embedding table.
                                    Must cover all negative token markers used.
         """
@@ -155,9 +163,9 @@ def patch_scale_adapt_encoder(
     embeddings_layer,
     hidden_size: int,
     n_sin_basis: int = 48,
-    basis_scale: float = 1.5,
+    basis_scale: float = 2.0,
     trainable: bool = True,
-    zero_as_special_token: bool = True,
+    zero_as_special_token: bool = False,  # caller must set True for WCED, False for MLM
 ) -> bool:
     """
     Replace the MLP beta encoder on an SCBert embeddings layer with ScaleAdaptEncoder.

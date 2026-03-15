@@ -559,9 +559,11 @@ def main(cfg: DictConfig):
                 embeddings_layer,
                 hidden_size=model_config.hidden_size,
                 n_sin_basis=cfg.get('scale_adapt_n_sin_basis', 48),
-                basis_scale=cfg.get('scale_adapt_basis_scale', 1.5),
+                basis_scale=cfg.get('scale_adapt_basis_scale', 2.0),
                 trainable=True,
-                zero_as_special_token=True,
+                # MLM: beta=0 is a valid real value (fully unmethylated CpG)
+                # so zero must NOT be treated as a special token
+                zero_as_special_token=False,
             )
             if ok:
                 print("[SCALE_ADAPT] Beta encoder replaced with ScaleAdaptEncoder")
