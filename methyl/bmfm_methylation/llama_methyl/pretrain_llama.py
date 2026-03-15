@@ -70,15 +70,24 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def setup_tokenizer(cfg: DictConfig):
-    """Create or load MultiField tokenizer."""
+    """Create or load MultiField tokenizer.
+
+    For pretrain data where var_names are integers (not CpG names),
+    pass probe_ids_csv in config to use the explicit probe ID list.
+    """
     tokenizer_path = Path(cfg.tokenizer_path)
     if tokenizer_path.exists() and (tokenizer_path / "tokenizers").exists():
         logger.info(f"Loading tokenizer from {tokenizer_path}")
         from bmfm_targets.tokenization import MultiFieldTokenizer
         return MultiFieldTokenizer.from_pretrained(str(tokenizer_path))
     else:
-        logger.info(f"Creating tokenizer from {cfg.data_path}")
-        cpg_sites = extract_cpg_sites_from_h5ad(cfg.data_path)
+        probe_ids_csv = cfg.get("probe_ids_csv", None)
+        logger.info(
+            f"Creating tokenizer from {cfg.data_path}"
+            + (f" + probe_ids CSV: {probe_ids_csv}" if probe_ids_csv else "")
+        )
+        cpg_sites = extract_cpg_sites_from_h5ad(cfg.data_path, probe_ids_csv=probe_ids_csv)
+        logger.info(f"  {len(cpg_sites)} CpG sites found")
         tokenizer = create_methylation_multifield_tokenizer(
             cpg_sites=cpg_sites,
             output_dir=str(tokenizer_path),
@@ -277,7 +286,8 @@ def main(cfg: DictConfig):
     # Example with 8k AltumAge data:
     #   model_vocab_size = 8000 + 5 = 8005    (embedding table)
     #   wced_vocab_size  = 8000               (decoder = all CpGs)
-    cpg_sites_all = extract_cpg_sites_from_h5ad(cfg.data_path)
+    probe_ids_csv = cfg.get("probe_ids_csv", None)
+    cpg_sites_all = extract_cpg_sites_from_h5ad(cfg.data_path, probe_ids_csv=probe_ids_csv)
     n_special_tokens = 5  # UNK=0, SEP=1, PAD=2, CLS=3, MASK=4
     model_vocab_size = len(cpg_sites_all) + n_special_tokens
     logger.info(

@@ -154,22 +154,51 @@ def create_methylation_multifield_tokenizer(
     return multifield_tokenizer
 
 
-def extract_cpg_sites_from_h5ad(h5ad_path: str) -> List[str]:
+def extract_cpg_sites_from_h5ad(h5ad_path: str, probe_ids_csv: Optional[str] = None) -> List[str]:
     """
     Extract CpG site names from an h5ad file.
 
+    Handles two h5ad var formats:
+      1. var_names = CpG names (e.g. AltumAge 8k: adata.var_names = ['cg00000029', ...])
+      2. var_names = integers, CpG names in var['cpg_id'] column
+         (e.g. methylgpt_pretrain_type3.h5ad — no _index in var)
+
     Args:
-        h5ad_path: Path to h5ad file
+        h5ad_path:      Path to h5ad file
+        probe_ids_csv:  Optional path to CSV with 'illumina_probe_id' column.
+                        If provided, used directly (skips h5ad var parsing).
 
     Returns:
-        List of CpG site names from var_names
+        List of CpG site names (e.g. ['cg00000109', 'cg00000292', ...])
     """
+    # Option 1: use probe IDs CSV directly (most reliable for pretrain data)
+    if probe_ids_csv is not None:
+        import pandas as pd
+        df = pd.read_csv(probe_ids_csv)
+        col = "illumina_probe_id" if "illumina_probe_id" in df.columns else df.columns[-1]
+        cpg_sites = df[col].tolist()
+        return cpg_sites
+
     import scanpy as sc
-
     adata = sc.read_h5ad(h5ad_path)
-    cpg_sites = list(adata.var_names)
+    var_names = list(adata.var_names)
 
-    return cpg_sites
+    # Option 2: var_names are proper CpG IDs (start with 'cg')
+    if var_names and str(var_names[0]).startswith("cg"):
+        return var_names
+
+    # Option 3: var_names are integers → CpG names are in var['cpg_id'] column
+    if "cpg_id" in adata.var.columns:
+        return list(adata.var["cpg_id"])
+
+    # Fallback: return whatever var_names are (may be integers — will cause issues)
+    import warnings
+    warnings.warn(
+        f"Could not find CpG names in {h5ad_path}. "
+        f"var_names[0]={var_names[0] if var_names else 'empty'}. "
+        f"Pass probe_ids_csv= to use an explicit probe ID list."
+    )
+    return var_names
 
 
 def create_tokenizer_from_h5ad(

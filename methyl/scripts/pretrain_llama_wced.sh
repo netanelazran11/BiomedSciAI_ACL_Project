@@ -20,8 +20,9 @@ REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs"
 
 # ─── PRETRAIN DATA (large corpus: 169k samples × 49k CpGs) ──────────────────
-# Provide cluster path here:
+# TODO: fill in cluster paths before running
 PRETRAIN_DATA="${PRETRAIN_DATA:-???_CLUSTER_PATH_TO_methylgpt_pretrain_type3.h5ad}"
+PROBE_IDS_CSV="${PROBE_IDS_CSV:-???_CLUSTER_PATH_TO_probe_ids_type3.csv}"
 
 DATA="${PRETRAIN_DATA}"
 
@@ -127,6 +128,7 @@ PY
 # ─────────────────────────────────────────────────────────────────────────────
 python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_path="${DATA}" \
+    probe_ids_csv="${PROBE_IDS_CSV}" \
     tokenizer_path="${TOKENIZER_PATH}" \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
