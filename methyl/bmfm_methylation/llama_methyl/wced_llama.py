@@ -206,7 +206,11 @@ class WCEDLlamaModule(pl.LightningModule):
         cls_embedding  = encoder_out.pooler_output              # [B, D]
         projection     = self.projection_head(cls_embedding)    # [B, 128]
         predicted_betas = self.decoder(cls_embedding)           # [B, vocab_size]
-        predicted_age  = self.age_head(cls_embedding).squeeze(-1)  # [B]
+        # Only run age head when it will actually contribute to the loss
+        if self.age_weight > 0:
+            predicted_age = self.age_head(cls_embedding).squeeze(-1)  # [B]
+        else:
+            predicted_age = torch.zeros(cls_embedding.shape[0], device=cls_embedding.device)
 
         return {
             "cls_embedding":   cls_embedding,
@@ -356,11 +360,16 @@ class WCEDLlamaModule(pl.LightningModule):
             mae = torch.abs(ni_pred - ni_target).mean()
             mse = ((ni_pred - ni_target) ** 2).mean()
             all_mae = torch.abs(predicted_betas - all_betas).mean()
-            age_mae = (
-                torch.abs(age_pred_v1 - age_labels).mean()
-                if age_labels is not None
-                else torch.tensor(0.0, device=mae.device)
-            )
+            # age_labels may be a tensor of all-NaN (pretrain data has no age column)
+            if age_labels is not None:
+                valid_age = ~torch.isnan(age_labels)
+                age_mae = (
+                    torch.abs(age_pred_v1[valid_age] - age_labels[valid_age]).mean()
+                    if valid_age.any()
+                    else torch.tensor(0.0, device=mae.device)
+                )
+            else:
+                age_mae = torch.tensor(0.0, device=mae.device)
 
         return {
             "loss":             loss,
