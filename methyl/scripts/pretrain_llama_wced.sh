@@ -1,11 +1,11 @@
 #!/bin/bash -l
 #SBATCH --job-name=pretrain-llama-wced
 #SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:1
+#SBATCH --gres=gpu:h200:2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
 #SBATCH --time=50:00:00
 
 #SBATCH --output=logs/%x_%j.out
@@ -140,7 +140,7 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
-    data_module.num_workers=8 \
+    data_module.num_workers=7 \
     model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
     model.num_attention_heads="${NUM_HEADS}" \
