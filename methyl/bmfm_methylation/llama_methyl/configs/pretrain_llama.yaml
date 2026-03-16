@@ -22,6 +22,7 @@ pretraining_mode: wced   # "wced" (recommended) or "mlm"
 # ─────────────────────────────────────────────────────────────────────────────
 data_path: ???                              # Required: path to .h5ad file
 probe_ids_csv: null                        # Optional: CSV with CpG probe IDs (needed when var_names are integers)
+resume_checkpoint: null                    # Optional: path to .ckpt to resume training from
 output_directory: ./outputs/llama_wced
 tokenizer_path: ./tokenizer               # Shared with SCBert pretraining
 

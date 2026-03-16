@@ -55,8 +55,8 @@ seed:
 
 # Regression head settings
 regression_head:
-  hidden_size: 256
-  dropout: 0.2  # Increased from 0.1 to reduce overfitting
+  hidden_size: 64
+  dropout: 0.1
   output_size: 1  # Single age prediction
 
 # WandB logging

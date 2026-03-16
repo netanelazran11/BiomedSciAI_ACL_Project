@@ -376,8 +376,14 @@ def main(cfg: DictConfig):
         enable_progress_bar=True,
     )
 
-    logger.info("Starting pretraining...")
-    trainer.fit(module, datamodule=data_module)
+    # Resume from checkpoint if provided
+    resume_ckpt = cfg.get("resume_checkpoint", None)
+    if resume_ckpt:
+        logger.info(f"Resuming from checkpoint: {resume_ckpt}")
+    else:
+        logger.info("Starting pretraining from scratch...")
+
+    trainer.fit(module, datamodule=data_module, ckpt_path=resume_ckpt)
 
     # Test
     if data_module.test_dataset is not None:

@@ -21,13 +21,15 @@ LOGDIR="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
-# Pretrained checkpoint - UPDATE THIS after pretraining!
-# Should point to the checkpoint from pretrain with SAME fixed subset settings
-# TODO: Update this path after full 8k pretraining completes
-CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-full8k-bmfm-rna-methylation/REPLACE_WITH_RUN_NAME/pretrain/checkpoints/REPLACE_WITH_BEST_CKPT.ckpt"
+# Pretrained checkpoint — set via env var or override below
+# full8k run (subset_k=8000, loss=0.0013):
+#   CHECKPOINT=".../pretrain-full8k-bmfm-rna-methylation/add-full8k-44199523/pretrain/checkpoints/BEST.ckpt"
+# fixed2048 run (subset_k=2048, loss=0.0013):
+#   CHECKPOINT=".../pretrain-fixed2048-bmfm-rna-methylation/add-fixed2048-44043043/pretrain/checkpoints/epoch=epoch=240-val_loss=validation/loss=0.0013.ckpt"
+CHECKPOINT="${CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-full8k-bmfm-rna-methylation/add-full8k-44199523/pretrain/checkpoints/epoch=epoch=279-val_loss=validation/loss=0.0013.ckpt}"
 
 # CpG subset settings - MUST MATCH PRETRAINING!
-# Using ALL 8k CpGs (same as pretraining)
+# full8k pretrain → SUBSET_K=8000 | fixed2048 pretrain → SUBSET_K=2048
 SUBSET_K="${SUBSET_K:-8000}"
 FIXED_SUBSET="true"
 FIXED_SUBSET_SEED="42"
@@ -105,8 +107,10 @@ python3 -m bmfm_methylation.finetune \
     data_module.max_length=$((SUBSET_K + 2)) \
     data_module.batch_size=32 \
     data_module.num_workers=0 \
-    freeze_encoder=true \
-    unfreeze_encoder_epoch=5 \
+    freeze_encoder=false \
+    trainer.learning_rate=5e-4 \
+    encoder_lr_multiplier=0.3 \
+    pearson_weight=0.5 \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \

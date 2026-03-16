@@ -68,6 +68,12 @@ PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Resume (optional) — set to continue from a previous checkpoint
+# Usage: RESUME_CHECKPOINT=/path/to/epoch=X-val_loss=Y.ckpt sbatch ...
+# ─────────────────────────────────────────────────────────────────────────────
+RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # WandB
 # ─────────────────────────────────────────────────────────────────────────────
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -169,7 +175,8 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    ${RESUME_CHECKPOINT:+resume_checkpoint="${RESUME_CHECKPOINT}"}
 
 echo "============================================================"
 echo "Pretraining finished: $(date)"

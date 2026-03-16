@@ -60,6 +60,29 @@ from bmfm_methylation.data_module import MethylationDataModule
 logger = logging.getLogger(__name__)
 
 
+class AttentionPooling(nn.Module):
+    """Learned weighted average over token representations.
+
+    Computes a scalar attention weight per token, applies softmax (masked),
+    then returns the weighted sum. This lets the model focus on age-relevant
+    CpGs rather than treating all 8k tokens equally (mean pooling).
+    """
+
+    def __init__(self, hidden_size: int):
+        super().__init__()
+        self.attn = nn.Linear(hidden_size, 1, bias=False)
+
+    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        # hidden_states: [batch, seq, hidden]
+        # attention_mask: [batch, seq]  (1=real token, 0=pad)
+        scores = self.attn(hidden_states).squeeze(-1)          # [batch, seq]
+        if attention_mask.dim() == 3:
+            attention_mask = attention_mask[:, 0, :]
+        scores = scores.masked_fill(attention_mask == 0, -1e9)
+        weights = torch.softmax(scores, dim=-1).unsqueeze(-1)  # [batch, seq, 1]
+        return (weights * hidden_states).sum(dim=1)            # [batch, hidden]
+
+
 class MethylationAgeRegressor(pl.LightningModule):
     """
     Lightning module for methylation age regression.
@@ -93,6 +116,7 @@ class MethylationAgeRegressor(pl.LightningModule):
         encoder_lr_multiplier: float = 0.1,
         use_huber_loss: bool = False,
         huber_delta: float = 2.0,
+        pearson_weight: float = 0.5,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder'])
@@ -107,17 +131,21 @@ class MethylationAgeRegressor(pl.LightningModule):
                 param.requires_grad = False
             logger.info(f"Encoder frozen (will unfreeze at epoch {unfreeze_encoder_epoch})")
 
-        # MLP head for age prediction: 512 -> 256 -> 128 -> 1
+        # Attention pooling: learns a scalar weight per token position.
+        # Softmax over all positions → weighted sum → single vector.
+        # This focuses on age-relevant CpGs rather than averaging all 8k equally.
+        self.attn_pool = AttentionPooling(hidden_size)
+
+        # MLP head for age prediction: 512 -> 64 -> 1
+        # The encoder does the heavy lifting — head only needs to extract age.
+        # Simpler head = less overfitting, faster convergence.
+        # Input LayerNorm stabilizes the pooled representation before the linear.
         self.age_head = nn.Sequential(
+            nn.LayerNorm(hidden_size),
             nn.Linear(hidden_size, head_hidden_size),
-            nn.LayerNorm(head_hidden_size),
             nn.GELU(),
             nn.Dropout(head_dropout),
-            nn.Linear(head_hidden_size, head_hidden_size // 2),
-            nn.LayerNorm(head_hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(head_dropout),
-            nn.Linear(head_hidden_size // 2, 1),
+            nn.Linear(head_hidden_size, 1),
         )
 
         if use_huber_loss:
@@ -159,11 +187,11 @@ class MethylationAgeRegressor(pl.LightningModule):
         encoder_output = self.encoder(input_ids, attention_mask=attention_mask)
         sequence_output = encoder_output.last_hidden_state  # [batch, seq_len, hidden]
 
-        # Mean pooling over content tokens (skip CLS at position 0)
-        # CLS pooling doesn't work after MLM pretrain since CLS wasn't trained to aggregate
-        content = sequence_output[:, 1:, :]  # [batch, seq_len-1, hidden]
-        mask = attention_mask[:, 1:].unsqueeze(-1).float()  # [batch, seq_len-1, 1]
-        pooled = (content * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+        # Attention pooling — learned weighted average over all tokens.
+        # Mean pooling equally weights all 8k CpGs (dilutes age signal).
+        # CLS pooling is wrong for MLM (CLS was never trained to aggregate).
+        # Attention pooling lets the model learn which CpGs matter for age.
+        pooled = self.attn_pool(sequence_output, attention_mask)
 
         # Age prediction head
         age_pred = self.age_head(pooled)
@@ -268,7 +296,16 @@ class MethylationAgeRegressor(pl.LightningModule):
                     logger.info("=" * 70)
 
         # Loss (on normalized values)
-        loss = self.loss_fn(predictions, labels)
+        mse_loss = self.loss_fn(predictions, labels)
+
+        # Pearson correlation component — directly optimizes R²
+        # loss = MSE + pearson_weight * (1 - PCC)
+        pred_m  = predictions - predictions.mean()
+        label_m = labels - labels.mean()
+        pcc = (pred_m * label_m).sum() / (
+            (pred_m.pow(2).sum() * label_m.pow(2).sum()).sqrt().clamp(min=1e-8)
+        )
+        loss = mse_loss + self.hparams.pearson_weight * (1.0 - pcc)
 
         # Denormalize for metrics
         preds_denorm = predictions * self.age_std + self.age_mean
@@ -542,89 +579,30 @@ def main(cfg: DictConfig):
     # Load pretrained encoder or create new one
     from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
 
+    model_config.checkpoint = None  # prevent SCBertModel from self-loading
+
     if cfg.checkpoint_path and cfg.checkpoint_path != "null":
         logger.info(f"Loading pretrained checkpoint: {cfg.checkpoint_path}")
-        # Load from MLMTrainingModule checkpoint (PyTorch Lightning checkpoint)
-        from bmfm_targets.training.modules.masked_language_modeling import MLMTrainingModule
-        from bmfm_targets.config import TrainerConfig, SCBertConfig, FieldInfo
 
-        # Add safe globals for PyTorch 2.6+ compatibility
-        import torch.serialization
-        torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
+        # Lightning checkpoints store weights under 'state_dict'.
+        # Keys are like 'model.scbert.embeddings...', 'model.scbert.encoder...'
+        # Strip the 'model.scbert.' prefix to get bare SCBertModel state dict.
+        ckpt = torch.load(cfg.checkpoint_path, weights_only=False)
+        prefix = "model.scbert."
+        encoder_state = {
+            k[len(prefix):]: v
+            for k, v in ckpt["state_dict"].items()
+            if k.startswith(prefix)
+        }
 
-        # Create a trainer config (needed for loading)
-        trainer_config = TrainerConfig(
-            learning_rate=cfg.trainer.learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-            warmup_steps=cfg.trainer.warmup_steps,
-            losses=[{"name": "cross_entropy"}],  # Required for MLMTrainingModule
+        encoder = SCBertModel(model_config)
+        missing, unexpected = encoder.load_state_dict(encoder_state, strict=True)
+        logger.info(
+            f"Loaded {len(encoder_state)} tensors. "
+            f"Missing: {len(missing)}, Unexpected: {len(unexpected)}"
         )
-
-        # Extract the encoder (SCBertModel) from the MLMTrainingModule
-        # The model structure is: MLMTrainingModule.model (SCBertForMaskedLM) -> .scbert (SCBertModel)
-        # Null out checkpoint to prevent SCBertForMaskedLM.__init__ from double-loading
-        model_config.checkpoint = None
-
-        # Detect if checkpoint was trained with ScaleAdaptEncoder
-        # (it will have 'model.scbert.embeddings.beta_values_embeddings.basis' in state_dict)
-        ckpt_data = torch.load(cfg.checkpoint_path, weights_only=False)
-        ckpt_state = ckpt_data.get('state_dict', {})
-        checkpoint_has_scale_adapt = any(
-            'beta_values_embeddings.basis' in k for k in ckpt_state
-        )
-        if checkpoint_has_scale_adapt:
-            logger.info("Checkpoint was trained with ScaleAdaptEncoder — will patch before loading")
-
-        pretrained_module = MLMTrainingModule.load_from_checkpoint(
-            cfg.checkpoint_path,
-            model_config=model_config,
-            trainer_config=trainer_config,
-            tokenizer=tokenizer,
-            weights_only=False,
-            strict=not checkpoint_has_scale_adapt,  # strict=False when ScaleAdapt mismatch
-        )
-        encoder = pretrained_module.model.scbert
-
-        # If checkpoint had ScaleAdapt: apply patch and load ScaleAdapt weights manually
-        if checkpoint_has_scale_adapt:
-            from bmfm_methylation.scale_adapt import patch_scale_adapt_encoder
-            patch_scale_adapt_encoder(encoder.embeddings, hidden_size=model_config.hidden_size)
-            # Load ScaleAdapt-specific weights from checkpoint state dict
-            prefix = 'model.scbert.embeddings.beta_values_embeddings.'
-            sa_weights = {
-                k[len(prefix):]: v for k, v in ckpt_state.items()
-                if k.startswith(prefix)
-            }
-            encoder.embeddings.beta_values_embeddings.load_state_dict(sa_weights, strict=False)
-            logger.info(f"ScaleAdaptEncoder weights restored ({len(sa_weights)} tensors)")
-        logger.info("Loaded pretrained encoder (CpG IDs + beta values + transformer layers)")
-
-        # DEBUG: Verify checkpoint loaded correctly
-        logger.info("=" * 70)
-        logger.info("DEBUG: CHECKPOINT VERIFICATION")
-        # Check embedding weights - should NOT be all zeros or random-like
-        cpg_embed_weight = encoder.embeddings.cpg_sites_embeddings.weight
-        logger.info(f"  CpG embedding shape: {cpg_embed_weight.shape}")
-        logger.info(f"  CpG embedding stats: mean={cpg_embed_weight.mean():.6f}, std={cpg_embed_weight.std():.6f}")
-        logger.info(f"  CpG embedding[0,:5]: {cpg_embed_weight[0, :5].tolist()}")
-        logger.info(f"  CpG embedding[100,:5]: {cpg_embed_weight[100, :5].tolist()}")
-
-        # Check continuous value encoder
-        if hasattr(encoder.embeddings, 'beta_values_embeddings'):
-            beta_encoder = encoder.embeddings.beta_values_embeddings
-            if hasattr(beta_encoder, 'continuous_encoder'):
-                cont_enc = beta_encoder.continuous_encoder
-                if hasattr(cont_enc, 'linear_layers'):
-                    for i, layer in enumerate(cont_enc.linear_layers):
-                        if hasattr(layer, 'weight'):
-                            logger.info(f"  Beta encoder layer {i} weight stats: mean={layer.weight.mean():.6f}, std={layer.weight.std():.6f}")
-
-        # Check encoder layers
-        if hasattr(encoder, 'encoder') and hasattr(encoder.encoder, 'layer'):
-            for i, layer in enumerate(encoder.encoder.layer[:2]):  # First 2 layers
-                attn_weight = layer.attention.self.query.weight
-                logger.info(f"  Encoder layer {i} query weight: mean={attn_weight.mean():.6f}, std={attn_weight.std():.6f}")
-        logger.info("=" * 70)
+        if missing:
+            logger.warning(f"Missing keys: {missing[:5]}")
     else:
         logger.info("Training from scratch (no pretraining)")
         encoder = SCBertModel(model_config)
@@ -635,6 +613,7 @@ def main(cfg: DictConfig):
     encoder_lr_multiplier = cfg.get('encoder_lr_multiplier', 0.1)
     use_huber_loss = cfg.get('use_huber_loss', False)
     huber_delta = cfg.get('huber_delta', 2.0)
+    pearson_weight = cfg.get('pearson_weight', 0.5)
 
     effective_batch = cfg.data_module.batch_size * cfg.accumulate_grad_batches
     steps_per_epoch = len(data_module.train_dataset) // effective_batch
@@ -654,7 +633,8 @@ def main(cfg: DictConfig):
     fixed_subset = cfg.data_module.get('fixed_subset', True)
     logger.info(f"Num CpG sites: {num_cpg_sites}")
     logger.info(f"Subset settings: k={subset_k}, fixed={fixed_subset}")
-    logger.info(f"Pipeline: [CpG IDs + beta values] -> Encoder ({model_config.hidden_size}d) -> mean pool -> MLP head -> age")
+    logger.info(f"Pipeline: [CpG IDs + beta values] -> Encoder ({model_config.hidden_size}d) -> CLS -> LayerNorm -> MLP head -> age")
+    logger.info(f"Loss: MSE + {pearson_weight} * (1 - PCC)")
 
     model = MethylationAgeRegressor(
         encoder=encoder,
@@ -673,6 +653,7 @@ def main(cfg: DictConfig):
         encoder_lr_multiplier=encoder_lr_multiplier,
         use_huber_loss=use_huber_loss,
         huber_delta=huber_delta,
+        pearson_weight=pearson_weight,
     )
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
