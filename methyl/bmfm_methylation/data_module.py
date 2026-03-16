@@ -82,9 +82,31 @@ class MethylationDataset(Dataset):
         if split is not None and split_column in self.adata.obs.columns:
             mask = self.adata.obs[split_column] == split
             self.adata = self.adata[mask].copy()
+        elif split is not None:
+            # No split column: auto-split 80/10/10 by shuffled index (seed=42)
+            n = len(self.adata)
+            rng = np.random.default_rng(42)
+            perm = rng.permutation(n)
+            train_end = int(0.8 * n)
+            val_end   = int(0.9 * n)
+            if split == "train":
+                sel = perm[:train_end]
+            elif split in ("valid", "val"):
+                sel = perm[train_end:val_end]
+            else:  # test
+                sel = perm[val_end:]
+            self.adata = self.adata[sel].copy()
+            logger.warning(
+                f"No '{split_column}' column found. "
+                f"Auto-split '{split}': {len(sel)}/{n} samples (seed=42, 80/10/10)"
+            )
 
         # Get CpG site names
-        self.cpg_sites = list(self.adata.var_names)
+        # Prefer var['cpg_id'] column (pretrain h5ad has integer var_names, not CpG names)
+        if "cpg_id" in self.adata.var.columns:
+            self.cpg_sites = list(self.adata.var["cpg_id"])
+        else:
+            self.cpg_sites = list(self.adata.var_names)
         self.num_cpg_sites = len(self.cpg_sites)
 
         # Get age values
@@ -665,6 +687,8 @@ class WCEDCollator:
 
         # Output tensors (full vocabulary)
         all_betas = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.float32)
+        # valid_mask: True = non-NaN position (include in loss); False = NaN (exclude from loss)
+        valid_mask = torch.ones((batch_size, self.actual_vocab_size), dtype=torch.bool)
 
         # View 1 tensors
         cpg_ids_v1 = torch.full((batch_size, max_input_len), self.pad_id, dtype=torch.long)
@@ -688,34 +712,37 @@ class WCEDCollator:
 
             # Get beta values for vocabulary CpGs
             vocab_betas = betas[self.vocab_cpg_indices]
-            all_betas[i] = torch.tensor(vocab_betas, dtype=torch.float32)
 
-            # Number of CpGs per view
+            # Handle NaN: ~0.3–0.9% of CpGs may be NaN in pretrain data
+            # NaN in all_betas → NaN MSE loss; NaN in input → NaN embeddings
+            vocab_valid = np.isfinite(vocab_betas)           # [vocab_size] True=valid
+            vocab_betas_clean = np.where(vocab_valid, vocab_betas, 0.0)  # replace NaN→0
+            all_betas[i] = torch.tensor(vocab_betas_clean, dtype=torch.float32)
+            valid_mask[i] = torch.tensor(vocab_valid, dtype=torch.bool)
+
+            # Only sample input views from valid (non-NaN) positions
+            valid_indices = np.where(vocab_valid)[0]
             n_input = int(self.actual_vocab_size * self.input_ratio)
+            n_input = min(n_input, len(valid_indices))
 
-            # View 1: Random subset
-            indices_v1 = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
-            indices_v1 = np.sort(indices_v1)
+            # View 1: Random subset of valid CpGs
+            indices_v1 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
 
-            ids, vals, attn, mask = self._build_view(vocab_betas, indices_v1, max_input_len)
+            ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v1, max_input_len)
             cpg_ids_v1[i] = ids
             beta_values_v1[i] = vals
             attention_mask_v1[i] = attn
             input_mask_v1[i] = mask
 
             if self.contrastive:
-                # View 2: Different random subset (non-overlapping preferred)
-                # For 50% input, we can make them non-overlapping
-                remaining = np.setdiff1d(np.arange(self.actual_vocab_size), indices_v1)
+                # View 2: Non-overlapping subset of valid CpGs (preferred for 50% ratio)
+                remaining = np.setdiff1d(valid_indices, indices_v1)
                 if len(remaining) >= n_input:
-                    # Non-overlapping views
-                    indices_v2 = rng.choice(remaining, size=n_input, replace=False)
+                    indices_v2 = np.sort(rng.choice(remaining, size=n_input, replace=False))
                 else:
-                    # Partial overlap (if input_ratio > 0.5)
-                    indices_v2 = rng.choice(self.actual_vocab_size, size=n_input, replace=False)
-                indices_v2 = np.sort(indices_v2)
+                    indices_v2 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
 
-                ids, vals, attn, mask = self._build_view(vocab_betas, indices_v2, max_input_len)
+                ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v2, max_input_len)
                 cpg_ids_v2[i] = ids
                 beta_values_v2[i] = vals
                 attention_mask_v2[i] = attn
@@ -738,6 +765,7 @@ class WCEDCollator:
             "input_mask": input_mask_v1,
             # Target
             "all_betas": all_betas,
+            "valid_mask": valid_mask,   # True=non-NaN; exclude False from recon loss
             # Age labels for multi-task learning
             "age": age_tensor,
         }

@@ -271,7 +271,8 @@ class WCEDLlamaModule(pl.LightningModule):
         beta_values_v1 = batch["beta_values"]
         attention_mask_v1 = batch.get("attention_mask")
         input_mask_v1  = batch["input_mask"]    # [B, vocab_size] True=in input
-        all_betas      = batch["all_betas"]     # [B, vocab_size] full targets
+        all_betas      = batch["all_betas"]     # [B, vocab_size] full targets (NaN→0)
+        valid_mask     = batch.get("valid_mask")  # [B, vocab_size] True=non-NaN position
         age_labels     = batch.get("age")       # [B] or None
 
         # Encode view 1
@@ -280,18 +281,22 @@ class WCEDLlamaModule(pl.LightningModule):
         z1      = out_v1["projection"]
         age_pred_v1 = out_v1["predicted_age"]
 
-        # Reconstruction loss on non-input CpGs only
+        # Reconstruction loss on non-input, non-NaN CpGs only
         non_input_mask_v1 = ~input_mask_v1  # True = not in input → must reconstruct
+        # Combine with valid_mask to exclude NaN positions from loss
+        recon_mask_v1 = non_input_mask_v1
+        if valid_mask is not None:
+            recon_mask_v1 = non_input_mask_v1 & valid_mask
 
         if self.normalize_loss:
-            pred_norm   = self._normalize_per_sample(pred_v1,  non_input_mask_v1)
-            target_norm = self._normalize_per_sample(all_betas, non_input_mask_v1)
+            pred_norm   = self._normalize_per_sample(pred_v1,  recon_mask_v1)
+            target_norm = self._normalize_per_sample(all_betas, recon_mask_v1)
             loss_per_cpg = self.recon_loss_fn(pred_norm, target_norm)
         else:
             loss_per_cpg = self.recon_loss_fn(pred_v1, all_betas)
 
-        masked_loss   = loss_per_cpg * non_input_mask_v1.float()
-        recon_loss_v1 = masked_loss.sum() / non_input_mask_v1.float().sum().clamp(min=1)
+        masked_loss   = loss_per_cpg * recon_mask_v1.float()
+        recon_loss_v1 = masked_loss.sum() / recon_mask_v1.float().sum().clamp(min=1)
 
         # Age loss — skip NaN (e.g. sperm, placenta samples)
         if age_labels is not None and self.age_weight > 0:
@@ -314,15 +319,16 @@ class WCEDLlamaModule(pl.LightningModule):
             )
             pred_v2 = out_v2["predicted_betas"]
 
-            # Reconstruction loss on view 2
+            # Reconstruction loss on view 2 (non-input + non-NaN positions)
             non_input_v2 = ~batch["input_mask_v2"]
+            recon_mask_v2 = non_input_v2 & valid_mask if valid_mask is not None else non_input_v2
             if self.normalize_loss:
-                pn2 = self._normalize_per_sample(pred_v2,  non_input_v2)
-                tn2 = self._normalize_per_sample(all_betas, non_input_v2)
+                pn2 = self._normalize_per_sample(pred_v2,  recon_mask_v2)
+                tn2 = self._normalize_per_sample(all_betas, recon_mask_v2)
                 lpc2 = self.recon_loss_fn(pn2, tn2)
             else:
                 lpc2 = self.recon_loss_fn(pred_v2, all_betas)
-            recon_loss_v2 = (lpc2 * non_input_v2.float()).sum() / non_input_v2.float().sum().clamp(min=1)
+            recon_loss_v2 = (lpc2 * recon_mask_v2.float()).sum() / recon_mask_v2.float().sum().clamp(min=1)
 
             recon_loss = (recon_loss_v1 + recon_loss_v2) / 2
 
@@ -334,17 +340,19 @@ class WCEDLlamaModule(pl.LightningModule):
             loss = recon_loss + self.contrastive_weight * contrastive_loss + self.age_weight * age_loss
             predicted_betas = pred_v1
             non_input_mask  = non_input_mask_v1
+            recon_mask      = recon_mask_v1
         else:
             recon_loss       = recon_loss_v1
             contrastive_loss = torch.tensor(0.0, device=recon_loss_v1.device)
             loss = recon_loss + self.age_weight * age_loss
             predicted_betas = pred_v1
             non_input_mask  = non_input_mask_v1
+            recon_mask      = recon_mask_v1
 
-        # Metrics (no-grad)
+        # Metrics (no-grad) — only on non-input, non-NaN positions
         with torch.no_grad():
-            ni_pred   = predicted_betas[non_input_mask]
-            ni_target = all_betas[non_input_mask]
+            ni_pred   = predicted_betas[recon_mask]
+            ni_target = all_betas[recon_mask]
             mae = torch.abs(ni_pred - ni_target).mean()
             mse = ((ni_pred - ni_target) ** 2).mean()
             all_mae = torch.abs(predicted_betas - all_betas).mean()
@@ -365,7 +373,7 @@ class WCEDLlamaModule(pl.LightningModule):
             "all_mae":          all_mae,
             "predicted_betas":  predicted_betas,
             "target_betas":     all_betas,
-            "non_input_mask":   non_input_mask,
+            "non_input_mask":   recon_mask,   # non-input AND non-NaN
             "cls_embedding":    out_v1["cls_embedding"],
             "predicted_age":    age_pred_v1,
         }
