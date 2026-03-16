@@ -477,18 +477,19 @@ class WCEDLlamaModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         out = self._shared_step(batch, "val")
-        self.log("validation/loss",             out["loss"],             on_epoch=True, prog_bar=True)
-        self.log("validation/recon_loss",       out["recon_loss"],       on_epoch=True)
-        self.log("validation/age_loss",         out["age_loss"],         on_epoch=True)
-        self.log("validation/age_mae",          out["age_mae"],          on_epoch=True)
-        self.log("validation/contrastive_loss", out["contrastive_loss"], on_epoch=True)
-        self.log("validation/mae",              out["mae"],              on_epoch=True)
-        self.log("validation/all_mae",          out["all_mae"],          on_epoch=True)
+        sd = True  # sync_dist=True: average metrics across GPUs in DDP
+        self.log("validation/loss",             out["loss"],             on_epoch=True, prog_bar=True, sync_dist=sd)
+        self.log("validation/recon_loss",       out["recon_loss"],       on_epoch=True, sync_dist=sd)
+        self.log("validation/age_loss",         out["age_loss"],         on_epoch=True, sync_dist=sd)
+        self.log("validation/age_mae",          out["age_mae"],          on_epoch=True, sync_dist=sd)
+        self.log("validation/contrastive_loss", out["contrastive_loss"], on_epoch=True, sync_dist=sd)
+        self.log("validation/mae",              out["mae"],              on_epoch=True, sync_dist=sd)
+        self.log("validation/all_mae",          out["all_mae"],          on_epoch=True, sync_dist=sd)
         # Quality + health metrics
-        self.log("validation/pcc",              out["pcc"],              on_epoch=True, prog_bar=True)
-        self.log("validation/pred_mean",        out["pred_mean"],        on_epoch=True)
-        self.log("validation/pred_std",         out["pred_std"],         on_epoch=True)
-        self.log("validation/valid_pct",        out["valid_pct"],        on_epoch=True)
+        self.log("validation/pcc",              out["pcc"],              on_epoch=True, prog_bar=True, sync_dist=sd)
+        self.log("validation/pred_mean",        out["pred_mean"],        on_epoch=True, sync_dist=sd)
+        self.log("validation/pred_std",         out["pred_std"],         on_epoch=True, sync_dist=sd)
+        self.log("validation/valid_pct",        out["valid_pct"],        on_epoch=True, sync_dist=sd)
 
         # Diagnostic: CLS diversity
         if batch_idx == 0:
@@ -499,38 +500,30 @@ class WCEDLlamaModule(pl.LightningModule):
                 sim_mat = torch.matmul(cls_norm, cls_norm.T)
                 triu_mask = torch.triu(torch.ones_like(sim_mat), diagonal=1).bool()
                 mean_sim = sim_mat[triu_mask].mean()
-                self.log("validation/cls_variance",  cls_var,  on_epoch=True)
-                self.log("validation/cls_similarity", mean_sim, on_epoch=True)
+                self.log("validation/cls_variance",   cls_var,  on_epoch=True, sync_dist=sd)
+                self.log("validation/cls_similarity", mean_sim, on_epoch=True, sync_dist=sd)
 
                 pred_var   = out["predicted_betas"].var(dim=0).mean()
                 target_var = out["target_betas"].var(dim=0).mean()
-                self.log("validation/pred_var_ratio", pred_var / (target_var + 1e-8), on_epoch=True)
+                self.log("validation/pred_var_ratio", pred_var / (target_var + 1e-8), on_epoch=True, sync_dist=sd)
 
         return out["loss"]
 
     def test_step(self, batch, batch_idx):
         out = self._shared_step(batch, "test")
-        self.log("test/loss",             out["loss"],             on_epoch=True)
-        self.log("test/recon_loss",       out["recon_loss"],       on_epoch=True)
-        self.log("test/age_loss",         out["age_loss"],         on_epoch=True)
-        self.log("test/age_mae",          out["age_mae"],          on_epoch=True)
-        self.log("test/contrastive_loss", out["contrastive_loss"], on_epoch=True)
-        self.log("test/mae",              out["mae"],              on_epoch=True)
-        self.log("test/all_mae",          out["all_mae"],          on_epoch=True)
+        sd = True
+        self.log("test/loss",             out["loss"],             on_epoch=True, sync_dist=sd)
+        self.log("test/recon_loss",       out["recon_loss"],       on_epoch=True, sync_dist=sd)
+        self.log("test/age_loss",         out["age_loss"],         on_epoch=True, sync_dist=sd)
+        self.log("test/age_mae",          out["age_mae"],          on_epoch=True, sync_dist=sd)
+        self.log("test/contrastive_loss", out["contrastive_loss"], on_epoch=True, sync_dist=sd)
+        self.log("test/mae",              out["mae"],              on_epoch=True, sync_dist=sd)
+        self.log("test/all_mae",          out["all_mae"],          on_epoch=True, sync_dist=sd)
 
-        # PCC on non-input positions
-        non_input_mask = out["non_input_mask"]
-        pred   = out["predicted_betas"][non_input_mask].detach().cpu().numpy()
-        target = out["target_betas"][non_input_mask].detach().cpu().numpy()
-        if len(pred) > 1:
-            pcc, _ = pearsonr(pred, target)
-            self.log("test/pcc", pcc, on_epoch=True)
-
-        all_pred   = out["predicted_betas"].detach().cpu().numpy().flatten()
-        all_target = out["target_betas"].detach().cpu().numpy().flatten()
-        if len(all_pred) > 1:
-            all_pcc, _ = pearsonr(all_pred, all_target)
-            self.log("test/all_pcc", all_pcc, on_epoch=True)
+        # PCC on non-input positions (already computed in _shared_step)
+        self.log("test/pcc",     out["pcc"],     on_epoch=True, sync_dist=sd)
+        self.log("test/pred_mean", out["pred_mean"], on_epoch=True, sync_dist=sd)
+        self.log("test/pred_std",  out["pred_std"],  on_epoch=True, sync_dist=sd)
 
         return out["loss"]
 
