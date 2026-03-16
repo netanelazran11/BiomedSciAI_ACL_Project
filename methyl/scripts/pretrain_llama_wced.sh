@@ -43,11 +43,14 @@ BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
+# subset_k=8000 + fixed_subset=false: random 8k CpGs per batch from all 49k.
+# The model sees ALL 49k CpGs across epochs — just not all at once.
+# seq_len = 8000×0.5 + 1 = 4001 tokens → ~36× faster than 24k-token sequences.
 # ─────────────────────────────────────────────────────────────────────────────
-SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs
-INPUT_RATIO="${INPUT_RATIO:-0.5}"         # 50%→50% original WCED split: see 24.5k, predict 24.5k
-AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # No age labels in pretrain corpus
-CONTRASTIVE="${CONTRASTIVE:-false}"       # Disabled: pure reconstruction first run
+SUBSET_K="${SUBSET_K:-8000}"             # Random 8k CpGs per batch (covers all 49k over epochs)
+INPUT_RATIO="${INPUT_RATIO:-0.5}"        # 50%→50% WCED split: see 4k, predict 4k
+AGE_WEIGHT="${AGE_WEIGHT:-0.0}"          # No age labels in pretrain corpus
+CONTRASTIVE="${CONTRASTIVE:-false}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
@@ -55,15 +58,15 @@ DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Training hyperparameters
-# seq_len = 49156×0.5 + 1 = 24579 tokens
-# H200 memory at B=8, seq=24.5k, 768D×8L: ~36GB — comfortable
-# Effective batch = 8 per GPU × 2 GPUs × 16 accum = 256 samples
+# seq_len = 8000×0.5 + 1 = 4001 tokens
+# H200 80GB: B=32 fits comfortably at 4k seq, 768D×8L (~20GB)
+# Effective batch = 32 × 2 GPUs × 8 accum = 512 samples
 # ─────────────────────────────────────────────────────────────────────────────
 LR="${LR:-5e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_STEPS="${WARMUP_STEPS:-2000}"
-BATCH_SIZE="${BATCH_SIZE:-8}"             # Reduced for 24.5k seq len at 768D
-ACCUM="${ACCUM:-16}"                      # Effective batch = 8 × 2 GPUs × 16 = 256
+BATCH_SIZE="${BATCH_SIZE:-32}"           # Can increase with 4k seq (vs 8 with 24k)
+ACCUM="${ACCUM:-8}"                      # Effective batch = 32 × 2 GPUs × 8 = 512
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
@@ -139,7 +142,7 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
     data_module.subset_k="${SUBSET_K}" \
-    data_module.fixed_subset=true \
+    data_module.fixed_subset=false \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
