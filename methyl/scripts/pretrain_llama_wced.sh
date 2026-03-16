@@ -143,7 +143,8 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
-    data_module.num_workers=14 \    model.hidden_size="${HIDDEN_SIZE}" \
+    data_module.num_workers=14 \
+    model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
     model.num_attention_heads="${NUM_HEADS}" \
     model.intermediate_size="${INTERMEDIATE_SIZE}" \

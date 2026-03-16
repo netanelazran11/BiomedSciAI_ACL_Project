@@ -247,6 +247,21 @@ class WCEDLlamaModule(pl.LightningModule):
         return (loss_12 + loss_21) / 2
 
     # -------------------------------------------------------------------------
+    # Pearson correlation (PyTorch — no CPU transfer, works during training)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _pearson_corr(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Pearson correlation on 1-D tensors. Returns scalar tensor."""
+        if pred.numel() < 2:
+            return torch.tensor(0.0, device=pred.device)
+        pred_m   = pred   - pred.mean()
+        target_m = target - target.mean()
+        num   = (pred_m * target_m).sum()
+        denom = (pred_m.pow(2).sum() * target_m.pow(2).sum()).sqrt().clamp(min=1e-8)
+        return num / denom
+
+    # -------------------------------------------------------------------------
     # Optional per-sample normalization (removes "predict averages" shortcut)
     # -------------------------------------------------------------------------
 
@@ -353,6 +368,35 @@ class WCEDLlamaModule(pl.LightningModule):
             non_input_mask  = non_input_mask_v1
             recon_mask      = recon_mask_v1
 
+        # Sanity check: recon_mask must have at least some valid positions
+        n_valid_positions = recon_mask.float().sum().item()
+        if n_valid_positions == 0:
+            logger.warning(
+                f"[step {self.global_step}] recon_mask has 0 valid positions! "
+                "Check NaN filtering and input_mask logic."
+            )
+
+        # Non-finite loss guard (catches NaN/Inf before they silently corrupt weights)
+        if not loss.isfinite():
+            raise ValueError(
+                f"Non-finite loss={loss.item():.6f} at global_step={self.global_step}. "
+                f"recon_loss={recon_loss.item():.6f}, "
+                f"n_valid_positions={n_valid_positions:.0f}"
+            )
+
+        # Early-step NaN debug checks (first 10 steps — catches initialization issues)
+        if self.global_step < 10:
+            cls_emb = out_v1["cls_embedding"]
+            if torch.isnan(cls_emb).any():
+                raise ValueError(
+                    f"NaN in CLS embedding at step {self.global_step}. "
+                    f"cpg_scale={self.encoder.embeddings.cpg_scale.item():.4f}"
+                )
+            if torch.isnan(out_v1["predicted_betas"]).any():
+                raise ValueError(
+                    f"NaN in predicted_betas at step {self.global_step}"
+                )
+
         # Metrics (no-grad) — only on non-input, non-NaN positions
         with torch.no_grad():
             ni_pred   = predicted_betas[recon_mask]
@@ -360,6 +404,20 @@ class WCEDLlamaModule(pl.LightningModule):
             mae = torch.abs(ni_pred - ni_target).mean()
             mse = ((ni_pred - ni_target) ** 2).mean()
             all_mae = torch.abs(predicted_betas - all_betas).mean()
+
+            # Pearson correlation on hidden positions (primary quality signal)
+            pcc = self._pearson_corr(ni_pred, ni_target)
+
+            # Fraction of vocab positions used in loss (monitors NaN filtering health)
+            valid_pct = recon_mask.float().mean() * 100.0
+
+            # Decoder output distribution (detects sigmoid saturation or collapse)
+            pred_mean = ni_pred.mean()
+            pred_std  = ni_pred.std().clamp(min=1e-8)
+
+            # Learned CpG-scale (should grow from 0.1; collapse or explosion = bug)
+            cpg_scale = self.encoder.embeddings.cpg_scale.abs().detach()
+
             # age_labels may be a tensor of all-NaN (pretrain data has no age column)
             if age_labels is not None:
                 valid_age = ~torch.isnan(age_labels)
@@ -380,6 +438,11 @@ class WCEDLlamaModule(pl.LightningModule):
             "mae":              mae,
             "mse":              mse,
             "all_mae":          all_mae,
+            "pcc":              pcc,
+            "valid_pct":        valid_pct,
+            "pred_mean":        pred_mean,
+            "pred_std":         pred_std,
+            "cpg_scale":        cpg_scale,
             "predicted_betas":  predicted_betas,
             "target_betas":     all_betas,
             "non_input_mask":   recon_mask,   # non-input AND non-NaN
@@ -393,13 +456,23 @@ class WCEDLlamaModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         out = self._shared_step(batch, "train")
-        self.log("train/loss",             out["loss"],             on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/loss",             out["loss"],             on_step=True,  on_epoch=True, prog_bar=True)
         self.log("train/recon_loss",       out["recon_loss"],       on_step=False, on_epoch=True)
         self.log("train/age_loss",         out["age_loss"],         on_step=False, on_epoch=True)
-        self.log("train/age_mae",          out["age_mae"],          on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/age_mae",          out["age_mae"],          on_step=False, on_epoch=True)
         self.log("train/contrastive_loss", out["contrastive_loss"], on_step=False, on_epoch=True)
         self.log("train/mae",              out["mae"],              on_step=False, on_epoch=True)
         self.log("train/all_mae",          out["all_mae"],          on_step=False, on_epoch=True)
+        # Quality + training health metrics
+        self.log("train/pcc",              out["pcc"],              on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/valid_pct",        out["valid_pct"],        on_step=True,  on_epoch=False)
+        self.log("train/pred_mean",        out["pred_mean"],        on_step=False, on_epoch=True)
+        self.log("train/pred_std",         out["pred_std"],         on_step=False, on_epoch=True)
+        self.log("train/cpg_scale",        out["cpg_scale"],        on_step=True,  on_epoch=False)
+        # Learning rate (changes every step via cosine schedule)
+        if self.trainer.optimizers:
+            self.log("train/lr", self.trainer.optimizers[0].param_groups[0]["lr"],
+                     on_step=True, on_epoch=False)
         return out["loss"]
 
     def validation_step(self, batch, batch_idx):
@@ -407,10 +480,15 @@ class WCEDLlamaModule(pl.LightningModule):
         self.log("validation/loss",             out["loss"],             on_epoch=True, prog_bar=True)
         self.log("validation/recon_loss",       out["recon_loss"],       on_epoch=True)
         self.log("validation/age_loss",         out["age_loss"],         on_epoch=True)
-        self.log("validation/age_mae",          out["age_mae"],          on_epoch=True, prog_bar=True)
+        self.log("validation/age_mae",          out["age_mae"],          on_epoch=True)
         self.log("validation/contrastive_loss", out["contrastive_loss"], on_epoch=True)
         self.log("validation/mae",              out["mae"],              on_epoch=True)
         self.log("validation/all_mae",          out["all_mae"],          on_epoch=True)
+        # Quality + health metrics
+        self.log("validation/pcc",              out["pcc"],              on_epoch=True, prog_bar=True)
+        self.log("validation/pred_mean",        out["pred_mean"],        on_epoch=True)
+        self.log("validation/pred_std",         out["pred_std"],         on_epoch=True)
+        self.log("validation/valid_pct",        out["valid_pct"],        on_epoch=True)
 
         # Diagnostic: CLS diversity
         if batch_idx == 0:
@@ -455,6 +533,13 @@ class WCEDLlamaModule(pl.LightningModule):
             self.log("test/all_pcc", all_pcc, on_epoch=True)
 
         return out["loss"]
+
+    def on_before_optimizer_step(self, optimizer):
+        """Log gradient L2 norm before clipping (step-level, for training stability)."""
+        norms = [p.grad.data.norm(2) for p in self.parameters() if p.grad is not None]
+        if norms:
+            total_norm = torch.stack(norms).pow(2).sum().sqrt()
+            self.log("train/grad_norm", total_norm, on_step=True, on_epoch=False, prog_bar=False)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

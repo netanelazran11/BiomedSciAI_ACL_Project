@@ -434,6 +434,15 @@ class MethylLlamaEmbeddings(nn.Module):
         cpg_ids    = input_ids[:, 0, :].long()   # [B, L]
         beta_values = input_ids[:, 1, :].float()  # [B, L]
 
+        # CpG ID bounds check (catches tokenization bugs before silent embedding lookup errors)
+        max_id = cpg_ids.max()
+        if max_id >= self.cpg_sites_embeddings.num_embeddings:
+            raise ValueError(
+                f"CpG ID out of vocabulary range: max_id={max_id.item()}, "
+                f"vocab_size={self.cpg_sites_embeddings.num_embeddings}. "
+                f"Check probe_ids_csv or tokenizer."
+            )
+
         # CpG site identity embeddings: [B, L] → [B, L, D]
         cpg_embeds = self.cpg_sites_embeddings(cpg_ids)
 
