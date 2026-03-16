@@ -89,19 +89,6 @@ early_stop_patience: 60
 precision: "16-mixed"        # BFloat16 or FP16 mixed precision
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fields (methylation multifield: cpg_ids + beta_values)
-# ─────────────────────────────────────────────────────────────────────────────
-fields:
-  - _target_: bmfm_targets.config.FieldInfo
-    name: cpg_ids
-    padding_token: 0
-    is_primary: true
-  - _target_: bmfm_targets.config.FieldInfo
-    name: beta_values
-    padding_token: -4.0
-    is_primary: false
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Seed
 # ─────────────────────────────────────────────────────────────────────────────
 seed:

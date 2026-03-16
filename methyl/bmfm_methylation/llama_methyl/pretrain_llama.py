@@ -169,14 +169,18 @@ def main(cfg: DictConfig):
     # Tokenizer
     tokenizer = setup_tokenizer(cfg)
 
-    # Build FieldInfo for data module
+    # Build FieldInfo for MultiFieldCollator.
+    # Note: in WCED mode the collator is immediately replaced by WCEDCollator,
+    # so this only needs to be valid enough to not crash MultiFieldCollator.__init__.
     from bmfm_targets.config import FieldInfo
-    fields = []
-    if hasattr(cfg, "fields") and cfg.fields:
-        for fc in cfg.fields:
-            fd = OmegaConf.to_container(fc)
-            fd.pop("_target_", None)
-            fields.append(FieldInfo(**fd))
+    fields = [
+        FieldInfo(
+            field_name="cpg_sites",
+            is_input=True,
+            is_masked=False,
+            tokenization_strategy="tokenize",
+        ),
+    ]
 
     # Data module settings
     dm_cfg = cfg.get("data_module", {})
