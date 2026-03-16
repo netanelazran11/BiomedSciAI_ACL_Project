@@ -40,6 +40,70 @@ from bmfm_targets.training.masking import MaskingStrategy
 logger = logging.getLogger(__name__)
 
 
+def _read_h5ad_robust(h5ad_path: str):
+    """
+    Load h5ad with h5py fallback for anndata format-version mismatches.
+
+    Some h5ad files (e.g. created by MethylGPT with old anndata <0.8) cannot
+    be read by newer anndata because the obs encoding changed. Symptom:
+        ValueError: obs must have as many rows as X has rows (N), but has 1 rows
+
+    Fallback: read obs/var from h5py, load X fully into memory, construct AnnData.
+    The cluster has 200 GB RAM so loading ~33 GB X is acceptable.
+    """
+    try:
+        return sc.read_h5ad(h5ad_path)
+    except (ValueError, Exception) as exc:
+        if "rows" not in str(exc) and "obs" not in str(exc):
+            raise
+        logger.warning(
+            f"sc.read_h5ad failed ({exc}). "
+            "Falling back to h5py-based loading (anndata format version mismatch)."
+        )
+
+    import h5py
+    import pandas as pd
+
+    with h5py.File(h5ad_path, "r") as f:
+        n_obs, n_var = f["X"].shape
+
+        # Read obs metadata (string arrays — small)
+        obs_data = {}
+        for key in f["obs"].keys():
+            try:
+                arr = f["obs"][key][:]
+                if arr.dtype.kind in ("S", "O"):
+                    arr = arr.astype(str)
+                obs_data[key] = arr
+            except Exception:
+                pass
+        obs_index = obs_data.pop("_index", np.arange(n_obs).astype(str))
+        obs_df = pd.DataFrame(obs_data, index=obs_index)
+
+        # Read var metadata (string arrays — small)
+        var_data = {}
+        for key in f["var"].keys():
+            try:
+                arr = f["var"][key][:]
+                if arr.dtype.kind in ("S", "O"):
+                    arr = arr.astype(str)
+                var_data[key] = arr
+            except Exception:
+                pass
+        var_index = var_data.pop("_index", np.arange(n_var).astype(str))
+        var_df = pd.DataFrame(var_data, index=var_index)
+
+        # Load X fully into memory (169120 × 49156 × 4B ≈ 33 GB on cluster)
+        logger.info(
+            f"h5py fallback: loading X {(n_obs, n_var)} float32 "
+            f"({n_obs * n_var * 4 / 1e9:.1f} GB) into memory…"
+        )
+        X = f["X"][:]
+
+    logger.info(f"h5py fallback: obs={obs_df.shape}, var={var_df.shape}, X={X.shape}")
+    return sc.AnnData(X=X, obs=obs_df, var=var_df)
+
+
 class MethylationDataset(Dataset):
     """
     Dataset for methylation data from h5ad files.
@@ -75,8 +139,8 @@ class MethylationDataset(Dataset):
         self.normalize_age = normalize_age
         self.min_age = min_age
 
-        # Load data
-        self.adata = sc.read_h5ad(h5ad_path)
+        # Load data (with h5py fallback for old-format h5ad files)
+        self.adata = _read_h5ad_robust(h5ad_path)
 
         # Filter by split if specified
         if split is not None and split_column in self.adata.obs.columns:
