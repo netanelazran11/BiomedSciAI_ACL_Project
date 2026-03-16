@@ -48,7 +48,7 @@ SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs — no artificial s
 INPUT_RATIO="${INPUT_RATIO:-0.25}"        # 25% input = ~12.3k CpGs; model predicts all 49k
 AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # No age labels in pretrain corpus
 CONTRASTIVE="${CONTRASTIVE:-true}"
-CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.02}"  # 0.02×3.47≈0.07 vs recon≈0.08 → ~47% at init, decreases as training improves
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
 DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"

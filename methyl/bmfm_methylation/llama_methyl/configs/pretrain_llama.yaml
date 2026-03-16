@@ -64,7 +64,7 @@ data_module:
 # ─────────────────────────────────────────────────────────────────────────────
 wced_input_ratio: 0.5              # Fraction of CpGs as input (0.5 = 4000/8000)
 wced_contrastive: false            # Enable two-view contrastive learning
-wced_contrastive_weight: 0.0       # λ for InfoNCE (disabled when contrastive=false)
+wced_contrastive_weight: 0.02      # λ for InfoNCE — calibrated so contrastive≈20% of total loss
 wced_contrastive_temp: 0.1         # InfoNCE temperature
 wced_normalize_loss: false         # Per-sample normalize (removes "predict averages" shortcut)
 wced_age_weight: 1.0               # λ for age MSE (forces CLS to encode age)
