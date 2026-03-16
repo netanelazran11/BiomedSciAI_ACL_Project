@@ -28,21 +28,22 @@ DATA="${PRETRAIN_DATA}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Architecture settings (MethylLlamaConfig)
-# Defaults match: 6L × 512D × 8H, SwiGLU intermediate=1408
+# H200 80GB optimal: 768D × 8L × 12H — 134M params, ~40GB at B=16
+# (6L×512D was only 10.7GB — 13% of H200, heavily underutilised)
 # ─────────────────────────────────────────────────────────────────────────────
-HIDDEN_SIZE="${HIDDEN_SIZE:-512}"
-NUM_LAYERS="${NUM_LAYERS:-6}"
-NUM_HEADS="${NUM_HEADS:-8}"
-INTERMEDIATE_SIZE="${INTERMEDIATE_SIZE:-1408}"   # SwiGLU: round(2/3 × 4 × 512 / 64) × 64
+HIDDEN_SIZE="${HIDDEN_SIZE:-768}"
+NUM_LAYERS="${NUM_LAYERS:-8}"
+NUM_HEADS="${NUM_HEADS:-12}"
+INTERMEDIATE_SIZE="${INTERMEDIATE_SIZE:-2048}"   # SwiGLU: round(2/3 × 4 × 768 / 64) × 64
 ROPE_THETA="${ROPE_THETA:-10000.0}"
 N_SIN_BASIS="${N_SIN_BASIS:-48}"
-BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]; upstream uses 1.5 for scRNA
+BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs — no artificial sub-vocab
-INPUT_RATIO="${INPUT_RATIO:-0.25}"        # 25% as input = ~12k CpGs; model predicts the rest
+INPUT_RATIO="${INPUT_RATIO:-0.25}"        # 25% input = ~12.3k CpGs; model predicts all 49k
 AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # No age labels in pretrain corpus
 CONTRASTIVE="${CONTRASTIVE:-true}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
@@ -52,12 +53,14 @@ DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Training hyperparameters
+# H200 memory at B=16, seq=12k, 768D×8L: ~40GB — comfortable
+# Effective batch = 16 × 8 = 128 samples
 # ─────────────────────────────────────────────────────────────────────────────
-LR="${LR:-5e-4}"
+LR="${LR:-3e-4}"                          # Slightly lower LR for larger model
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_STEPS="${WARMUP_STEPS:-500}"       # Longer warmup for larger model + longer seqs
-BATCH_SIZE="${BATCH_SIZE:-8}"             # Reduced: seq_len ~12k needs more GPU memory
-ACCUM="${ACCUM:-16}"                      # Effective batch = 8 × 16 = 128
+WARMUP_STEPS="${WARMUP_STEPS:-1000}"      # Larger model benefits from longer warmup
+BATCH_SIZE="${BATCH_SIZE:-16}"            # Safe at ~40GB; try 32 if no OOM (~77GB)
+ACCUM="${ACCUM:-8}"                       # Effective batch = 16 × 8 = 128
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 

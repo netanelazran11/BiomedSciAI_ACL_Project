@@ -28,16 +28,14 @@ tokenizer_path: ./tokenizer               # Shared with SCBert pretraining
 # Model architecture (MethylLlamaConfig)
 # ─────────────────────────────────────────────────────────────────────────────
 model:
-  hidden_size: 512
-  num_hidden_layers: 6
-  num_attention_heads: 8
-  # SwiGLU intermediate: round(2/3 × 4 × 512 / 64) × 64 = 22 × 64 = 1408
-  # (≈ same param count as BERT FFN with hidden=2048 but 3 matrices instead of 2)
-  intermediate_size: 1408
-  # vocab_size = subset_k + 5 special tokens (UNK, SEP, PAD, CLS, MASK)
-  # For 8000 CpGs: 8000 + 5 = 8005
-  # NOTE: max_position_embeddings=8002 in SCBert is SEQUENCE LENGTH, not vocab!
-  vocab_size: 8005
+  hidden_size: 768
+  num_hidden_layers: 8
+  num_attention_heads: 12
+  # SwiGLU intermediate: round(2/3 × 4 × 768 / 64) × 64 = 32 × 64 = 2048
+  intermediate_size: 2048
+  # vocab_size = n_cpg_sites + 5 special tokens (UNK, SEP, PAD, CLS, MASK)
+  # For 49156 CpGs: 49156 + 5 = 49161 (set at runtime from h5ad, not here)
+  vocab_size: 49161
   rope_theta: 10000.0
   rms_norm_eps: 1e-6
   hidden_dropout_prob: 0.1
@@ -52,9 +50,9 @@ model:
 # ─────────────────────────────────────────────────────────────────────────────
 data_module:
   batch_size: 16
-  num_workers: 4
-  max_length: 8002           # CLS + 8000 CpGs + SEP
-  subset_k: 8000             # Number of CpG sites to use
+  num_workers: 8
+  max_length: 12290          # CLS + 49156×0.25 input CpGs (WCEDCollator computes internally)
+  subset_k: 49156            # Use ALL 49k CpGs
   fixed_subset: true         # Use the same CpG subset across epochs
   fixed_subset_seed: 42
   mask_ratio: 0.3            # Only used for MLM mode
@@ -76,9 +74,9 @@ wced_decoder_dropout: 0.1
 # Trainer
 # ─────────────────────────────────────────────────────────────────────────────
 trainer:
-  learning_rate: 5e-4
+  learning_rate: 3e-4
   weight_decay: 0.01
-  warmup_steps: 200          # Short warmup (Pre-LN is stable from step 1)
+  warmup_steps: 1000         # Larger model benefits from longer warmup
   lr_decay_steps: 0          # 0 = auto-compute from trainer.estimated_stepping_batches
   betas: [0.9, 0.99]         # β₂=0.99 (upstream BMFM convention; faster adaptation)
   epsilon: 1e-8
