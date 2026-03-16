@@ -49,9 +49,9 @@ model:
 # Data module
 # ─────────────────────────────────────────────────────────────────────────────
 data_module:
-  batch_size: 16
+  batch_size: 8
   num_workers: 8
-  max_length: 12290          # CLS + 49156×0.25 input CpGs (WCEDCollator computes internally)
+  max_length: 24580          # CLS + 49156×0.5 input CpGs
   subset_k: 49156            # Use ALL 49k CpGs
   fixed_subset: true         # Use the same CpG subset across epochs
   fixed_subset_seed: 42
@@ -62,9 +62,9 @@ data_module:
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
 # ─────────────────────────────────────────────────────────────────────────────
-wced_input_ratio: 0.5              # Fraction of CpGs as input (0.5 = 4000/8000)
-wced_contrastive: false            # Enable two-view contrastive learning
-wced_contrastive_weight: 0.02      # λ for InfoNCE — calibrated so contrastive≈20% of total loss
+wced_input_ratio: 0.5              # 50%→50% proven WCED split
+wced_contrastive: false            # Disabled: pure reconstruction for first run
+wced_contrastive_weight: 0.0
 wced_contrastive_temp: 0.1         # InfoNCE temperature
 wced_normalize_loss: false         # Per-sample normalize (removes "predict averages" shortcut)
 wced_age_weight: 1.0               # λ for age MSE (forces CLS to encode age)

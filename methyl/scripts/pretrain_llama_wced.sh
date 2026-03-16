@@ -44,25 +44,26 @@ BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
 # ─────────────────────────────────────────────────────────────────────────────
-SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs — no artificial sub-vocab
-INPUT_RATIO="${INPUT_RATIO:-0.25}"        # 25% input = ~12.3k CpGs; model predicts all 49k
+SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs
+INPUT_RATIO="${INPUT_RATIO:-0.5}"         # 50%→50% original WCED split: see 24.5k, predict 24.5k
 AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # No age labels in pretrain corpus
-CONTRASTIVE="${CONTRASTIVE:-true}"
-CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.02}"  # 0.02×3.47≈0.07 vs recon≈0.08 → ~47% at init, decreases as training improves
+CONTRASTIVE="${CONTRASTIVE:-false}"       # Disabled: pure reconstruction first run
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
 NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
 DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Training hyperparameters
-# H200 memory at B=16, seq=12k, 768D×8L: ~40GB — comfortable
-# Effective batch = 16 × 8 = 128 samples
+# seq_len = 49156×0.5 + 1 = 24579 tokens
+# H200 memory at B=8, seq=24.5k, 768D×8L: ~36GB — comfortable
+# Effective batch = 8 per GPU × 2 GPUs × 16 accum = 256 samples
 # ─────────────────────────────────────────────────────────────────────────────
-LR="${LR:-5e-4}"                          # Scaled up for large effective batch
+LR="${LR:-5e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_STEPS="${WARMUP_STEPS:-2000}"      # Long warmup for 8-GPU large-batch training
-BATCH_SIZE="${BATCH_SIZE:-32}"            # Per GPU: ~77GB / 80GB H200 — safe
-ACCUM="${ACCUM:-4}"                       # Effective batch = 32 × N_GPUs × 4
+WARMUP_STEPS="${WARMUP_STEPS:-2000}"
+BATCH_SIZE="${BATCH_SIZE:-8}"             # Reduced for 24.5k seq len at 768D
+ACCUM="${ACCUM:-16}"                      # Effective batch = 8 × 2 GPUs × 16 = 256
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
