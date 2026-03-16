@@ -10,8 +10,8 @@
 # and cpus-per-task → 64 or 128, mem → 400G or 800G
 #SBATCH --time=50:00:00
 
-#SBATCH --output=logs/%x_%j.out
-#SBATCH --error=logs/%x_%j.err
+#SBATCH --output=logs_llama-wced/%x_%j.out
+#SBATCH --error=logs_llama-wced/%x_%j.err
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ set -euo pipefail
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
-LOGDIR="${REPO}/logs"
+LOGDIR="${REPO}/logs_llama-wced"
 
 # ─── PRETRAIN DATA (large corpus: 169k samples × 49k CpGs) ──────────────────
 DATA_DIR="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_pretrain_type3_h5ad"
