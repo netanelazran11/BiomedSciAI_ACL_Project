@@ -735,12 +735,11 @@ class WCEDCollator:
             input_mask_v1[i] = mask
 
             if self.contrastive:
-                # View 2: Non-overlapping subset of valid CpGs (preferred for 50% ratio)
-                remaining = np.setdiff1d(valid_indices, indices_v1)
-                if len(remaining) >= n_input:
-                    indices_v2 = np.sort(rng.choice(remaining, size=n_input, replace=False))
-                else:
-                    indices_v2 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
+                # View 2: Independent random subset — may overlap with view 1.
+                # Each view is a fresh random sample from all valid CpGs.
+                # Overlap is fine: model must still encode the full profile in CLS
+                # so that both views produce similar embeddings.
+                indices_v2 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
 
                 ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v2, max_input_len)
                 cpg_ids_v2[i] = ids

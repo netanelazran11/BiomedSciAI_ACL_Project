@@ -91,7 +91,7 @@ class MethylLlamaConfig:
 
     # Rotary Position Embedding
     rope_theta: float = 10000.0
-    max_seq_len: int = 8192           # Upper bound for RoPE cache precomputation
+    max_seq_len: int = 16384          # Upper bound for RoPE cache (covers 49k×0.25+1=12290)
 
     # Normalization / Regularization
     rms_norm_eps: float = 1e-6

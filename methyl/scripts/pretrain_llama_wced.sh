@@ -41,9 +41,9 @@ BASIS_SCALE="${BASIS_SCALE:-2.0}"                # 2.0 for methylation [0,1]; up
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
 # ─────────────────────────────────────────────────────────────────────────────
-SUBSET_K="${SUBSET_K:-8000}"
-INPUT_RATIO="${INPUT_RATIO:-0.5}"
-AGE_WEIGHT="${AGE_WEIGHT:-1.0}"
+SUBSET_K="${SUBSET_K:-49156}"             # Use ALL 49k CpGs — no artificial sub-vocab
+INPUT_RATIO="${INPUT_RATIO:-0.25}"        # 25% as input = ~12k CpGs; model predicts the rest
+AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # No age labels in pretrain corpus
 CONTRASTIVE="${CONTRASTIVE:-true}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
@@ -55,9 +55,9 @@ DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 # ─────────────────────────────────────────────────────────────────────────────
 LR="${LR:-5e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_STEPS="${WARMUP_STEPS:-200}"       # Short warmup — Pre-LN is stable from step 1
-BATCH_SIZE="${BATCH_SIZE:-16}"
-ACCUM="${ACCUM:-8}"                        # Effective batch = 16 × 8 = 128
+WARMUP_STEPS="${WARMUP_STEPS:-500}"       # Longer warmup for larger model + longer seqs
+BATCH_SIZE="${BATCH_SIZE:-8}"             # Reduced: seq_len ~12k needs more GPU memory
+ACCUM="${ACCUM:-16}"                      # Effective batch = 8 × 16 = 128
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
@@ -66,7 +66,7 @@ EARLY_STOP="${EARLY_STOP:-60}"
 # ─────────────────────────────────────────────────────────────────────────────
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="pretrain-llama-wced"
-WANDB_RUN_NAME="llama-wced-pretrain49k-k${SUBSET_K}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
+WANDB_RUN_NAME="llama-wced-all49k-r${INPUT_RATIO}-w${CONTRASTIVE_WEIGHT}-${SLURM_JOB_ID}"
 
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
 OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
@@ -135,7 +135,7 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset=true \
     data_module.fixed_subset_seed=42 \
-    data_module.max_length=$((SUBSET_K + 2)) \
+    data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     model.hidden_size="${HIDDEN_SIZE}" \
