@@ -1,11 +1,13 @@
 #!/bin/bash -l
 #SBATCH --job-name=pretrain-llama-wced
 #SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:8
+#SBATCH --gres=gpu:h200:2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=128
-#SBATCH --mem=500G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=200G
+# To use more GPUs when node is free: change gpu:h200:2 → 4 or 8
+# and cpus-per-task → 64 or 128, mem → 400G or 800G
 #SBATCH --time=50:00:00
 
 #SBATCH --output=logs/%x_%j.out
@@ -60,7 +62,7 @@ LR="${LR:-5e-4}"                          # Scaled up for large effective batch
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_STEPS="${WARMUP_STEPS:-2000}"      # Long warmup for 8-GPU large-batch training
 BATCH_SIZE="${BATCH_SIZE:-32}"            # Per GPU: ~77GB / 80GB H200 — safe
-ACCUM="${ACCUM:-4}"                       # Effective batch = 32 × 8 GPUs × 4 = 1024
+ACCUM="${ACCUM:-4}"                       # Effective batch = 32 × N_GPUs × 4
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
@@ -140,8 +142,7 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
-    data_module.num_workers=14 \
-    model.hidden_size="${HIDDEN_SIZE}" \
+    data_module.num_workers=14 \    model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
     model.num_attention_heads="${NUM_HEADS}" \
     model.intermediate_size="${INTERMEDIATE_SIZE}" \
