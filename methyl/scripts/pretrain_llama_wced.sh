@@ -1,11 +1,11 @@
 #!/bin/bash -l
 #SBATCH --job-name=pretrain-llama-wced
 #SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:2
+#SBATCH --gres=gpu:h200:8
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
+#SBATCH --cpus-per-task=128
+#SBATCH --mem=500G
 #SBATCH --time=50:00:00
 
 #SBATCH --output=logs/%x_%j.out
@@ -56,11 +56,11 @@ DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 # H200 memory at B=16, seq=12k, 768D×8L: ~40GB — comfortable
 # Effective batch = 16 × 8 = 128 samples
 # ─────────────────────────────────────────────────────────────────────────────
-LR="${LR:-3e-4}"                          # Slightly lower LR for larger model
+LR="${LR:-5e-4}"                          # Scaled up for large effective batch
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_STEPS="${WARMUP_STEPS:-1000}"      # Larger model benefits from longer warmup
-BATCH_SIZE="${BATCH_SIZE:-16}"            # Safe at ~40GB; try 32 if no OOM (~77GB)
-ACCUM="${ACCUM:-8}"                       # Effective batch = 16 × 8 = 128
+WARMUP_STEPS="${WARMUP_STEPS:-2000}"      # Long warmup for 8-GPU large-batch training
+BATCH_SIZE="${BATCH_SIZE:-32}"            # Per GPU: ~77GB / 80GB H200 — safe
+ACCUM="${ACCUM:-4}"                       # Effective batch = 32 × 8 GPUs × 4 = 1024
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
@@ -96,7 +96,7 @@ echo "ScaleAdapt: n_sin_basis=${N_SIN_BASIS}, basis_scale=${BASIS_SCALE}"
 echo "------------------------------------------------------------"
 echo "Data:    ${SUBSET_K} CpGs, input_ratio=${INPUT_RATIO}"
 echo "WCED:    age_weight=${AGE_WEIGHT}, contrastive=${CONTRASTIVE} (w=${CONTRASTIVE_WEIGHT})"
-echo "Train:   lr=${LR}, batch=${BATCH_SIZE}×${ACCUM}=${BATCH_SIZE}*${ACCUM}, epochs=${PRETRAIN_EPOCHS}"
+echo "Train:   lr=${LR}, batch=${BATCH_SIZE}×8GPUs×${ACCUM}accum=$(( BATCH_SIZE * 8 * ACCUM )) eff, epochs=${PRETRAIN_EPOCHS}"
 echo "Output:  ${OUTDIR}"
 echo "W&B:     ${WANDB_PROJECT}/${WANDB_RUN_NAME}"
 echo "============================================================"
@@ -140,7 +140,7 @@ python -m bmfm_methylation.llama_methyl.pretrain_llama \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
-    data_module.num_workers=7 \
+    data_module.num_workers=14 \
     model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
     model.num_attention_heads="${NUM_HEADS}" \
