@@ -79,34 +79,58 @@ def _read_h5ad_robust(h5ad_path: str):
     import h5py
     import pandas as pd
 
+    def _read_metadata_group(grp, n_rows):
+        """
+        Read an anndata obs/var HDF5 group into a dict of arrays.
+
+        Handles two anndata column encodings:
+          - Plain dataset of shape (n_rows,): read directly
+          - Categorical group with 'codes' (n_rows,) + 'categories' (k,):
+            decode codes → string values
+        Skips anything that doesn't match n_rows (metadata scalars, etc.)
+        """
+        data = {}
+        for key in grp.keys():
+            item = grp[key]
+            try:
+                if isinstance(item, h5py.Dataset):
+                    # Plain column: must have exactly n_rows elements
+                    if item.shape == (n_rows,):
+                        arr = item[:]
+                        if arr.dtype.kind in ("S", "O"):
+                            arr = arr.astype(str)
+                        data[key] = arr
+                    # else: wrong-length dataset (scalar metadata) — skip
+                elif isinstance(item, h5py.Group):
+                    # Categorical column: codes (n_rows,) → categories (k,)
+                    if "codes" in item and "categories" in item:
+                        codes      = item["codes"][:]          # int (n_rows,)
+                        categories = item["categories"][:]     # str (k,)
+                        if categories.dtype.kind in ("S", "O"):
+                            categories = categories.astype(str)
+                        # -1 codes mean NaN/missing; map to empty string
+                        decoded = np.where(
+                            codes >= 0,
+                            categories[np.clip(codes, 0, len(categories) - 1)],
+                            "",
+                        )
+                        data[key] = decoded
+            except Exception:
+                pass
+        return data
+
     with h5py.File(h5ad_path, "r") as f:
         n_obs, n_var = f["X"].shape
 
-        # Read obs metadata (string arrays — small)
-        obs_data = {}
-        for key in f["obs"].keys():
-            try:
-                arr = f["obs"][key][:]
-                if arr.dtype.kind in ("S", "O"):
-                    arr = arr.astype(str)
-                obs_data[key] = arr
-            except Exception:
-                pass
+        # Read obs metadata
+        obs_data  = _read_metadata_group(f["obs"], n_obs)
         obs_index = obs_data.pop("_index", np.arange(n_obs).astype(str))
-        obs_df = pd.DataFrame(obs_data, index=obs_index)
+        obs_df    = pd.DataFrame(obs_data, index=obs_index)
 
-        # Read var metadata (string arrays — small)
-        var_data = {}
-        for key in f["var"].keys():
-            try:
-                arr = f["var"][key][:]
-                if arr.dtype.kind in ("S", "O"):
-                    arr = arr.astype(str)
-                var_data[key] = arr
-            except Exception:
-                pass
+        # Read var metadata
+        var_data  = _read_metadata_group(f["var"], n_var)
         var_index = var_data.pop("_index", np.arange(n_var).astype(str))
-        var_df = pd.DataFrame(var_data, index=var_index)
+        var_df    = pd.DataFrame(var_data, index=var_index)
 
         # Load X fully into memory (169120 × 49156 × 4B ≈ 33 GB on cluster)
         logger.info(
