@@ -39,6 +39,11 @@ from bmfm_targets.training.masking import MaskingStrategy
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache: load each h5ad file at most once per process.
+# MethylationDataModule calls setup() with train/val/test — without caching
+# the 33 GB file would be loaded 3 times (99 GB peak reads from disk).
+_H5AD_CACHE: dict = {}
+
 
 def _read_h5ad_robust(h5ad_path: str):
     """
@@ -50,9 +55,19 @@ def _read_h5ad_robust(h5ad_path: str):
 
     Fallback: read obs/var from h5py, load X fully into memory, construct AnnData.
     The cluster has 200 GB RAM so loading ~33 GB X is acceptable.
+
+    Results are cached by path so the file is only loaded once per process,
+    even when train/val/test datasets are all created from the same h5ad.
+    Each call returns an independent AnnData view (shared X, independent obs/var).
     """
+    if h5ad_path in _H5AD_CACHE:
+        logger.info(f"h5ad cache hit: {h5ad_path}")
+        return _H5AD_CACHE[h5ad_path]
+
     try:
-        return sc.read_h5ad(h5ad_path)
+        adata = sc.read_h5ad(h5ad_path)
+        _H5AD_CACHE[h5ad_path] = adata
+        return adata
     except (ValueError, Exception) as exc:
         if "rows" not in str(exc) and "obs" not in str(exc):
             raise
@@ -101,7 +116,9 @@ def _read_h5ad_robust(h5ad_path: str):
         X = f["X"][:]
 
     logger.info(f"h5py fallback: obs={obs_df.shape}, var={var_df.shape}, X={X.shape}")
-    return sc.AnnData(X=X, obs=obs_df, var=var_df)
+    adata = sc.AnnData(X=X, obs=obs_df, var=var_df)
+    _H5AD_CACHE[h5ad_path] = adata
+    return adata
 
 
 class MethylationDataset(Dataset):
