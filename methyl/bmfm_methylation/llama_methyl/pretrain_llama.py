@@ -358,10 +358,14 @@ def main(cfg: DictConfig):
     ]
 
     # Trainer
+    # find_unused_parameters=True: projection_head and age_head are disabled
+    # (contrastive_weight=0, age_weight=0) so DDP must not error on unused params.
+    from pytorch_lightning.strategies import DDPStrategy
     trainer = pl.Trainer(
         max_epochs=cfg.get("pretrain_epochs", 300),
         accelerator="auto",
         devices="auto",
+        strategy=DDPStrategy(find_unused_parameters=True),
         precision=cfg.get("precision", "16-mixed"),
         accumulate_grad_batches=cfg.get("accumulate_grad_batches", 8),
         gradient_clip_val=cfg.get("gradient_clip_val", 1.0),
