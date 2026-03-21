@@ -1,17 +1,15 @@
 #!/bin/bash -l
 #SBATCH --job-name=pretrain-llama-wced
 #SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:2
+#SBATCH --gres=gpu:h200:4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=200G
-# To use more GPUs when node is free: change gpu:h200:2 → 4 or 8
-# and cpus-per-task → 64 or 128, mem → 400G or 800G
-#SBATCH --time=50:00:00
+#SBATCH --cpus-per-task=64
+#SBATCH --mem=400G
+#SBATCH --time=120:00:00
 
-#SBATCH --output=logs_llama-wced/%x_%j.out
-#SBATCH --error=logs_llama-wced/%x_%j.err
+#SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
+#SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
 
 set -euo pipefail
 
@@ -63,7 +61,7 @@ LR="${LR:-5e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_STEPS="${WARMUP_STEPS:-2000}"
 BATCH_SIZE="${BATCH_SIZE:-8}"             # Reduced for 24.5k seq len at 768D
-ACCUM="${ACCUM:-16}"                      # Effective batch = 8 × 2 GPUs × 16 = 256
+ACCUM="${ACCUM:-8}"                       # Effective batch = 8 × 4 GPUs × 8 = 256
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
 EARLY_STOP="${EARLY_STOP:-60}"
 
