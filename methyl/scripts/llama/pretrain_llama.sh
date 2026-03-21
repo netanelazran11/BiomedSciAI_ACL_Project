@@ -69,7 +69,7 @@ EARLY_STOP="${EARLY_STOP:-60}"
 # Resume (optional) — set to continue from a previous checkpoint
 # Usage: RESUME_CHECKPOINT=/path/to/epoch=X-val_loss=Y.ckpt sbatch ...
 # ─────────────────────────────────────────────────────────────────────────────
-RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-llama-wced/llama-wced-all49k-r0.5-w0.0-44248557/checkpoints/epoch=2-val_loss=0.0112.ckpt}"
+RESUME_CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-llama-wced/llama-wced-all49k-r0.5-w0.0-44248557/checkpoints/epoch=2-val_loss=0.0112.ckpt"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
