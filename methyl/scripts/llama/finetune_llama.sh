@@ -105,7 +105,7 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # ─────────────────────────────────────────────────────────────────────────────
 # Fine-tuning
 # ─────────────────────────────────────────────────────────────────────────────
-python -m bmfm_methylation.llama.finetune \
+python -m bmfm_methylation.llama.finetune_llama \
     data_path="${DATA}" \
     checkpoint_path="${CHECKPOINT}" \
     tokenizer_path="${TOKENIZER_PATH}" \

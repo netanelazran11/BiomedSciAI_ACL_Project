@@ -102,7 +102,7 @@ PY
 # -------------------------
 # Fine-tuning
 # -------------------------
-python -m bmfm_methylation.wced.finetune \
+python -m bmfm_methylation.wced.finetune_wced \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \

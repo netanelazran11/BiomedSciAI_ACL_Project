@@ -137,7 +137,7 @@ PY
 # -------------------------
 # Run WCED Pretraining
 # -------------------------
-python -m bmfm_methylation.wced.pretrain \
+python -m bmfm_methylation.wced.pretrain_wced \
     data_path="${DATA}" \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \

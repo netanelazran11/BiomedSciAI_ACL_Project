@@ -96,7 +96,7 @@ PY
 # -------------------------
 # Fine-tuning
 # -------------------------
-python3 -m bmfm_methylation.mlm.finetune \
+python3 -m bmfm_methylation.mlm.finetune_mlm \
     data_path="${DATA}" \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \

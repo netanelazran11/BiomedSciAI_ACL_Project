@@ -138,7 +138,7 @@ PY
 # ─────────────────────────────────────────────────────────────────────────────
 # Pretraining (WCEDLlamaModule using MethylLlamaModel)
 # ─────────────────────────────────────────────────────────────────────────────
-python -m bmfm_methylation.llama.pretrain \
+python -m bmfm_methylation.llama.pretrain_llama \
     data_path="${DATA}" \
     probe_ids_csv="${PROBE_IDS_CSV}" \
     tokenizer_path="${TOKENIZER_PATH}" \

@@ -97,7 +97,7 @@ PY
 # -------------------------
 # Run (all params from config files)
 # -------------------------
-python -m bmfm_methylation.mlm.pretrain \
+python -m bmfm_methylation.mlm.pretrain_mlm \
     data_path="${DATA}" \
     output_directory="${OUTDIR}" \
     combine_style="${COMBINE_STYLE}" \
