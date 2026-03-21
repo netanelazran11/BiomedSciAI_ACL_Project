@@ -174,7 +174,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
-    ${RESUME_CHECKPOINT:+resume_checkpoint="${RESUME_CHECKPOINT}"}
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "Pretraining finished: $(date)"
