@@ -27,7 +27,7 @@ DATA="${FINETUNE_DATA}"
 
 # ─── TOKENIZER: MUST be the same one created during pretrain ─────────────────
 # Points to tokenizer built from 49k pretrain data so CpG IDs match the model
-TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
+TOKENIZER_PATH="${TOKENIZER_PATH:-${REPO}/tokenizer_llama_pretrain49k}"
 
 # REQUIRED: set to your pretrained LLaMA checkpoint path
 CHECKPOINT="${CHECKPOINT:-???}"
