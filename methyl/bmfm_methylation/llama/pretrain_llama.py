@@ -352,6 +352,7 @@ def main(cfg: DictConfig):
             monitor="validation/loss",
             patience=cfg.get("early_stop_patience", 60),
             mode="min",
+            check_on_train_epoch_end=False,  # check after validation, not before
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
     ]
