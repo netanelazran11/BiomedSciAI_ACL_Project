@@ -97,8 +97,11 @@ if not snapshot_dirs:
 snapshot_dir = snapshot_dirs[0]
 print(f"    Snapshot dir: {snapshot_dir}")
 
-# Load tokenizer from snapshot dir
-tokenizer = PreTrainedTokenizerFast.from_pretrained(str(snapshot_dir))
+# Load tokenizer directly from tokenizer.json (avoids slow→fast conversion bug)
+tokenizer_json = snapshot_dir / "tokenizer.json"
+if not tokenizer_json.exists():
+    raise FileNotFoundError(f"tokenizer.json not found in {snapshot_dir}")
+tokenizer = PreTrainedTokenizerFast(tokenizer_file=str(tokenizer_json))
 print(f"    Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
 
 # Load model config then instantiate
