@@ -76,7 +76,6 @@ print(f"    Manifest probes: {len(manifest)}")
 #   3. Instantiate model from config, then load weights from local last.ckpt
 print(f"\n[3] Loading BMFM-DNA from local files")
 from bmfm_targets.models.predictive.scmodernbert.modeling_scmodernbert import SCModernBertModel
-from bmfm_targets.models.predictive.scmodernbert.configuration_scmodernbert import SCModernBertConfig
 from transformers import PreTrainedTokenizerFast
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -103,7 +102,8 @@ tokenizer = PreTrainedTokenizerFast.from_pretrained(str(snapshot_dir))
 print(f"    Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
 
 # Load model config then instantiate
-config = SCModernBertConfig.from_pretrained(str(snapshot_dir))
+# config_class is set on the model class itself (no separate import needed)
+config = SCModernBertModel.config_class.from_pretrained(str(snapshot_dir))
 model = SCModernBertModel(config)
 
 # Load weights from local PyTorch Lightning checkpoint
