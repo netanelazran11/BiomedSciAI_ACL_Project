@@ -31,6 +31,8 @@ OUT_NPY    = f"{OUT_DIR}/cpg_embeddings_bmfdna_21k.npy"
 OUT_IDS    = f"{OUT_DIR}/cpg_ids_order.txt"
 
 MODEL_ID   = "ibm-research/biomed.dna.ref.modernbert.113m.v1"
+# Local path to the downloaded last.ckpt (PyTorch Lightning checkpoint)
+LOCAL_CKPT = f"{HF_CACHE}/bmfdna_last.ckpt"
 WINDOW     = 512      # ±512 bp around CpG position
 BATCH_SIZE = 64       # sequences per forward pass
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,15 +69,79 @@ print(f"    Manifest probes: {len(manifest)}")
 # PreTrainedTokenizerFast loads BMFM-DNA's own k-mer BPE tokenizer for DNA sequences.
 # NOTE: this is BMFM-DNA's tokenizer for DNA text, completely separate from
 #       the methylation tokenizer (cg_id → integer) used by MethylLlama.
-print(f"\n[3] Loading BMFM-DNA from {MODEL_ID}")
+#
+# Loading strategy (SCModernBert is NOT registered with HF AutoModel/AutoConfig):
+#   1. Find HF snapshot dir → has config.json + tokenizer files
+#   2. Load tokenizer from snapshot dir
+#   3. Instantiate model from config, then load weights from local last.ckpt
+print(f"\n[3] Loading BMFM-DNA from local files")
 from bmfm_targets.models.predictive.scmodernbert.modeling_scmodernbert import SCModernBertModel
+from bmfm_targets.models.predictive.scmodernbert.configuration_scmodernbert import SCModernBertConfig
 from transformers import PreTrainedTokenizerFast
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"    Device: {device}")
 
-tokenizer = PreTrainedTokenizerFast.from_pretrained(MODEL_ID)
-model = SCModernBertModel.from_pretrained(MODEL_ID)
+# Find snapshot directory in HF cache
+hub_dir = Path(HF_CACHE) / "hub"
+model_cache_name = "models--" + MODEL_ID.replace("/", "--")
+snapshots_dir = hub_dir / model_cache_name / "snapshots"
+if not snapshots_dir.exists():
+    raise FileNotFoundError(
+        f"HF snapshot dir not found: {snapshots_dir}\n"
+        f"Run: huggingface-cli download {MODEL_ID} --cache-dir {HF_CACHE}"
+    )
+# Pick the first (and usually only) snapshot hash
+snapshot_dirs = list(snapshots_dir.iterdir())
+if not snapshot_dirs:
+    raise FileNotFoundError(f"No snapshots found in {snapshots_dir}")
+snapshot_dir = snapshot_dirs[0]
+print(f"    Snapshot dir: {snapshot_dir}")
+
+# Load tokenizer from snapshot dir
+tokenizer = PreTrainedTokenizerFast.from_pretrained(str(snapshot_dir))
+print(f"    Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
+
+# Load model config then instantiate
+config = SCModernBertConfig.from_pretrained(str(snapshot_dir))
+model = SCModernBertModel(config)
+
+# Load weights from local PyTorch Lightning checkpoint
+print(f"    Loading weights from {LOCAL_CKPT}")
+if not Path(LOCAL_CKPT).exists():
+    raise FileNotFoundError(f"Checkpoint not found: {LOCAL_CKPT}")
+
+ckpt = torch.load(LOCAL_CKPT, map_location="cpu", weights_only=False)
+# PL checkpoints store weights under "state_dict" key
+# Keys may have a prefix like "model." — strip it to match bare model keys
+if "state_dict" in ckpt:
+    raw_sd = ckpt["state_dict"]
+else:
+    raw_sd = ckpt  # already a plain state_dict
+
+# Determine prefix (e.g. "model.") by checking first key
+first_key = next(iter(raw_sd))
+prefix = ""
+if first_key.startswith("model."):
+    prefix = "model."
+elif "." in first_key:
+    # Try to detect any common prefix
+    candidate = first_key.split(".")[0] + "."
+    if all(k.startswith(candidate) for k in list(raw_sd.keys())[:10]):
+        prefix = candidate
+
+if prefix:
+    print(f"    Stripping state_dict prefix: '{prefix}'")
+    sd = {k[len(prefix):]: v for k, v in raw_sd.items() if k.startswith(prefix)}
+else:
+    sd = raw_sd
+
+missing, unexpected = model.load_state_dict(sd, strict=False)
+if missing:
+    print(f"    WARNING: {len(missing)} missing keys (first 5: {missing[:5]})")
+if unexpected:
+    print(f"    WARNING: {len(unexpected)} unexpected keys (first 5: {unexpected[:5]})")
+
 model = model.to(device).eval()
 n_params = sum(p.numel() for p in model.parameters())
 print(f"    Model loaded: {n_params/1e6:.1f}M params")
