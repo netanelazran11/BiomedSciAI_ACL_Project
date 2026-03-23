@@ -64,14 +64,16 @@ print(f"    Manifest probes: {len(manifest)}")
 
 # ── 3. Load BMFM-DNA ──────────────────────────────────────────────────────────
 print(f"\n[3] Loading BMFM-DNA from {MODEL_ID}")
-from bmfm_targets.models.predictive.scmodernbert import modeling_scmodernbert  # registers SCModernBert
-from transformers import AutoModel, AutoTokenizer
+from bmfm_targets.models.predictive.scmodernbert import SCModernBertForMaskedLM
+from transformers import PreTrainedTokenizerFast
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"    Device: {device}")
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-model = AutoModel.from_pretrained(MODEL_ID, trust_remote_code=True)
+# Load tokenizer directly (bypass AutoTokenizer which requires AutoConfig registration)
+tokenizer = PreTrainedTokenizerFast.from_pretrained(MODEL_ID)
+# Load model directly via PreTrainedModel.from_pretrained (no AutoConfig needed)
+model = SCModernBertForMaskedLM.from_pretrained(MODEL_ID)
 model = model.to(device).eval()
 n_params = sum(p.numel() for p in model.parameters())
 print(f"    Model loaded: {n_params/1e6:.1f}M params")
@@ -118,7 +120,8 @@ def embed_batch(sequences):
         max_length=1024,
     ).to(device)
     with torch.no_grad():
-        outputs = model(**inputs)
+        # SCModernBertForMaskedLM: use the base model's hidden states
+        outputs = model.scmodernbert(**inputs)  # base encoder, returns last_hidden_state
     # Mean pool over sequence length (exclude padding)
     hidden = outputs.last_hidden_state          # [B, L, 768]
     mask   = inputs["attention_mask"].unsqueeze(-1).float()  # [B, L, 1]
