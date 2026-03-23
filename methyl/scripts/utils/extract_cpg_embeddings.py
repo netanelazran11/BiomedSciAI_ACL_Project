@@ -63,17 +63,19 @@ print(f"    Using columns: id={id_col}, chr={chr_col}, pos={pos_col}")
 print(f"    Manifest probes: {len(manifest)}")
 
 # ── 3. Load BMFM-DNA ──────────────────────────────────────────────────────────
+# SCModernBertModel is the base encoder (no MLM head) — exactly what we need.
+# PreTrainedTokenizerFast loads BMFM-DNA's own k-mer BPE tokenizer for DNA sequences.
+# NOTE: this is BMFM-DNA's tokenizer for DNA text, completely separate from
+#       the methylation tokenizer (cg_id → integer) used by MethylLlama.
 print(f"\n[3] Loading BMFM-DNA from {MODEL_ID}")
-from bmfm_targets.models.predictive.scmodernbert import SCModernBertForMaskedLM
+from bmfm_targets.models.predictive.scmodernbert.modeling_scmodernbert import SCModernBertModel
 from transformers import PreTrainedTokenizerFast
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"    Device: {device}")
 
-# Load tokenizer directly (bypass AutoTokenizer which requires AutoConfig registration)
 tokenizer = PreTrainedTokenizerFast.from_pretrained(MODEL_ID)
-# Load model directly via PreTrainedModel.from_pretrained (no AutoConfig needed)
-model = SCModernBertForMaskedLM.from_pretrained(MODEL_ID)
+model = SCModernBertModel.from_pretrained(MODEL_ID)
 model = model.to(device).eval()
 n_params = sum(p.numel() for p in model.parameters())
 print(f"    Model loaded: {n_params/1e6:.1f}M params")
@@ -121,7 +123,7 @@ def embed_batch(sequences):
     ).to(device)
     with torch.no_grad():
         # SCModernBertForMaskedLM: use the base model's hidden states
-        outputs = model.scmodernbert(**inputs)  # base encoder, returns last_hidden_state
+        outputs = model(**inputs)  # SCModernBertModel → last_hidden_state
     # Mean pool over sequence length (exclude padding)
     hidden = outputs.last_hidden_state          # [B, L, 768]
     mask   = inputs["attention_mask"].unsqueeze(-1).float()  # [B, L, 1]
