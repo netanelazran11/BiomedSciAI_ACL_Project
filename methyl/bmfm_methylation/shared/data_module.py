@@ -830,8 +830,9 @@ class WCEDCollator:
             n_input = int(self.actual_vocab_size * self.input_ratio)
             n_input = min(n_input, len(valid_indices))
 
-            # View 1: Random subset of valid CpGs
-            indices_v1 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
+            # View 1: Random subset of valid CpGs (unsorted — random order forces
+            # model to rely on token IDs not positions, avoids positional shortcuts)
+            indices_v1 = rng.choice(valid_indices, size=n_input, replace=False)
 
             ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v1, max_input_len)
             cpg_ids_v1[i] = ids
@@ -844,7 +845,7 @@ class WCEDCollator:
                 # Each view is a fresh random sample from all valid CpGs.
                 # Overlap is fine: model must still encode the full profile in CLS
                 # so that both views produce similar embeddings.
-                indices_v2 = np.sort(rng.choice(valid_indices, size=n_input, replace=False))
+                indices_v2 = rng.choice(valid_indices, size=n_input, replace=False)
 
                 ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v2, max_input_len)
                 cpg_ids_v2[i] = ids
