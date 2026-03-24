@@ -186,9 +186,31 @@ class MethylationDataset(Dataset):
         # Filter by split if specified
         if split is not None and split_column in self.adata.obs.columns:
             mask = self.adata.obs[split_column] == split
-            self.adata = self.adata[mask].copy()
-        elif split is not None:
-            # No split column: auto-split 80/10/10 by shuffled index (seed=42)
+            if mask.sum() == 0:
+                # Split column exists but requested value not found (e.g. h5ad uses
+                # "val" but caller requested "valid"). Fall through to auto-split.
+                logger.warning(
+                    f"Split column '{split_column}' has no value '{split}' "
+                    f"(available: {self.adata.obs[split_column].unique().tolist()}). "
+                    f"Falling back to auto-split 80/10/10."
+                )
+            else:
+                self.adata = self.adata[mask].copy()
+                mask = None  # signal: done, skip auto-split below
+        else:
+            mask = None
+
+        # Auto-split if: split requested AND (no split column OR requested value not found)
+        need_auto_split = (
+            split is not None
+            and not (
+                split_column in self.adata.obs.columns
+                and mask is not None
+                and mask.sum() > 0
+            )
+        )
+        if need_auto_split:
+            # Auto-split 80/10/10 by shuffled index (seed=42)
             n = len(self.adata)
             rng = np.random.default_rng(42)
             perm = rng.permutation(n)
@@ -202,7 +224,7 @@ class MethylationDataset(Dataset):
                 sel = perm[val_end:]
             self.adata = self.adata[sel].copy()
             logger.warning(
-                f"No '{split_column}' column found. "
+                f"No usable '{split_column}' column/value. "
                 f"Auto-split '{split}': {len(sel)}/{n} samples (seed=42, 80/10/10)"
             )
 
