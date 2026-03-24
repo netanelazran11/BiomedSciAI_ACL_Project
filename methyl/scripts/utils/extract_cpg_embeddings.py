@@ -200,8 +200,11 @@ def get_dna_sequence(cpg_id):
     seq   = str(genome[chrom][start:end])
     return seq.upper()
 
+_embed_batch_debug = True   # print shapes on first call only
+
 def embed_batch(sequences):
-    """Run BMFM-DNA on a batch of DNA sequences → mean-pooled embeddings."""
+    """Run BMFM-DNA on a batch of DNA sequences → pooled embeddings."""
+    global _embed_batch_debug
     inputs = tokenizer(
         sequences,
         return_tensors="pt",
@@ -215,13 +218,28 @@ def embed_batch(sequences):
         model_inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
         model_inputs["input_ids"] = model_inputs["input_ids"].unsqueeze(1)  # [B,1,L]
         outputs = model(**model_inputs)
-    # Extract hidden states — handle [B,L,H] or [B,1,L,H]
-    hidden = outputs.last_hidden_state
-    if hidden.dim() == 4:
-        hidden = hidden.squeeze(1)          # [B,1,L,H] → [B,L,H]
-    # Mean pool over sequence length (exclude padding)
-    mask   = inputs["attention_mask"].unsqueeze(-1).float()  # [B, L, 1]
-    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)    # [B, H]
+
+    if _embed_batch_debug:
+        print(f"    [DEBUG] output keys: {[k for k in outputs.keys()]}")
+        for k in outputs.keys():
+            v = getattr(outputs, k)
+            if v is not None and hasattr(v, 'shape'):
+                print(f"    [DEBUG] outputs.{k}.shape = {v.shape}")
+        _embed_batch_debug = False
+
+    # Use pooler_output if available (trainer used pooling_layer method)
+    # otherwise fall back to mean pooling over last_hidden_state
+    if outputs.pooler_output is not None:
+        pooled = outputs.pooler_output          # [B, H] or [B, 1, H]
+        if pooled.dim() == 3:
+            pooled = pooled.squeeze(1)          # [B, 1, H] → [B, H]
+    else:
+        hidden = outputs.last_hidden_state
+        if hidden.dim() == 4:
+            hidden = hidden.squeeze(1)          # [B,1,L,H] → [B,L,H]
+        mask   = inputs["attention_mask"].unsqueeze(-1).float()
+        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)
+
     return pooled.cpu().float().numpy()
 
 batch_seqs  = []
