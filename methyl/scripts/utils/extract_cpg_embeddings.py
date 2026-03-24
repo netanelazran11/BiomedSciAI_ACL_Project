@@ -196,8 +196,10 @@ def embed_batch(sequences):
         max_length=1024,
     ).to(device)
     with torch.no_grad():
-        # SCModernBertModel does not accept token_type_ids — drop it
+        # SCModernBertModel expects input_ids shape [B, num_fields, L] — add fields dim
+        # Also drop token_type_ids (not accepted by SCModernBertModel)
         model_inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
+        model_inputs["input_ids"] = model_inputs["input_ids"].unsqueeze(1)  # [B,1,L]
         outputs = model(**model_inputs)  # SCModernBertModel → last_hidden_state
     # Mean pool over sequence length (exclude padding)
     hidden = outputs.last_hidden_state          # [B, L, 768]
