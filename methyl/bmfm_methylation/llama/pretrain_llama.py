@@ -58,7 +58,7 @@ from bmfm_methylation.shared.tokenizer import (
 )
 from bmfm_methylation.shared.data_module import MethylationDataModule, WCEDCollator
 
-from .model import MethylLlamaConfig, MethylLlamaModel
+from .model import MethylLlamaConfig, MethylLlamaModel, init_cpg_embeddings_from_dna
 from .wced_llama import WCEDLlamaModule
 
 logger = logging.getLogger(__name__)
@@ -338,6 +338,19 @@ def main(cfg: DictConfig):
             "MLM pretraining for MethylLlama not yet implemented. "
             "Use pretraining_mode=wced (recommended) or use pretrain.py for SCBert MLM."
         )
+
+    # Optionally initialize CpG embedding table with BMFM-DNA embeddings
+    cpg_emb_npy = cfg.get("cpg_embeddings_npy", None)
+    cpg_emb_ids = cfg.get("cpg_embeddings_ids", None)
+    if cpg_emb_npy and cpg_emb_ids:
+        logger.info(f"Initializing CpG embeddings from BMFM-DNA: {cpg_emb_npy}")
+        n = init_cpg_embeddings_from_dna(
+            model=module.model,
+            tokenizer=tokenizer,
+            npy_path=cpg_emb_npy,
+            ids_path=cpg_emb_ids,
+        )
+        logger.info(f"BMFM-DNA init complete: {n} CpGs initialized")
 
     # Logger
     exp_logger = setup_wandb(cfg)

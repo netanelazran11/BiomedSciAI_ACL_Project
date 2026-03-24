@@ -586,6 +586,59 @@ class MethylLlamaModel(nn.Module):
 # Convenience: build model from common presets
 # ---------------------------------------------------------------------------
 
+def init_cpg_embeddings_from_dna(
+    model: "MethylLlamaModel",
+    tokenizer,
+    npy_path: str,
+    ids_path: str,
+) -> int:
+    """
+    Initialize MethylLlamaModel's CpG embedding table with BMFM-DNA embeddings.
+
+    Maps each CpG name in ids_path → token ID via tokenizer → overwrites the
+    corresponding row in cpg_sites_embeddings.weight with the BMFM-DNA vector.
+
+    Special tokens (rows 0-4) are never touched.
+
+    Args:
+        model:      MethylLlamaModel (must be on CPU or have matching dtype)
+        tokenizer:  MultiFieldTokenizer (must have "cpg_sites" sub-tokenizer)
+        npy_path:   Path to cpg_embeddings_bmfdna_21k.npy  [N, hidden_size]
+        ids_path:   Path to cpg_ids_order.txt              (N CpG names, one per line)
+
+    Returns:
+        Number of CpGs successfully initialized.
+    """
+    import numpy as np
+
+    emb = np.load(npy_path).astype(np.float32)          # [N, hidden_size]
+    cpg_names = open(ids_path).read().splitlines()       # N CpG names
+
+    assert emb.shape[0] == len(cpg_names), (
+        f"Shape mismatch: npy has {emb.shape[0]} rows but ids_path has {len(cpg_names)} names"
+    )
+    assert emb.shape[1] == model.config.hidden_size, (
+        f"Embedding dim mismatch: BMFM-DNA={emb.shape[1]}, model hidden_size={model.config.hidden_size}"
+    )
+
+    cpg_tokenizer = tokenizer.tokenizers["cpg_sites"]
+    vocab = cpg_tokenizer.get_vocab()
+
+    weight = model.embeddings.cpg_sites_embeddings.weight.data
+    n_init = 0
+    for i, name in enumerate(cpg_names):
+        token_id = vocab.get(name)
+        if token_id is not None and token_id >= 5:   # never overwrite special tokens
+            weight[token_id] = torch.tensor(emb[i], dtype=weight.dtype)
+            n_init += 1
+
+    logger.info(
+        f"BMFM-DNA init: {n_init}/{len(cpg_names)} CpG embeddings loaded "
+        f"({len(cpg_names) - n_init} skipped — not in tokenizer vocab)"
+    )
+    return n_init
+
+
 def build_methyl_llama(
     vocab_size: int = 8002,
     hidden_size: int = 512,
