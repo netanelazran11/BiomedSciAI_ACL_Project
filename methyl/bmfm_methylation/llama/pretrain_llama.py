@@ -342,6 +342,7 @@ def main(cfg: DictConfig):
     # Optionally initialize CpG embedding table with BMFM-DNA embeddings
     cpg_emb_npy = cfg.get("cpg_embeddings_npy", None)
     cpg_emb_ids = cfg.get("cpg_embeddings_ids", None)
+    dna_init_stats = {}
     if cpg_emb_npy and cpg_emb_ids:
         logger.info(f"Initializing CpG embeddings from BMFM-DNA: {cpg_emb_npy}")
         n = init_cpg_embeddings_from_dna(
@@ -351,9 +352,94 @@ def main(cfg: DictConfig):
             ids_path=cpg_emb_ids,
         )
         logger.info(f"BMFM-DNA init complete: {n} CpGs initialized")
+        # Collect embedding stats for WandB
+        _w = module.model.embeddings.cpg_sites_embeddings.weight.data[5:].float()
+        _norms = _w.norm(dim=1)
+        dna_init_stats = {
+            "dna_init/cpgs_initialized": n,
+            "dna_init/emb_norm_mean": _norms.mean().item(),
+            "dna_init/emb_norm_std":  _norms.std().item(),
+            "dna_init/emb_norm_min":  _norms.min().item(),
+            "dna_init/emb_norm_max":  _norms.max().item(),
+        }
+
+    # ── Startup sanity checks ──────────────────────────────────────────────────
+    _sep = "=" * 70
+    print(_sep)
+    print("STARTUP SANITY CHECK")
+    print(_sep)
+
+    # Model
+    _total_params = sum(p.numel() for p in module.model.parameters())
+    _trainable    = sum(p.numel() for p in module.model.parameters() if p.requires_grad)
+    print(f"[Model]  total={_total_params/1e6:.1f}M  trainable={_trainable/1e6:.1f}M")
+    print(f"[Model]  vocab_size={module.model.config.vocab_size}  "
+          f"hidden={module.model.config.hidden_size}  "
+          f"layers={module.model.config.num_hidden_layers}  "
+          f"heads={module.model.config.num_attention_heads}")
+    print(f"[Model]  cpg_emb shape: {list(module.model.embeddings.cpg_sites_embeddings.weight.shape)}")
+    if dna_init_stats:
+        print(f"[DNA init] {dna_init_stats['dna_init/cpgs_initialized']} CpGs initialized  "
+              f"norm mean={dna_init_stats['dna_init/emb_norm_mean']:.3f} ± "
+              f"{dna_init_stats['dna_init/emb_norm_std']:.3f}")
+    else:
+        print("[DNA init] RANDOM INIT (no BMFM-DNA embeddings)")
+
+    # Data splits
+    for split_name, ds in [("train", data_module.train_dataset),
+                            ("val",   data_module.val_dataset),
+                            ("test",  data_module.test_dataset)]:
+        if ds is not None:
+            print(f"[Data]   {split_name}: {len(ds)} samples  "
+                  f"CpGs={ds.num_cpg_sites}  subset_k={subset_k}")
+        else:
+            print(f"[Data]   {split_name}: None")
+
+    # Batch smoke-test — run one batch through model to check shapes
+    try:
+        _loader = data_module.train_dataloader()
+        _batch  = next(iter(_loader))
+        _ids    = _batch["input_ids"]
+        _mask   = _batch["attention_mask"]
+        print(f"[Batch]  input_ids shape:      {list(_ids.shape)}")
+        print(f"[Batch]  attention_mask shape:  {list(_mask.shape)}")
+        if "target_ids" in _batch:
+            print(f"[Batch]  target_ids shape:     {list(_batch['target_ids'].shape)}")
+        if "target_values" in _batch:
+            print(f"[Batch]  target_values shape:  {list(_batch['target_values'].shape)}")
+        with torch.no_grad():
+            _out = module.model(
+                input_ids=_ids[:2].to(next(module.model.parameters()).device),
+                attention_mask=_mask[:2].to(next(module.model.parameters()).device),
+            )
+        print(f"[Batch]  last_hidden_state:    {list(_out.last_hidden_state.shape)}")
+        print(f"[Batch]  pooler_output:        {list(_out.pooler_output.shape)}")
+        print("[Batch]  Smoke-test PASSED")
+        _sanity_stats = {
+            "sanity/train_samples": len(data_module.train_dataset),
+            "sanity/val_samples":   len(data_module.val_dataset) if data_module.val_dataset else 0,
+            "sanity/input_ids_shape_L": _ids.shape[-1],
+            "sanity/model_total_params_M": round(_total_params / 1e6, 1),
+        }
+    except Exception as _e:
+        print(f"[Batch]  Smoke-test FAILED: {_e}")
+        _sanity_stats = {}
+
+    print(_sep)
 
     # Logger
     exp_logger = setup_wandb(cfg)
+
+    # Log sanity + DNA-init stats to WandB at step 0
+    _wandb_stats = {**dna_init_stats, **_sanity_stats}
+    if _wandb_stats:
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.log(_wandb_stats, step=0)
+                logger.info(f"WandB sanity stats logged: {list(_wandb_stats.keys())}")
+        except Exception as _we:
+            logger.warning(f"WandB sanity log failed (non-fatal): {_we}")
 
     # Callbacks
     callbacks = [
