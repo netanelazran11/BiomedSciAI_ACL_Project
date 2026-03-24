@@ -42,7 +42,7 @@ print("    OK")
 # ── 2. Build model + tokenizer
 print("\n[2] Building MethylLlamaModel + tokenizer...")
 from bmfm_methylation.llama.model import MethylLlamaConfig, MethylLlamaModel, init_cpg_embeddings_from_dna
-from bmfm_methylation.shared.tokenizer import MultiFieldTokenizer
+from bmfm_targets.tokenization import MultiFieldTokenizer
 
 tokenizer = MultiFieldTokenizer.from_pretrained(TOKENIZER_PATH)
 vocab_size = len(tokenizer.tokenizers["cpg_sites"].get_vocab())
