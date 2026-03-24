@@ -107,9 +107,14 @@ tokenizer = PreTrainedTokenizerFast.from_pretrained(str(_dna_tok_dir))
 print(f"    Tokenizer loaded from {_dna_tok_dir}")
 print(f"    vocab_size={tokenizer.vocab_size}")
 
-# Load model config then instantiate
-# config_class is set on the model class itself (no separate import needed)
-config = SCModernBertModel.config_class.from_pretrained(str(snapshot_dir))
+# Load model config then instantiate.
+# SCModernBertConfig.from_dict requires a bmfm_targets-specific "fields" key
+# that is absent from the HF config.json → load JSON manually and inject it.
+import json
+with open(snapshot_dir / "config.json") as _f:
+    _cfg_dict = json.load(_f)
+_cfg_dict.setdefault("fields", [])   # not needed for inference
+config = SCModernBertModel.config_class.from_dict(_cfg_dict)
 model = SCModernBertModel(config)
 
 # Load weights from local PyTorch Lightning checkpoint
