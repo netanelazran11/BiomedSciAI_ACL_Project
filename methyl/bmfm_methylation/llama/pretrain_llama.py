@@ -133,7 +133,7 @@ def build_model_config(cfg: DictConfig, vocab_size: int) -> MethylLlamaConfig:
         num_hidden_layers=mc.get("num_hidden_layers", 6),
         num_attention_heads=mc.get("num_attention_heads", 8),
         intermediate_size=mc.get("intermediate_size", 1408),
-        vocab_size=mc.get("vocab_size", vocab_size),  # tokenizer-derived
+        vocab_size=vocab_size,  # always tokenizer-derived, never from cfg
         rope_theta=mc.get("rope_theta", 10000.0),
         rms_norm_eps=mc.get("rms_norm_eps", 1e-6),
         hidden_dropout_prob=mc.get("hidden_dropout_prob", 0.1),
@@ -410,26 +410,29 @@ def main(cfg: DictConfig):
     try:
         _loader = data_module.train_dataloader()
         _batch  = next(iter(_loader))
-        _ids    = _batch["input_ids"]
-        _mask   = _batch["attention_mask"]
-        print(f"[Batch]  input_ids shape:      {list(_ids.shape)}")
-        print(f"[Batch]  attention_mask shape:  {list(_mask.shape)}")
-        if "target_ids" in _batch:
-            print(f"[Batch]  target_ids shape:     {list(_batch['target_ids'].shape)}")
-        if "target_values" in _batch:
-            print(f"[Batch]  target_values shape:  {list(_batch['target_values'].shape)}")
+        print(f"[Batch]  keys: {list(_batch.keys())}")
+        _cpg_ids    = _batch["cpg_ids"]       # [B, L]
+        _betas      = _batch["beta_values"]   # [B, L]
+        _mask       = _batch.get("attention_mask")
+        print(f"[Batch]  cpg_ids shape:     {list(_cpg_ids.shape)}")
+        print(f"[Batch]  beta_values shape: {list(_betas.shape)}")
+        if _mask is not None:
+            print(f"[Batch]  attention_mask:   {list(_mask.shape)}")
+        if "all_betas" in _batch:
+            print(f"[Batch]  all_betas shape:  {list(_batch['all_betas'].shape)}")
         with torch.no_grad():
+            _dev = next(module.encoder.parameters()).device
             _out = module.encoder(
-                input_ids=_ids[:2].to(next(module.encoder.parameters()).device),
-                attention_mask=_mask[:2].to(next(module.encoder.parameters()).device),
+                input_ids=torch.stack([_cpg_ids[:2].float(), _betas[:2]], dim=1).to(_dev),
+                attention_mask=_mask[:2].to(_dev) if _mask is not None else None,
             )
-        print(f"[Batch]  last_hidden_state:    {list(_out.last_hidden_state.shape)}")
-        print(f"[Batch]  pooler_output:        {list(_out.pooler_output.shape)}")
+        print(f"[Batch]  last_hidden_state: {list(_out.last_hidden_state.shape)}")
+        print(f"[Batch]  pooler_output:     {list(_out.pooler_output.shape)}")
         print("[Batch]  Smoke-test PASSED")
         _sanity_stats = {
             "sanity/train_samples": len(data_module.train_dataset),
             "sanity/val_samples":   len(data_module.val_dataset) if data_module.val_dataset else 0,
-            "sanity/input_ids_shape_L": _ids.shape[-1],
+            "sanity/seq_len": _cpg_ids.shape[-1],
             "sanity/model_total_params_M": round(_total_params / 1e6, 1),
         }
     except Exception as _e:

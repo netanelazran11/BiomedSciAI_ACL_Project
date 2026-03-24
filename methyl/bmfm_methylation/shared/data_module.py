@@ -184,49 +184,39 @@ class MethylationDataset(Dataset):
         self.adata = _read_h5ad_robust(h5ad_path)
 
         # Filter by split if specified
-        if split is not None and split_column in self.adata.obs.columns:
-            mask = self.adata.obs[split_column] == split
-            if mask.sum() == 0:
-                # Split column exists but requested value not found (e.g. h5ad uses
-                # "val" but caller requested "valid"). Fall through to auto-split.
-                logger.warning(
-                    f"Split column '{split_column}' has no value '{split}' "
-                    f"(available: {self.adata.obs[split_column].unique().tolist()}). "
-                    f"Falling back to auto-split 80/10/10."
-                )
-            else:
-                self.adata = self.adata[mask].copy()
-                mask = None  # signal: done, skip auto-split below
-        else:
-            mask = None
+        split_applied = False
+        if split is not None:
+            if split_column in self.adata.obs.columns:
+                mask = self.adata.obs[split_column] == split
+                if mask.sum() > 0:
+                    self.adata = self.adata[mask].copy()
+                    split_applied = True
+                    logger.info(f"Using '{split_column}'='{split}': {len(self.adata)} samples")
+                else:
+                    logger.warning(
+                        f"Split column '{split_column}' has no value '{split}' "
+                        f"(available: {self.adata.obs[split_column].unique().tolist()}). "
+                        f"Falling back to auto-split 80/10/10."
+                    )
 
-        # Auto-split if: split requested AND (no split column OR requested value not found)
-        need_auto_split = (
-            split is not None
-            and not (
-                split_column in self.adata.obs.columns
-                and mask is not None
-                and mask.sum() > 0
-            )
-        )
-        if need_auto_split:
-            # Auto-split 80/10/10 by shuffled index (seed=42)
-            n = len(self.adata)
-            rng = np.random.default_rng(42)
-            perm = rng.permutation(n)
-            train_end = int(0.8 * n)
-            val_end   = int(0.9 * n)
-            if split == "train":
-                sel = perm[:train_end]
-            elif split in ("valid", "val"):
-                sel = perm[train_end:val_end]
-            else:  # test
-                sel = perm[val_end:]
-            self.adata = self.adata[sel].copy()
-            logger.warning(
-                f"No usable '{split_column}' column/value. "
-                f"Auto-split '{split}': {len(sel)}/{n} samples (seed=42, 80/10/10)"
-            )
+            if not split_applied:
+                # Auto-split 80/10/10 by shuffled index (seed=42)
+                n = len(self.adata)
+                rng = np.random.default_rng(42)
+                perm = rng.permutation(n)
+                train_end = int(0.8 * n)
+                val_end   = int(0.9 * n)
+                if split == "train":
+                    sel = perm[:train_end]
+                elif split in ("valid", "val"):
+                    sel = perm[train_end:val_end]
+                else:  # test
+                    sel = perm[val_end:]
+                self.adata = self.adata[sel].copy()
+                logger.warning(
+                    f"No usable '{split_column}' column/value. "
+                    f"Auto-split '{split}': {len(sel)}/{n} samples (seed=42, 80/10/10)"
+                )
 
         # Get CpG site names
         # Prefer var['cpg_id'] column (pretrain h5ad has integer var_names, not CpG names)
