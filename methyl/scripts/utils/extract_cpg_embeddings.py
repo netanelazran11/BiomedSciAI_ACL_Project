@@ -109,37 +109,51 @@ if tokenizer.pad_token is None:
 print(f"    Tokenizer loaded from {_dna_tok_dir}")
 print(f"    vocab_size={tokenizer.vocab_size}")
 
-# Load model config then instantiate.
-# SCModernBertConfig.from_dict requires a bmfm_targets-specific "fields" key
-# that is absent from the HF config.json → load JSON manually and inject it.
-import json
-with open(snapshot_dir / "config.json") as _f:
-    _cfg_dict = json.load(_f)
-_cfg_dict.setdefault("fields", [])   # not needed for inference
-config = SCModernBertModel.config_class.from_dict(_cfg_dict)
-model = SCModernBertModel(config)
-
-# Load weights from last.ckpt inside the snapshot dir
+# Load checkpoint first — config may be embedded in hyper_parameters
 LOCAL_CKPT = snapshot_dir / "last.ckpt"
-print(f"    Loading weights from {LOCAL_CKPT}")
+print(f"    Loading checkpoint from {LOCAL_CKPT}")
 if not LOCAL_CKPT.exists():
     raise FileNotFoundError(f"Checkpoint not found: {LOCAL_CKPT}")
 
+import json
 ckpt = torch.load(str(LOCAL_CKPT), map_location="cpu", weights_only=False)
-# PL checkpoints store weights under "state_dict" key
-# Keys may have a prefix like "model." — strip it to match bare model keys
-if "state_dict" in ckpt:
-    raw_sd = ckpt["state_dict"]
-else:
-    raw_sd = ckpt  # already a plain state_dict
+print(f"    Checkpoint top-level keys: {list(ckpt.keys())}")
 
-# Strip checkpoint key prefixes until keys match model.
-# e.g. "model.scmodernbert.embeddings.X" → strip "model." → strip "scmodernbert."
-sd = dict(raw_sd)
+# Extract state dict
+raw_sd = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
+
+# Build model config — prefer checkpoint hyper_parameters over config.json
+# (config.json on HF is only 112 bytes and may have wrong architecture)
+config = None
+if "hyper_parameters" in ckpt:
+    hp = ckpt["hyper_parameters"]
+    print(f"    hyper_parameters keys: {list(hp.keys()) if isinstance(hp, dict) else type(hp)}")
+    for _key in ["model_config", "config", "cfg"]:
+        if isinstance(hp, dict) and _key in hp:
+            _c = hp[_key]
+            if hasattr(_c, "hidden_size"):   # it's already a config object
+                config = _c
+                print(f"    Config from checkpoint[hyper_parameters][{_key}]")
+                break
+
+if config is None:
+    with open(snapshot_dir / "config.json") as _f:
+        _cfg_dict = json.load(_f)
+    print(f"    config.json contents: {_cfg_dict}")
+    _cfg_dict.setdefault("fields", [])
+    config = SCModernBertModel.config_class.from_dict(_cfg_dict)
+    print(f"    Config from config.json")
+
+model = SCModernBertModel(config)
+n_init = sum(p.numel() for p in model.parameters())
+print(f"    Model initialized: {n_init/1e6:.1f}M params")
+
+# Strip key prefix — try longest match first
 model_keys = set(dict(model.named_parameters()).keys())
-for _prefix in ["model.", "scmodernbert.", "model.scmodernbert."]:
+sd = dict(raw_sd)
+for _prefix in ["model.scmodernbert.", "scmodernbert.", "model."]:
     _stripped = {k[len(_prefix):]: v for k, v in sd.items() if k.startswith(_prefix)}
-    if _stripped and any(k in model_keys for k in list(_stripped.keys())[:5]):
+    if _stripped and any(k in model_keys for k in list(_stripped.keys())[:10]):
         print(f"    Stripping state_dict prefix: '{_prefix}'")
         sd = _stripped
         break
@@ -196,15 +210,18 @@ def embed_batch(sequences):
         max_length=1024,
     ).to(device)
     with torch.no_grad():
-        # SCModernBertModel expects input_ids shape [B, num_fields, L] — add fields dim
-        # Also drop token_type_ids (not accepted by SCModernBertModel)
+        # SCModernBertModel expects input_ids [B, num_fields, L] — add fields dim
+        # Drop token_type_ids (not accepted by SCModernBertModel)
         model_inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
         model_inputs["input_ids"] = model_inputs["input_ids"].unsqueeze(1)  # [B,1,L]
-        outputs = model(**model_inputs)  # SCModernBertModel → last_hidden_state
+        outputs = model(**model_inputs)
+    # Extract hidden states — handle [B,L,H] or [B,1,L,H]
+    hidden = outputs.last_hidden_state
+    if hidden.dim() == 4:
+        hidden = hidden.squeeze(1)          # [B,1,L,H] → [B,L,H]
     # Mean pool over sequence length (exclude padding)
-    hidden = outputs.last_hidden_state          # [B, L, 768]
     mask   = inputs["attention_mask"].unsqueeze(-1).float()  # [B, L, 1]
-    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)    # [B, 768]
+    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)    # [B, H]
     return pooled.cpu().float().numpy()
 
 batch_seqs  = []
