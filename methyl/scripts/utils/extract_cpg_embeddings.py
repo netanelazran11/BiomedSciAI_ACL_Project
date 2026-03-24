@@ -104,6 +104,8 @@ _dna_tok_dir = Path(_bmfm.__file__).parent / "tests/resources/tokenizers/dna_chu
 if not (_dna_tok_dir / "tokenizer.json").exists():
     raise FileNotFoundError(f"dna_chunks tokenizer not found at {_dna_tok_dir}")
 tokenizer = PreTrainedTokenizerFast.from_pretrained(str(_dna_tok_dir))
+if tokenizer.pad_token is None:
+    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 print(f"    Tokenizer loaded from {_dna_tok_dir}")
 print(f"    vocab_size={tokenizer.vocab_size}")
 
@@ -131,22 +133,16 @@ if "state_dict" in ckpt:
 else:
     raw_sd = ckpt  # already a plain state_dict
 
-# Determine prefix (e.g. "model.") by checking first key
-first_key = next(iter(raw_sd))
-prefix = ""
-if first_key.startswith("model."):
-    prefix = "model."
-elif "." in first_key:
-    # Try to detect any common prefix
-    candidate = first_key.split(".")[0] + "."
-    if all(k.startswith(candidate) for k in list(raw_sd.keys())[:10]):
-        prefix = candidate
-
-if prefix:
-    print(f"    Stripping state_dict prefix: '{prefix}'")
-    sd = {k[len(prefix):]: v for k, v in raw_sd.items() if k.startswith(prefix)}
-else:
-    sd = raw_sd
+# Strip checkpoint key prefixes until keys match model.
+# e.g. "model.scmodernbert.embeddings.X" → strip "model." → strip "scmodernbert."
+sd = dict(raw_sd)
+model_keys = set(dict(model.named_parameters()).keys())
+for _prefix in ["model.", "scmodernbert.", "model.scmodernbert."]:
+    _stripped = {k[len(_prefix):]: v for k, v in sd.items() if k.startswith(_prefix)}
+    if _stripped and any(k in model_keys for k in list(_stripped.keys())[:5]):
+        print(f"    Stripping state_dict prefix: '{_prefix}'")
+        sd = _stripped
+        break
 
 missing, unexpected = model.load_state_dict(sd, strict=False)
 if missing:
