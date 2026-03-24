@@ -378,10 +378,21 @@ def main(cfg: DictConfig):
           f"layers={module.model.config.num_hidden_layers}  "
           f"heads={module.model.config.num_attention_heads}")
     print(f"[Model]  cpg_emb shape: {list(module.model.embeddings.cpg_sites_embeddings.weight.shape)}")
+    # Verify embeddings are DNA-initialized vs random by checking norm magnitude.
+    # BMFM-DNA embeddings have norm ~7.6 (very tight); Xavier random init ~0.05.
+    _emb_w = module.model.embeddings.cpg_sites_embeddings.weight.data[5:].float()
+    _emb_norms = _emb_w.norm(dim=1)
+    _norm_mean = _emb_norms.mean().item()
+    _norm_std  = _emb_norms.std().item()
+    print(f"[Emb norms] mean={_norm_mean:.4f}  std={_norm_std:.4f}  "
+          f"(DNA init expected ~7.62, random expected ~0.05)")
     if dna_init_stats:
-        print(f"[DNA init] {dna_init_stats['dna_init/cpgs_initialized']} CpGs initialized  "
-              f"norm mean={dna_init_stats['dna_init/emb_norm_mean']:.3f} ± "
-              f"{dna_init_stats['dna_init/emb_norm_std']:.3f}")
+        _dna_ok = _norm_mean > 5.0   # anything >5 is clearly DNA-init, not random
+        _status = "OK — DNA embeddings confirmed" if _dna_ok else "WARNING — norms look random!"
+        print(f"[DNA init] {dna_init_stats['dna_init/cpgs_initialized']} CpGs initialized  {_status}")
+        dna_init_stats["dna_init/emb_norm_mean"] = _norm_mean
+        dna_init_stats["dna_init/emb_norm_std"]  = _norm_std
+        dna_init_stats["dna_init/verified_ok"]   = int(_dna_ok)
     else:
         print("[DNA init] RANDOM INIT (no BMFM-DNA embeddings)")
 
