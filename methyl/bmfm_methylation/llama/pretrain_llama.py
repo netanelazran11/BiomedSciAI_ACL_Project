@@ -100,11 +100,15 @@ def setup_wandb(cfg: DictConfig):
     if hasattr(cfg, "track_wandb") and cfg.track_wandb.get("enabled", False):
         try:
             from pytorch_lightning.loggers import WandbLogger
+            import os
+            # Force rank-0-only init to avoid DDP multi-process WandB conflicts.
+            # Without this, validation metrics synced via sync_dist=True are lost.
             return WandbLogger(
                 project=cfg.track_wandb.get("project", "methylation-llama-pretrain"),
                 entity=cfg.track_wandb.get("entity"),
                 name=cfg.track_wandb.get("name", "llama_wced_pretrain"),
                 save_dir=cfg.output_directory,
+                log_model=False,
             )
         except Exception as e:
             logger.warning(f"WandB failed: {e} — falling back to TensorBoard")
