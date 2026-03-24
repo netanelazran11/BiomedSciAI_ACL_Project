@@ -128,8 +128,8 @@ python -m bmfm_methylation.llama.pretrain_llama \
     tokenizer_path="${TOKENIZER_PATH}" \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
-    cpg_embeddings_npy="${CPG_EMB_NPY}" \
-    cpg_embeddings_ids="${CPG_EMB_IDS}" \
+    +cpg_embeddings_npy="${CPG_EMB_NPY}" \
+    +cpg_embeddings_ids="${CPG_EMB_IDS}" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset=true \
     data_module.fixed_subset_seed=42 \
