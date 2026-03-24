@@ -346,14 +346,14 @@ def main(cfg: DictConfig):
     if cpg_emb_npy and cpg_emb_ids:
         logger.info(f"Initializing CpG embeddings from BMFM-DNA: {cpg_emb_npy}")
         n = init_cpg_embeddings_from_dna(
-            model=module.model,
+            model=module.encoder,
             tokenizer=tokenizer,
             npy_path=cpg_emb_npy,
             ids_path=cpg_emb_ids,
         )
         logger.info(f"BMFM-DNA init complete: {n} CpGs initialized")
         # Collect embedding stats for WandB
-        _w = module.model.embeddings.cpg_sites_embeddings.weight.data[5:].float()
+        _w = module.encoder.embeddings.cpg_sites_embeddings.weight.data[5:].float()
         _norms = _w.norm(dim=1)
         dna_init_stats = {
             "dna_init/cpgs_initialized": n,
@@ -370,17 +370,17 @@ def main(cfg: DictConfig):
     print(_sep)
 
     # Model
-    _total_params = sum(p.numel() for p in module.model.parameters())
-    _trainable    = sum(p.numel() for p in module.model.parameters() if p.requires_grad)
+    _total_params = sum(p.numel() for p in module.encoder.parameters())
+    _trainable    = sum(p.numel() for p in module.encoder.parameters() if p.requires_grad)
     print(f"[Model]  total={_total_params/1e6:.1f}M  trainable={_trainable/1e6:.1f}M")
-    print(f"[Model]  vocab_size={module.model.config.vocab_size}  "
-          f"hidden={module.model.config.hidden_size}  "
-          f"layers={module.model.config.num_hidden_layers}  "
-          f"heads={module.model.config.num_attention_heads}")
-    print(f"[Model]  cpg_emb shape: {list(module.model.embeddings.cpg_sites_embeddings.weight.shape)}")
+    print(f"[Model]  vocab_size={module.encoder.config.vocab_size}  "
+          f"hidden={module.encoder.config.hidden_size}  "
+          f"layers={module.encoder.config.num_hidden_layers}  "
+          f"heads={module.encoder.config.num_attention_heads}")
+    print(f"[Model]  cpg_emb shape: {list(module.encoder.embeddings.cpg_sites_embeddings.weight.shape)}")
     # Verify embeddings are DNA-initialized vs random by checking norm magnitude.
     # BMFM-DNA embeddings have norm ~7.6 (very tight); Xavier random init ~0.05.
-    _emb_w = module.model.embeddings.cpg_sites_embeddings.weight.data[5:].float()
+    _emb_w = module.encoder.embeddings.cpg_sites_embeddings.weight.data[5:].float()
     _emb_norms = _emb_w.norm(dim=1)
     _norm_mean = _emb_norms.mean().item()
     _norm_std  = _emb_norms.std().item()
@@ -419,9 +419,9 @@ def main(cfg: DictConfig):
         if "target_values" in _batch:
             print(f"[Batch]  target_values shape:  {list(_batch['target_values'].shape)}")
         with torch.no_grad():
-            _out = module.model(
-                input_ids=_ids[:2].to(next(module.model.parameters()).device),
-                attention_mask=_mask[:2].to(next(module.model.parameters()).device),
+            _out = module.encoder(
+                input_ids=_ids[:2].to(next(module.encoder.parameters()).device),
+                attention_mask=_mask[:2].to(next(module.encoder.parameters()).device),
             )
         print(f"[Batch]  last_hidden_state:    {list(_out.last_hidden_state.shape)}")
         print(f"[Batch]  pooler_output:        {list(_out.pooler_output.shape)}")
