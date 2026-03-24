@@ -204,7 +204,7 @@ def main(cfg: DictConfig):
         fields=fields,
         h5ad_path=cfg.data_path,
         train_split="train",
-        val_split="valid",
+        val_split="test",   # h5ad has no 'valid' split; use 'test' for val monitoring
         test_split="test",
         batch_size=dm_cfg.get("batch_size", 16),
         num_workers=dm_cfg.get("num_workers", 4),
