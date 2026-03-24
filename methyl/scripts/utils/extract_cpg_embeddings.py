@@ -97,12 +97,15 @@ if not snapshot_dirs:
 snapshot_dir = snapshot_dirs[0]
 print(f"    Snapshot dir: {snapshot_dir}")
 
-# Load tokenizer directly from tokenizer.json (avoids slow→fast conversion bug)
-tokenizer_json = snapshot_dir / "tokenizer.json"
-if not tokenizer_json.exists():
-    raise FileNotFoundError(f"tokenizer.json not found in {snapshot_dir}")
-tokenizer = PreTrainedTokenizerFast(tokenizer_file=str(tokenizer_json))
-print(f"    Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
+# Load DNA tokenizer bundled in bmfm_targets package (dna_chunks BPE tokenizer)
+# The HF repo only contains config.json — tokenizer is shipped with the package.
+import bmfm_targets as _bmfm
+_dna_tok_dir = Path(_bmfm.__file__).parent / "tests/resources/tokenizers/dna_chunks"
+if not (_dna_tok_dir / "tokenizer.json").exists():
+    raise FileNotFoundError(f"dna_chunks tokenizer not found at {_dna_tok_dir}")
+tokenizer = PreTrainedTokenizerFast.from_pretrained(str(_dna_tok_dir))
+print(f"    Tokenizer loaded from {_dna_tok_dir}")
+print(f"    vocab_size={tokenizer.vocab_size}")
 
 # Load model config then instantiate
 # config_class is set on the model class itself (no separate import needed)
