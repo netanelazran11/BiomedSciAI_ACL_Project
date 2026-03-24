@@ -131,8 +131,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     +cpg_embeddings_npy="${CPG_EMB_NPY}" \
     +cpg_embeddings_ids="${CPG_EMB_IDS}" \
     data_module.subset_k="${SUBSET_K}" \
-    data_module.fixed_subset=true \
-    data_module.fixed_subset_seed=42 \
+    data_module.fixed_subset=false \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
