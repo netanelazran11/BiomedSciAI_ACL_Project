@@ -31,8 +31,6 @@ OUT_NPY    = f"{OUT_DIR}/cpg_embeddings_bmfdna_21k.npy"
 OUT_IDS    = f"{OUT_DIR}/cpg_ids_order.txt"
 
 MODEL_ID   = "ibm-research/biomed.dna.ref.modernbert.113m.v1"
-# Local path to the downloaded last.ckpt (PyTorch Lightning checkpoint)
-LOCAL_CKPT = f"{HF_CACHE}/bmfdna_last.ckpt"
 WINDOW     = 512      # ±512 bp around CpG position
 BATCH_SIZE = 64       # sequences per forward pass
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,20 +79,22 @@ from transformers import PreTrainedTokenizerFast
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"    Device: {device}")
 
-# Find snapshot directory in HF cache
-hub_dir = Path(HF_CACHE) / "hub"
+# Find snapshot directory in HF cache.
+# hf_hub_download uses HF_CACHE/models--... (no hub/ subdir),
+# while huggingface-cli uses HF_CACHE/hub/models--... — check both.
 model_cache_name = "models--" + MODEL_ID.replace("/", "--")
-snapshots_dir = hub_dir / model_cache_name / "snapshots"
-if not snapshots_dir.exists():
-    raise FileNotFoundError(
-        f"HF snapshot dir not found: {snapshots_dir}\n"
-        f"Run: huggingface-cli download {MODEL_ID} --cache-dir {HF_CACHE}"
-    )
-# Pick the first (and usually only) snapshot hash
-snapshot_dirs = list(snapshots_dir.iterdir())
+_candidates = [
+    Path(HF_CACHE) / model_cache_name / "snapshots",
+    Path(HF_CACHE) / "hub" / model_cache_name / "snapshots",
+]
+snapshots_dir = next((p for p in _candidates if p.exists()), None)
+if snapshots_dir is None:
+    raise FileNotFoundError(f"HF snapshot dir not found in {HF_CACHE}")
+snapshot_dirs = [p for p in snapshots_dir.iterdir() if p.is_dir()]
 if not snapshot_dirs:
     raise FileNotFoundError(f"No snapshots found in {snapshots_dir}")
-snapshot_dir = snapshot_dirs[0]
+# Prefer the snapshot that contains last.ckpt
+snapshot_dir = next((p for p in snapshot_dirs if (p / "last.ckpt").exists()), snapshot_dirs[0])
 print(f"    Snapshot dir: {snapshot_dir}")
 
 # Load DNA tokenizer bundled in bmfm_targets package (dna_chunks BPE tokenizer)
@@ -117,12 +117,13 @@ _cfg_dict.setdefault("fields", [])   # not needed for inference
 config = SCModernBertModel.config_class.from_dict(_cfg_dict)
 model = SCModernBertModel(config)
 
-# Load weights from local PyTorch Lightning checkpoint
+# Load weights from last.ckpt inside the snapshot dir
+LOCAL_CKPT = snapshot_dir / "last.ckpt"
 print(f"    Loading weights from {LOCAL_CKPT}")
-if not Path(LOCAL_CKPT).exists():
+if not LOCAL_CKPT.exists():
     raise FileNotFoundError(f"Checkpoint not found: {LOCAL_CKPT}")
 
-ckpt = torch.load(LOCAL_CKPT, map_location="cpu", weights_only=False)
+ckpt = torch.load(str(LOCAL_CKPT), map_location="cpu", weights_only=False)
 # PL checkpoints store weights under "state_dict" key
 # Keys may have a prefix like "model." — strip it to match bare model keys
 if "state_dict" in ckpt:
