@@ -354,9 +354,11 @@ class WCEDLlamaModule(pl.LightningModule):
 
             recon_loss = (recon_loss_v1 + recon_loss_v2) / 2
 
-            # InfoNCE on normalized CLS (not on projection head — prevents head collapse)
-            cls1_norm = F.normalize(out_v1["cls_embedding"], dim=-1)
-            cls2_norm = F.normalize(out_v2["cls_embedding"], dim=-1)
+            # InfoNCE through projection head (SimCLR-style: protects encoder from objective conflict)
+            z1 = self.projection_head(out_v1["cls_embedding"])
+            z2 = self.projection_head(out_v2["cls_embedding"])
+            cls1_norm = F.normalize(z1, dim=-1)
+            cls2_norm = F.normalize(z2, dim=-1)
             contrastive_loss = self.info_nce_loss(cls1_norm, cls2_norm)
 
             loss = recon_loss + self.contrastive_weight * contrastive_loss + self.age_weight * age_loss
