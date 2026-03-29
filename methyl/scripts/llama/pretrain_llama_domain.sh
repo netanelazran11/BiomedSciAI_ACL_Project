@@ -38,13 +38,13 @@ BASIS_SCALE="${BASIS_SCALE:-2.0}"
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED settings
 # ─────────────────────────────────────────────────────────────────────────────
-SUBSET_K="${SUBSET_K:-21368}"             # ALL AltumAge CpGs
-INPUT_RATIO="${INPUT_RATIO:-0.5}"         # See 50%, predict 50%
-AGE_WEIGHT="${AGE_WEIGHT:-0.1}"
-CONTRASTIVE="${CONTRASTIVE:-false}"
-CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
+SUBSET_K="${SUBSET_K:-21368}"
+INPUT_RATIO="${INPUT_RATIO:-0.5}"
+AGE_WEIGHT="${AGE_WEIGHT:-0.5}"
+CONTRASTIVE="${CONTRASTIVE:-true}"
+CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.1}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
-NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
+NORMALIZE_LOSS="${NORMALIZE_LOSS:-true}"
 DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
