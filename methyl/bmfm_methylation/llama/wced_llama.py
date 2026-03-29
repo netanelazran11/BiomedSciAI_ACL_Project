@@ -170,6 +170,9 @@ class WCEDLlamaModule(pl.LightningModule):
         self.recon_loss_fn = nn.MSELoss(reduction="none")
         self.age_loss_fn   = nn.MSELoss()
 
+        # Buffer for epoch-level CLS diversity metrics (populated during validation)
+        self._val_cls: list = []
+
         # Log parameter counts
         n_enc  = sum(p.numel() for p in self.encoder.parameters())
         n_dec  = sum(p.numel() for p in self.decoder.parameters())
@@ -491,23 +494,42 @@ class WCEDLlamaModule(pl.LightningModule):
         self.log("validation/pred_std",         out["pred_std"],         on_epoch=True, sync_dist=sd)
         self.log("validation/valid_pct",        out["valid_pct"],        on_epoch=True, sync_dist=sd)
 
-        # Diagnostic: CLS diversity
-        if batch_idx == 0:
-            with torch.no_grad():
-                cls = out["cls_embedding"]
-                cls_var = cls.var(dim=0).mean()
-                cls_norm = F.normalize(cls, dim=-1)
-                sim_mat = torch.matmul(cls_norm, cls_norm.T)
-                triu_mask = torch.triu(torch.ones_like(sim_mat), diagonal=1).bool()
-                mean_sim = sim_mat[triu_mask].mean()
-                self.log("validation/cls_variance",   cls_var,  on_epoch=True, sync_dist=sd)
-                self.log("validation/cls_similarity", mean_sim, on_epoch=True, sync_dist=sd)
+        # Accumulate CLS embeddings for epoch-level diversity metrics
+        self._val_cls.append(out["cls_embedding"].detach())
 
-                pred_var   = out["predicted_betas"].var(dim=0).mean()
-                target_var = out["target_betas"].var(dim=0).mean()
-                self.log("validation/pred_var_ratio", pred_var / (target_var + 1e-8), on_epoch=True, sync_dist=sd)
+        # pred_var_ratio: log per-batch; PL averages across the epoch
+        with torch.no_grad():
+            pred_var   = out["predicted_betas"].var(dim=0).mean()
+            target_var = out["target_betas"].var(dim=0).mean()
+            self.log("validation/pred_var_ratio", pred_var / (target_var + 1e-8),
+                     on_epoch=True, sync_dist=sd)
 
         return out["loss"]
+
+    def on_validation_epoch_start(self):
+        self._val_cls: list = []
+
+    def on_validation_epoch_end(self):
+        if not self._val_cls:
+            return
+        sd = True
+        with torch.no_grad():
+            cls = torch.cat(self._val_cls, dim=0)   # [N, D] — all validation CLS vectors
+            cls_var  = cls.var(dim=0).mean()
+            cls_norm = F.normalize(cls, dim=-1)
+            N = cls_norm.shape[0]
+            # Sub-sample to ≤512 to keep the O(N²) similarity matrix tractable
+            if N > 512:
+                idx = torch.randperm(N, device=cls_norm.device)[:512]
+                cls_sample = cls_norm[idx]
+            else:
+                cls_sample = cls_norm
+            sim_mat   = torch.matmul(cls_sample, cls_sample.T)
+            triu_mask = torch.triu(torch.ones_like(sim_mat), diagonal=1).bool()
+            mean_sim  = sim_mat[triu_mask].mean()
+            self.log("validation/cls_variance",   cls_var,  sync_dist=sd)
+            self.log("validation/cls_similarity", mean_sim, sync_dist=sd)
+        self._val_cls.clear()
 
     def test_step(self, batch, batch_idx):
         out = self._shared_step(batch, "test")
