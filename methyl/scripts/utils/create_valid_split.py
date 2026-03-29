@@ -2,7 +2,7 @@
 Add a proper 'valid' split to altumage_21k_combined.h5ad.
 
 Current state:  'train' = 8724,  'test' = 2264  (val == test — bad for checkpoint selection)
-After this:     'train' = 7852,  'valid' = 872,  'test' = 2264  (proper 3-way split)
+After this:     'train' = 7416,  'valid' = 1308, 'test' = 2264  (proper 3-way split)
 
 Only obs['split'] is modified — the methylation matrix is untouched.
 A new file is written; the original is never overwritten.
@@ -15,7 +15,7 @@ DATA_DIR = "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad"
 SRC = f"{DATA_DIR}/altumage_21k_combined.h5ad"
 DST = f"{DATA_DIR}/altumage_21k_3way.h5ad"
 
-VAL_FRACTION = 0.1   # 10% of train → valid  (872 samples)
+VAL_FRACTION = 0.15  # 15% of train → valid  (~1308 samples)
 SEED = 42
 
 adata = ad.read_h5ad(SRC)
