@@ -3,7 +3,7 @@ One-time script: extract BMFM-DNA embeddings for all AltumAge CpG sites.
 
 For each CpG in probe_ids_type3_21k.csv:
   1. Look up genomic coordinates in HM450 hg38 manifest
-  2. Extract ±512bp DNA window from hg38.fa
+  2. Extract ±2048bp DNA window from hg38.fa
   3. Run BMFM-DNA → hidden state at the CpG token position → 768-dim embedding
 
 Output: cpg_embeddings_bmfdna_21k.npy  shape [21368, 768]
@@ -31,7 +31,7 @@ OUT_NPY    = f"{OUT_DIR}/cpg_embeddings_bmfdna_21k.npy"
 OUT_IDS    = f"{OUT_DIR}/cpg_ids_order.txt"
 
 MODEL_ID   = "ibm-research/biomed.dna.ref.modernbert.113m.v1"
-WINDOW     = 512      # ±512 bp around CpG position
+WINDOW     = 2048     # ±2048 bp around CpG position (~956 tokens, fits within model max 1024)
 BATCH_SIZE = 64       # sequences per forward pass
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ genome = Fasta(GENOME_FA)
 print(f"    Chromosomes available: {len(genome.keys())}")
 
 # ── 5. Extract embeddings ─────────────────────────────────────────────────────
-print(f"\n[5] Extracting embeddings (window=±{WINDOW}bp, batch={BATCH_SIZE})")
+print(f"\n[5] Extracting embeddings (window=±{WINDOW}bp → ~{WINDOW//2}tokens, batch={BATCH_SIZE})")
 
 embeddings = np.zeros((len(cpg_ids), 768), dtype=np.float32)
 missing = []
