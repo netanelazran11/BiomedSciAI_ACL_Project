@@ -24,7 +24,8 @@ BASE      = "/sci/labs/benjamin.yakir/netanel.azran"
 EMB_NPY   = f"{BASE}/data/cpg_embeddings/cpg_embeddings_bmfdna_21k.npy"
 IDS_TXT   = f"{BASE}/data/cpg_embeddings/cpg_ids_order.txt"
 MANIFEST  = f"{BASE}/data/manifests/HM450.hg38.manifest.tsv"
-OUT_DIR   = f"{BASE}/data/cpg_embeddings/viz"
+REPO      = "/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
+OUT_DIR   = f"{REPO}/docs/images"
 Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
 print("Loading embeddings...")
