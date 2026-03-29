@@ -23,7 +23,7 @@ REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs_llama-domain"
 
 DATA_DIR="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad"
-DATA="${DATA_DIR}/altumage_21k_combined.h5ad"
+DATA="${DATA_DIR}/altumage_21k_3way.h5ad"
 PROBE_IDS_CSV="${DATA_DIR}/probe_ids_type3_21k.csv"
 
 # BMFM-DNA embeddings
