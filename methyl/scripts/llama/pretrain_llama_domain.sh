@@ -40,7 +40,7 @@ BASIS_SCALE="${BASIS_SCALE:-2.0}"
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-21368}"             # ALL AltumAge CpGs
 INPUT_RATIO="${INPUT_RATIO:-0.5}"         # See 50%, predict 50%
-AGE_WEIGHT="${AGE_WEIGHT:-1.0}"
+AGE_WEIGHT="${AGE_WEIGHT:-0.1}"
 CONTRASTIVE="${CONTRASTIVE:-false}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.0}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
