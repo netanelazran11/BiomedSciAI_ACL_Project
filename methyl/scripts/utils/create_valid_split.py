@@ -32,8 +32,10 @@ rng     = np.random.default_rng(SEED)
 n_val   = int(len(train_idx) * VAL_FRACTION)
 val_idx = rng.choice(train_idx, size=n_val, replace=False)
 
-# Update split column
+# Update split column (add 'valid' category first — column is Categorical)
 split_col = adata.obs["split"].copy()
+if hasattr(split_col, "cat"):
+    split_col = split_col.cat.add_categories("valid")
 split_col.iloc[val_idx] = "valid"
 adata.obs["split"] = split_col
 
