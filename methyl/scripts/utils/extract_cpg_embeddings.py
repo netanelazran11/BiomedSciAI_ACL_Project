@@ -4,7 +4,7 @@ One-time script: extract BMFM-DNA embeddings for all AltumAge CpG sites.
 For each CpG in probe_ids_type3_21k.csv:
   1. Look up genomic coordinates in HM450 hg38 manifest
   2. Extract ±512bp DNA window from hg38.fa
-  3. Run BMFM-DNA → mean-pool hidden states → 768-dim embedding
+  3. Run BMFM-DNA → hidden state at the CpG token position → 768-dim embedding
 
 Output: cpg_embeddings_bmfdna_21k.npy  shape [21368, 768]
         cpg_ids_order.txt              CpG IDs in same row order as embeddings
@@ -222,7 +222,7 @@ def embed_batch(sequences, cpg_char_positions):
     offset_mapping = inputs.pop("offset_mapping")   # [B, L, 2] — not a model input
 
     inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
-    inputs_gpu = {k: v.to(device) for k in inputs}
+    inputs_gpu = {k: v.to(device) for k, v in inputs.items()}
     inputs_gpu["input_ids"] = inputs_gpu["input_ids"].unsqueeze(1)  # [B,1,L]
 
     with torch.no_grad():
