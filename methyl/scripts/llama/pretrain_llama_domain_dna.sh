@@ -28,7 +28,7 @@ PROBE_IDS_CSV="${DATA_DIR}/probe_ids_type3_21k.csv"
 
 # BMFM-DNA embeddings
 CPG_EMB_DIR="/sci/labs/benjamin.yakir/netanel.azran/data/cpg_embeddings"
-CPG_EMB_NPY="${CPG_EMB_DIR}/cpg_embeddings_bmfdna_21k_whitened.npy"
+CPG_EMB_NPY="${CPG_EMB_DIR}/cpg_embeddings_bmfdna_21k.npy"
 CPG_EMB_IDS="${CPG_EMB_DIR}/cpg_ids_order.txt"
 
 # ─────────────────────────────────────────────────────────────────────────────
