@@ -181,7 +181,7 @@ embeddings = np.zeros((len(cpg_ids), 768), dtype=np.float32)
 missing = []
 
 def get_dna_sequence(cpg_id):
-    """Get DNA window around CpG site. Returns None if not in manifest."""
+    """Get DNA window around CpG site. Returns (seq, cpg_char_pos) or None."""
     if cpg_id not in manifest.index:
         return None
     row = manifest.loc[cpg_id]
@@ -197,13 +197,19 @@ def get_dna_sequence(cpg_id):
     chrom_len = len(genome[chrom])
     start = max(0, pos - WINDOW)
     end   = min(chrom_len, pos + WINDOW)
-    seq   = str(genome[chrom][start:end])
-    return seq.upper()
+    seq   = str(genome[chrom][start:end]).upper()
+    cpg_char_pos = pos - start   # character offset of CpG within the window
+    return seq, cpg_char_pos
 
 _embed_batch_debug = True   # print shapes on first call only
 
-def embed_batch(sequences):
-    """Run BMFM-DNA on a batch of DNA sequences → pooled embeddings."""
+def embed_batch(sequences, cpg_char_positions):
+    """Run BMFM-DNA → hidden state at CpG token position for each sequence.
+
+    Uses offset_mapping to find which token covers the CpG site character
+    position, then extracts last_hidden_state at that token index.
+    Falls back to the center token if offset mapping fails.
+    """
     global _embed_batch_debug
     inputs = tokenizer(
         sequences,
@@ -211,57 +217,76 @@ def embed_batch(sequences):
         padding=True,
         truncation=True,
         max_length=1024,
-    ).to(device)
+        return_offsets_mapping=True,
+    )
+    offset_mapping = inputs.pop("offset_mapping")   # [B, L, 2] — not a model input
+
+    inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
+    inputs_gpu = {k: v.to(device) for k in inputs}
+    inputs_gpu["input_ids"] = inputs_gpu["input_ids"].unsqueeze(1)  # [B,1,L]
+
     with torch.no_grad():
-        # SCModernBertModel expects input_ids [B, num_fields, L] — add fields dim
-        # Drop token_type_ids (not accepted by SCModernBertModel)
-        model_inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
-        model_inputs["input_ids"] = model_inputs["input_ids"].unsqueeze(1)  # [B,1,L]
-        outputs = model(**model_inputs)
+        outputs = model(**inputs_gpu)
+
+    # last_hidden_state: [B, 1, L, H] or [B, L, H]
+    hidden = outputs.last_hidden_state
+    if hidden.dim() == 4:
+        hidden = hidden.squeeze(1)   # → [B, L, H]
+    hidden = hidden.cpu().float()    # move to CPU for indexing
 
     if _embed_batch_debug:
-        print(f"    [DEBUG] output keys: {[k for k in outputs.keys()]}")
-        for k in outputs.keys():
-            v = getattr(outputs, k)
-            if v is not None and hasattr(v, 'shape'):
-                print(f"    [DEBUG] outputs.{k}.shape = {v.shape}")
+        print(f"    [DEBUG] last_hidden_state shape (after squeeze): {hidden.shape}")
+        print(f"    [DEBUG] offset_mapping shape: {offset_mapping.shape}")
         _embed_batch_debug = False
 
-    # Use pooler_output if available (trainer used pooling_layer method)
-    # otherwise fall back to mean pooling over last_hidden_state
-    if outputs.pooler_output is not None:
-        pooled = outputs.pooler_output          # [B, H] or [B, 1, H]
-        if pooled.dim() == 3:
-            pooled = pooled.squeeze(1)          # [B, 1, H] → [B, H]
-    else:
-        hidden = outputs.last_hidden_state
-        if hidden.dim() == 4:
-            hidden = hidden.squeeze(1)          # [B,1,L,H] → [B,L,H]
-        mask   = inputs["attention_mask"].unsqueeze(-1).float()
-        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)
+    B = hidden.shape[0]
+    result = np.zeros((B, hidden.shape[2]), dtype=np.float32)
 
-    return pooled.cpu().float().numpy()
+    for b in range(B):
+        cpg_pos = cpg_char_positions[b]
+        offsets = offset_mapping[b]   # [L, 2]
 
-batch_seqs  = []
-batch_idxs  = []
+        # Find the token whose span covers cpg_pos
+        tok_idx = None
+        for t, (start_c, end_c) in enumerate(offsets.tolist()):
+            if start_c <= cpg_pos < end_c:
+                tok_idx = t
+                break
+
+        if tok_idx is None:
+            # Fallback: token closest to cpg_pos by midpoint
+            midpoints = [(s + e) / 2 for s, e in offsets.tolist()]
+            tok_idx = int(np.argmin([abs(m - cpg_pos) for m in midpoints]))
+
+        result[b] = hidden[b, tok_idx].numpy()
+
+    return result
+
+batch_seqs      = []
+batch_cpg_pos   = []
+batch_idxs      = []
 
 for i, cpg_id in enumerate(cpg_ids):
-    seq = get_dna_sequence(cpg_id)
-    if seq is None or len(seq) < 10:
+    result = get_dna_sequence(cpg_id)
+    if result is None or len(result[0]) < 10:
         missing.append(cpg_id)
-        batch_seqs.append("ACGT" * 10)   # dummy — will be overwritten with zeros
+        batch_seqs.append("ACGT" * 10)   # dummy — will be zeroed out below
+        batch_cpg_pos.append(20)          # dummy position (middle of dummy seq)
         batch_idxs.append((i, False))
     else:
+        seq, cpg_char_pos = result
         batch_seqs.append(seq)
+        batch_cpg_pos.append(cpg_char_pos)
         batch_idxs.append((i, True))
 
     if len(batch_seqs) == BATCH_SIZE or i == len(cpg_ids) - 1:
-        embs = embed_batch(batch_seqs)
+        embs = embed_batch(batch_seqs, batch_cpg_pos)
         for (idx, valid), emb in zip(batch_idxs, embs):
             if valid:
                 embeddings[idx] = emb
-        batch_seqs  = []
-        batch_idxs  = []
+        batch_seqs    = []
+        batch_cpg_pos = []
+        batch_idxs    = []
 
         if (i + 1) % 1000 == 0 or i == len(cpg_ids) - 1:
             print(f"    {i+1}/{len(cpg_ids)} CpGs processed, {len(missing)} missing")
