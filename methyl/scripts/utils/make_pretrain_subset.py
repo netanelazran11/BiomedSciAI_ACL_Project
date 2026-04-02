@@ -51,29 +51,30 @@ def parse_args():
 
 # ── h5ad loading path ──────────────────────────────────────────────────────────
 def load_from_h5ad(h5ad_path, n_samples, rng):
-    print(f"[1] Loading AnnData from {h5ad_path} (backed mode — reads only sampled rows)")
-    # backed='r' avoids loading the full 31 GB matrix; only metadata is read here
-    adata_full = ad.read_h5ad(h5ad_path, backed='r')
-    print(f"    Full dataset: {adata_full.shape[0]} samples × {adata_full.shape[1]} CpGs")
+    import h5py
+    print(f"[1] Reading {h5ad_path} via h5py (avoids anndata shape-inference bug)")
 
-    n_take = min(n_samples, adata_full.shape[0])
-    chosen = rng.choice(adata_full.shape[0], size=n_take, replace=False)
-    chosen_sorted = np.sort(chosen)
+    with h5py.File(h5ad_path, "r") as f:
+        n_total, n_cpg = f["X"].shape
+        print(f"    Full dataset: {n_total} samples × {n_cpg} CpGs")
 
-    print(f"[2] Sampling {n_take} rows from disk ...")
-    # Direct HDF5 slice — only loads the selected rows into RAM
-    import scipy.sparse as sp
-    X_raw = adata_full.X[chosen_sorted, :]
-    if sp.issparse(X_raw):
-        X = X_raw.toarray().astype(np.float32)
-    else:
-        X = np.asarray(X_raw, dtype=np.float32)
+        # Sample IDs from obs/_index (the canonical AnnData index)
+        obs_index = f["obs/_index"][:].astype(str)
 
-    all_cpg_ids = adata_full.var_names.tolist()
-    all_ids = adata_full.obs_names[chosen_sorted].tolist()
+        # CpG IDs from var/cpg_id; fall back to var/_index
+        if "cpg_id" in f["var"]:
+            all_cpg_ids = f["var/cpg_id"][:].astype(str).tolist()
+        else:
+            all_cpg_ids = f["var/_index"][:].astype(str).tolist()
 
-    adata_full.file.close()
+        n_take = min(n_samples, n_total)
+        chosen = rng.choice(n_total, size=n_take, replace=False)
+        chosen_sorted = np.sort(chosen)
 
+        print(f"[2] Sampling {n_take} rows from disk ...")
+        X = f["X"][chosen_sorted, :].astype(np.float32)   # only loads selected rows
+
+    all_ids = obs_index[chosen_sorted].tolist()
     nan_pct = np.isnan(X).mean() * 100
     print(f"    Shape: {X.shape}  NaN: {nan_pct:.1f}%")
     return X, all_ids, all_cpg_ids, nan_pct
