@@ -98,8 +98,9 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # ─────────────────────────────────────────────────────────────────────────────
 # Compute age mean/std from training split
 # ─────────────────────────────────────────────────────────────────────────────
-read AGE_MEAN AGE_STD < <(python3 - <<'PY'
-import anndata, numpy as np, sys
+read AGE_MEAN AGE_STD < <(python3 - 2>/dev/null <<'PY'
+import warnings, anndata, numpy as np
+warnings.filterwarnings("ignore")
 adata = anndata.read_h5ad("/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad")
 train = adata[adata.obs["split"] == "train"]
 ages = train.obs["age"].dropna().astype(float).values
