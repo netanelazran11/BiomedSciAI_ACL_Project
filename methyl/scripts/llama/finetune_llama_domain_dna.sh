@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=finetune-llama-domain
+#SBATCH --job-name=finetune-llama-domain-dna
 #SBATCH --partition=goldfish
 #SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
