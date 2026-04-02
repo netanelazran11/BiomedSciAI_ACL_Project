@@ -259,12 +259,46 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
 # ---------------------------------------------------------------------------
 
 def load_wced_llama_checkpoint(checkpoint_path: str) -> WCEDLlamaModule:
-    """Load a WCEDLlamaModule from checkpoint."""
+    """Load a WCEDLlamaModule from checkpoint.
+
+    model_config is excluded from save_hyperparameters in WCEDLlamaModule,
+    so we cannot use load_from_checkpoint directly. Instead we:
+      1. Load the raw checkpoint
+      2. Infer MethylLlamaConfig from state_dict shapes
+      3. Construct WCEDLlamaModule with the inferred config + saved hparams
+      4. Load state_dict manually
+    """
+    from .model import MethylLlamaConfig
+
     logger.info(f"Loading WCEDLlamaModule from {checkpoint_path}")
-    module = WCEDLlamaModule.load_from_checkpoint(
-        checkpoint_path,
-        map_location="cpu",
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    hparams = ckpt.get("hyper_parameters", {})
+    sd = ckpt["state_dict"]
+
+    # Infer MethylLlamaConfig from state_dict shapes
+    emb_w = sd["encoder.embeddings.cpg_sites_embeddings.weight"]
+    vocab_size, hidden_size = emb_w.shape
+    num_layers = sum(
+        1 for k in sd
+        if k.startswith("encoder.encoder.layers.") and k.endswith(".attn_norm.weight")
     )
+    intermediate_size = sd["encoder.encoder.layers.0.mlp.gate_proj.weight"].shape[0]
+    n_sin_basis = sd["encoder.embeddings.beta_values_embeddings.freq_weights"].shape[0]
+
+    model_config = MethylLlamaConfig(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        num_hidden_layers=num_layers,
+        intermediate_size=intermediate_size,
+        n_sin_basis=n_sin_basis,
+    )
+    logger.info(
+        f"Inferred config: vocab={vocab_size}, hidden={hidden_size}, "
+        f"layers={num_layers}, intermediate={intermediate_size}, sin_basis={n_sin_basis}"
+    )
+
+    module = WCEDLlamaModule(model_config=model_config, **hparams)
+    module.load_state_dict(sd)
     logger.info("Checkpoint loaded successfully")
     return module
 
