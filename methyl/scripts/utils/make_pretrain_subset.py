@@ -51,27 +51,28 @@ def parse_args():
 
 # ── h5ad loading path ──────────────────────────────────────────────────────────
 def load_from_h5ad(h5ad_path, n_samples, rng):
-    print(f"[1] Loading AnnData from {h5ad_path}")
-    adata_full = ad.read_h5ad(h5ad_path)
+    print(f"[1] Loading AnnData from {h5ad_path} (backed mode — reads only sampled rows)")
+    # backed='r' avoids loading the full 31 GB matrix; only metadata is read here
+    adata_full = ad.read_h5ad(h5ad_path, backed='r')
     print(f"    Full dataset: {adata_full.shape[0]} samples × {adata_full.shape[1]} CpGs")
 
     n_take = min(n_samples, adata_full.shape[0])
     chosen = rng.choice(adata_full.shape[0], size=n_take, replace=False)
     chosen_sorted = np.sort(chosen)
 
-    print(f"[2] Sampling {n_take} rows ...")
-    adata_sub = adata_full[chosen_sorted].copy()
-
-    # Ensure dense float32 matrix
+    print(f"[2] Sampling {n_take} rows from disk ...")
+    # Direct HDF5 slice — only loads the selected rows into RAM
     import scipy.sparse as sp
-    if sp.issparse(adata_sub.X):
-        X = adata_sub.X.toarray().astype(np.float32)
+    X_raw = adata_full.X[chosen_sorted, :]
+    if sp.issparse(X_raw):
+        X = X_raw.toarray().astype(np.float32)
     else:
-        X = np.asarray(adata_sub.X, dtype=np.float32)
+        X = np.asarray(X_raw, dtype=np.float32)
 
-    all_cpg_ids = adata_sub.var_names.tolist()
-    # Use obs_names as sample IDs; fall back to integer index
-    all_ids = adata_sub.obs_names.tolist()
+    all_cpg_ids = adata_full.var_names.tolist()
+    all_ids = adata_full.obs_names[chosen_sorted].tolist()
+
+    adata_full.file.close()
 
     nan_pct = np.isnan(X).mean() * 100
     print(f"    Shape: {X.shape}  NaN: {nan_pct:.1f}%")
