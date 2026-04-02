@@ -38,7 +38,7 @@ PROBE_IDS_CSV="${SMOKE_DIR}/probe_ids_type3_pretrain_subset.csv"
 # Default: full model (what the real run will use)
 # Override: MODEL_SIZE=small sbatch pretrain_llama_smoke.sh
 # ─────────────────────────────────────────────────────────────────────────────
-MODEL_SIZE="${MODEL_SIZE:-full}"
+MODEL_SIZE="${MODEL_SIZE:-small}"
 
 if [ "${MODEL_SIZE}" = "small" ]; then
     HIDDEN_SIZE=256
