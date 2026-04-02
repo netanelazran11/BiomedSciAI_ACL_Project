@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=make-smoke-subset
-#SBATCH --partition=cpu
+#SBATCH --partition=glacier
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
