@@ -326,14 +326,16 @@ def main(cfg: DictConfig):
     # Tokenizer
     tokenizer = setup_tokenizer(cfg)
 
-    # Build FieldInfo
+    # Build FieldInfo (hardcoded — same as pretrain_llama.py)
     from bmfm_targets.config import FieldInfo
-    fields = []
-    if hasattr(cfg, "fields") and cfg.fields:
-        for fc in cfg.fields:
-            fd = OmegaConf.to_container(fc)
-            fd.pop("_target_", None)
-            fields.append(FieldInfo(**fd))
+    fields = [
+        FieldInfo(
+            field_name="cpg_sites",
+            is_input=True,
+            is_masked=False,
+            tokenization_strategy="tokenize",
+        ),
+    ]
 
     # Data settings
     dm_cfg = cfg.get("data_module", {})
