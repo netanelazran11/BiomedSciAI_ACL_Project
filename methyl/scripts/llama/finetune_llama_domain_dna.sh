@@ -115,7 +115,7 @@ echo "Age normalization: mean=${AGE_MEAN}, std=${AGE_STD}"
 # ─────────────────────────────────────────────────────────────────────────────
 python -m bmfm_methylation.llama.finetune_llama \
     data_path="${DATA}" \
-    checkpoint_path="${CHECKPOINT}" \
+    "checkpoint_path='${CHECKPOINT}'" \
     tokenizer_path="${TOKENIZER_PATH}" \
     output_directory="${OUTDIR}" \
     age_mean="${AGE_MEAN}" \
