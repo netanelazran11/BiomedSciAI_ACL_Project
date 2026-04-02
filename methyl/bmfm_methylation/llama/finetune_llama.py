@@ -283,7 +283,7 @@ def load_wced_llama_checkpoint(checkpoint_path: str) -> WCEDLlamaModule:
         if k.startswith("encoder.encoder.layers.") and k.endswith(".attn_norm.weight")
     )
     intermediate_size = sd["encoder.encoder.layers.0.mlp.gate_proj.weight"].shape[0]
-    n_sin_basis = sd["encoder.embeddings.beta_values_embeddings.freq_weights"].shape[0]
+    n_sin_basis = sd.get("encoder.embeddings.beta_values_embeddings.basis", torch.zeros(48)).shape[0]
 
     model_config = MethylLlamaConfig(
         vocab_size=vocab_size,
