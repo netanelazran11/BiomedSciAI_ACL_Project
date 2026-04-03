@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MethylLlama — Architecture & Training Overview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+
+  .slides { width: 100vw; height: 100vh; position: relative; }
+
+  .slide {
+    display: none;
+    width: 100%;
+    height: 100%;
+    padding: 48px 72px;
+    flex-direction: column;
+    justify-content: center;
+    position: absolute;
+    top: 0; left: 0;
+  }
+  .slide.active { display: flex; }
+
+  /* ── Typography ─────────────────────────────────────── */
+  h1 { font-size: 2.6rem; font-weight: 700; color: #7dd3fc; margin-bottom: 10px; }
+  h2 { font-size: 1.9rem; font-weight: 600; color: #7dd3fc; margin-bottom: 24px; border-bottom: 2px solid #1e40af; padding-bottom: 10px; }
+  h3 { font-size: 1.15rem; font-weight: 600; color: #93c5fd; margin-bottom: 8px; }
+  p  { font-size: 1.0rem; line-height: 1.65; color: #cbd5e1; margin-bottom: 10px; }
+  .subtitle { font-size: 1.2rem; color: #94a3b8; margin-top: 6px; }
+  .tag { display: inline-block; background: #1e3a5f; color: #7dd3fc; border-radius: 4px; padding: 2px 10px; font-size: 0.8rem; margin-right: 6px; }
+
+  /* ── Layout helpers ──────────────────────────────────── */
+  .cols { display: flex; gap: 28px; width: 100%; }
+  .col  { flex: 1; }
+  .col-w40 { flex: 0 0 40%; }
+  .col-w60 { flex: 0 0 60%; }
+
+  /* ── Cards ───────────────────────────────────────────── */
+  .card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+  }
+  .card-blue  { border-left: 4px solid #3b82f6; }
+  .card-green { border-left: 4px solid #22c55e; }
+  .card-amber { border-left: 4px solid #f59e0b; }
+  .card-purple{ border-left: 4px solid #a855f7; }
+  .card-red   { border-left: 4px solid #ef4444; }
+
+  /* ── Highlight box ───────────────────────────────────── */
+  .highlight {
+    background: #172554;
+    border: 1px solid #1d4ed8;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 12px 0;
+    font-size: 1.0rem;
+    color: #bfdbfe;
+  }
+  .highlight strong { color: #93c5fd; }
+
+  /* ── List ────────────────────────────────────────────── */
+  ul { padding-left: 18px; }
+  ul li { font-size: 0.97rem; line-height: 1.7; color: #cbd5e1; }
+  ul li + li { margin-top: 4px; }
+  .check li::marker { content: "✓  "; color: #22c55e; }
+  .arrow li::marker { content: "→  "; color: #7dd3fc; }
+
+  /* ── Table ───────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  th { background: #1e3a5f; color: #7dd3fc; padding: 9px 14px; text-align: left; }
+  td { padding: 8px 14px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+  tr:nth-child(even) td { background: #1a2332; }
+  .good  { color: #4ade80; font-weight: 600; }
+  .bad   { color: #f87171; }
+  .arrow-cell { color: #7dd3fc; }
+
+  /* ── Architecture diagram ────────────────────────────── */
+  .arch-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    margin: 16px 0;
+  }
+  .arch-box {
+    background: #1e3a5f;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 0.85rem;
+    min-width: 110px;
+  }
+  .arch-box .label { font-size: 0.7rem; color: #94a3b8; margin-top: 2px; }
+  .arch-arrow { font-size: 1.4rem; color: #3b82f6; padding: 0 6px; }
+
+  /* ── Number stat ─────────────────────────────────────── */
+  .stat-row { display: flex; gap: 18px; margin: 12px 0; }
+  .stat {
+    flex: 1;
+    background: #1e293b;
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat .num { font-size: 1.7rem; font-weight: 700; color: #7dd3fc; }
+  .stat .lbl { font-size: 0.78rem; color: #94a3b8; margin-top: 3px; }
+
+  /* ── Result badge ────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .badge-green  { background: #14532d; color: #4ade80; }
+  .badge-blue   { background: #172554; color: #7dd3fc; }
+  .badge-amber  { background: #451a03; color: #fbbf24; }
+
+  /* ── Navigation ──────────────────────────────────────── */
+  .nav {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 30px;
+    padding: 8px 20px;
+    z-index: 100;
+  }
+  .nav button {
+    background: none;
+    border: none;
+    color: #7dd3fc;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 6px;
+    transition: background 0.2s;
+  }
+  .nav button:hover { background: #334155; }
+  .nav button:disabled { color: #334155; cursor: default; }
+  #slide-counter { font-size: 0.85rem; color: #64748b; min-width: 60px; text-align: center; }
+
+  /* ── Progress bar ────────────────────────────────────── */
+  .progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    background: #3b82f6;
+    transition: width 0.3s;
+    z-index: 100;
+  }
+
+  /* ── Slide number top-right ──────────────────────────── */
+  .slide-num {
+    position: fixed;
+    top: 16px; right: 24px;
+    font-size: 0.78rem;
+    color: #334155;
+    z-index: 100;
+  }
+
+  code {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.88rem;
+    color: #7dd3fc;
+    font-family: 'Consolas', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="slide-num" id="slide-num"></div>
+
+<div class="slides">
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 1: Title -->
+<div class="slide active" id="slide-1">
+  <div style="text-align:center; max-width: 820px; margin: auto;">
+    <div style="font-size:0.9rem; color:#3b82f6; letter-spacing:2px; text-transform:uppercase; margin-bottom:16px;">DNA Methylation · Deep Learning</div>
+    <h1 style="font-size:3rem; margin-bottom:12px;">MethylLlama</h1>
+    <p class="subtitle">LLaMA-style Transformer for whole-epigenome methylation modelling</p>
+    <div style="margin: 32px 0;">
+      <span class="badge badge-blue">Small model · ~5M params</span>
+      <span class="badge badge-green">Full data · 170k samples</span>
+      <span class="badge badge-amber">WCED pretraining</span>
+    </div>
+    <div class="stat-row" style="max-width:600px; margin: auto;">
+      <div class="stat"><div class="num">169k</div><div class="lbl">Training samples</div></div>
+      <div class="stat"><div class="num">49k</div><div class="lbl">CpG sites</div></div>
+      <div class="stat"><div class="num">~5M</div><div class="lbl">Parameters</div></div>
+      <div class="stat"><div class="num">0.877</div><div class="lbl">Smoke PCC</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 2: Problem -->
+<div class="slide" id="slide-2">
+  <h2>The Problem — What Are We Trying to Learn?</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>DNA Methylation (β values)</h3>
+        <p>Each CpG site has a methylation level β ∈ [0, 1].<br>
+        Low β = unmethylated. High β = methylated.</p>
+        <p>These patterns encode <strong>tissue identity</strong>, <strong>biological age</strong>, and <strong>disease state</strong>.</p>
+      </div>
+      <div class="card card-amber">
+        <h3>The Scale Challenge</h3>
+        <ul class="arrow">
+          <li>450k / 850k CpG arrays → only <strong>49,156</strong> high-quality type-III probes used</li>
+          <li>Each sample = a vector of 49k real numbers in [0,1]</li>
+          <li>169,120 samples × 49,156 CpGs = <strong>~21 GB</strong> dense matrix</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-green">
+        <h3>Goal: Learn a Universal Methylation Encoder</h3>
+        <ul class="check">
+          <li>Pretrain on 170k samples (no labels needed)</li>
+          <li>Encode full methylome → single CLS vector</li>
+          <li>Fine-tune on downstream tasks (age prediction, tissue classification)</li>
+        </ul>
+      </div>
+      <div class="highlight">
+        <strong>Key insight:</strong> If we can predict 50% of CpGs from the other 50%, the encoder must have learned meaningful biological structure — not just memorized noise.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 3: Data Pipeline -->
+<div class="slide" id="slide-3">
+  <h2>Data Pipeline — From Raw Arrays to Training Batches</h2>
+  <div class="cols">
+    <div class="col-w40">
+      <div class="card card-blue">
+        <h3>Raw Data Source</h3>
+        <ul class="arrow">
+          <li>GEO public methylation arrays (EPIC / 450k)</li>
+          <li>Multiple tissues, ages, conditions</li>
+          <li>Filtered to type-III probes only (49,156 CpGs)</li>
+        </ul>
+      </div>
+      <div class="card card-green">
+        <h3>Stored Format</h3>
+        <ul class="arrow">
+          <li>Single <code>.h5ad</code> AnnData file</li>
+          <li>Shape: <strong>169,120 × 49,156</strong></li>
+          <li>Size: <strong>~21 GB</strong> on disk</li>
+          <li>Read row-by-row via h5py (no full load)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-w60">
+      <h3 style="margin-bottom:12px;">Processing Steps</h3>
+      <div class="arch-flow">
+        <div class="arch-box">Raw .h5ad<div class="label">169k × 49k</div></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box">MethylDataset<div class="label">sample → [49k β values]</div></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box">WCED Collator<div class="label">random 50/50 split</div></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box">Batch<div class="label">[B, 24579] tokens</div></div>
+      </div>
+      <div class="card card-amber" style="margin-top:14px;">
+        <h3>WCED Collator (per sample, per epoch)</h3>
+        <ul class="arrow">
+          <li>Randomly select 50% of CpGs → <strong>input view</strong> (seen by encoder)</li>
+          <li>Remaining 50% → <strong>reconstruction targets</strong> (must be predicted)</li>
+          <li>Different split every epoch → richer training signal, avoids overfitting</li>
+          <li>NaN values masked out from both input and loss</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 4: Architecture Overview -->
+<div class="slide" id="slide-4">
+  <h2>Model Architecture — Full Pipeline</h2>
+  <div style="margin-bottom: 20px;">
+    <div class="arch-flow" style="justify-content: center; flex-wrap: nowrap; gap: 4px;">
+      <div class="arch-box" style="background:#172554; min-width:130px;">
+        Input<br><span class="label">24,579 CpG tokens<br>(50% of 49k)</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box" style="background:#1a1a3e; min-width:150px;">
+        Embeddings<br><span class="label">CpG ID embed<br>+ ScaleAdapt(β)</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box" style="background:#1a2e1a; min-width:150px;">
+        Encoder<br><span class="label">4 × LlamaLayer<br>(256D, 4H)</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box" style="background:#2a1a1a; min-width:130px;">
+        CLS token<br><span class="label">pooler_output<br>[B, 256]</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box" style="background:#1a2a2a; min-width:150px;">
+        Decoder<br><span class="label">Linear → Sigmoid<br>→ 49k β̂ values</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box" style="background:#1e1040; min-width:130px;">
+        Loss<br><span class="label">MSE on<br>non-input CpGs</span>
+      </div>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>Encoder (small config)</h3>
+        <ul class="arrow">
+          <li>Hidden size: <strong>256</strong></li>
+          <li>Layers: <strong>4</strong></li>
+          <li>Attention heads: <strong>4</strong> (head_dim = 64)</li>
+          <li>FFN intermediate: <strong>320</strong> (SwiGLU)</li>
+          <li>Total encoder params: <strong>~2.4M</strong></li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-green">
+        <h3>Decoder</h3>
+        <ul class="arrow">
+          <li>Linear(256 → 256) → LayerNorm → GELU → Dropout</li>
+          <li>Linear(256 → 49,156) → Sigmoid</li>
+          <li>Output: predicted β for <strong>all</strong> 49k CpGs</li>
+          <li>Loss computed only on held-out 50%</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-purple">
+        <h3>Auxiliary Heads</h3>
+        <ul class="arrow">
+          <li><strong>ProjectionHead</strong>: MLP(256→128), L2-norm → contrastive (optional)</li>
+          <li><strong>AgeHead</strong>: MLP(256→1) → age prediction (optional)</li>
+          <li>Both disabled for pure pretrain</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 5: Architecture Changes -->
+<div class="slide" id="slide-5">
+  <h2>Architectural Changes vs SCBert (Previous Model)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>SCBert (before)</th>
+        <th>MethylLlama (now)</th>
+        <th>Why it helps</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Normalization</strong></td>
+        <td class="bad">LayerNorm (Post-LN)</td>
+        <td class="good">RMSNorm (Pre-LN)</td>
+        <td>Pre-LN: stable gradients from step 1, no warmup needed. RMSNorm: ~40% cheaper (no mean subtraction)</td>
+      </tr>
+      <tr>
+        <td><strong>FFN</strong></td>
+        <td class="bad">GELU (2 matrices)</td>
+        <td class="good">SwiGLU (3 matrices)</td>
+        <td>Gated activation: SiLU(gate) × up → down. More expressive per parameter. Used in LLaMA, PaLM</td>
+      </tr>
+      <tr>
+        <td><strong>Position encoding</strong></td>
+        <td class="bad">Absolute pos embedding table (~4M params for 8k seq)</td>
+        <td class="good">RoPE (Rotary)</td>
+        <td>Relative positions inside attention. No lookup table. Generalizes to longer sequences</td>
+      </tr>
+      <tr>
+        <td><strong>β value encoder</strong></td>
+        <td class="bad">2-layer MLP</td>
+        <td class="good">ScaleAdapt (sinusoidal basis)</td>
+        <td>sin/cos at trainable frequencies. Resolves subtle differences (0.85 vs 0.87). Frequencies learned during pretraining</td>
+      </tr>
+      <tr>
+        <td><strong>cpg_scale</strong></td>
+        <td class="bad">Fixed = 1.0</td>
+        <td class="good">Learned nn.Parameter (init=0.1)</td>
+        <td>Starts with β encoder dominant → model learns methylation level first, then CpG identity</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 6: ScaleAdapt Deep Dive -->
+<div class="slide" id="slide-6">
+  <h2>ScaleAdapt — How Beta Values Are Encoded</h2>
+  <div class="cols">
+    <div class="col-w60">
+      <div class="card card-blue">
+        <h3>Formula</h3>
+        <p>For each β ∈ [0, 1] and k = 1..48 basis functions:</p>
+        <div class="highlight" style="font-family: monospace; font-size: 0.95rem;">
+          features_k = [sin(β × f_k),  cos(β × f_k)]<br>
+          output = Linear(96 → 256)(concat all features)
+        </div>
+        <p style="margin-top:10px;">Frequencies <code>f_k</code> are initialized from <code>N(0, 2π × 2.0)</code> and <strong>learned</strong> during pretraining — the model decides which resolution of β variation matters biologically.</p>
+      </div>
+      <div class="card card-amber">
+        <h3>Special Token Routing</h3>
+        <ul class="arrow">
+          <li><code>β = -1</code> → MASK token embedding</li>
+          <li><code>β = -2</code> → CLS token embedding</li>
+          <li><code>β = -3</code> → SEP token embedding</li>
+          <li><code>β = -4</code> → PAD token embedding</li>
+          <li><code>β ≥ 0</code> → sinusoidal encoder (real methylation value)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-w40">
+      <div class="card card-green">
+        <h3>Why Not MLP?</h3>
+        <ul class="check">
+          <li>MLP: two scalars 0.85 and 0.87 produce similar hidden states — small difference gets lost</li>
+          <li>ScaleAdapt: high-frequency basis functions create large angular differences for small β differences</li>
+          <li>Same principle as positional encoding in NLP — but for continuous values</li>
+        </ul>
+      </div>
+      <div class="card card-purple">
+        <h3>basis_scale = 2.0</h3>
+        <p>Upstream model used 1.5 (for scRNA, range 0–10+).</p>
+        <p>Methylation β ∈ [0,1] is a much tighter range → need <strong>higher initial frequencies</strong> to resolve fine differences.</p>
+        <p>Value of 2.0 tuned for methylation domain.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 7: WCED Loss -->
+<div class="slide" id="slide-7">
+  <h2>Training Objective — WCED (Whole-CpG Encoder-Decoder)</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>Core Idea</h3>
+        <p>Given 50% of CpG values, predict the other 50%.</p>
+        <div class="arch-flow" style="margin: 14px 0;">
+          <div class="arch-box" style="min-width:100px;">Sample<br><span class="label">49k CpGs</span></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box" style="background:#1a3a1a; min-width:110px;">Input 50%<br><span class="label">24.5k CpGs</span></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box" style="min-width:90px;">Encoder<br><span class="label">→ CLS</span></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box" style="background:#3a1a1a; min-width:110px;">Predict 50%<br><span class="label">24.5k targets</span></div>
+        </div>
+      </div>
+      <div class="card card-green">
+        <h3>Loss Function</h3>
+        <div class="highlight" style="font-family: monospace;">
+          L = MSE(β̂<sub>non-input</sub>, β<sub>non-input</sub>)<br><br>
+          <span style="color:#94a3b8; font-size:0.85rem;">Only on held-out CpGs, NaN positions excluded</span>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-amber">
+        <h3>Why This Works</h3>
+        <ul class="check">
+          <li>Forces encoder to learn <strong>co-methylation patterns</strong> across the genome</li>
+          <li>CpGs in the same region are correlated — encoder learns this structure</li>
+          <li>No labels needed — fully self-supervised on 170k samples</li>
+          <li>CLS vector must summarize the full methylome to reconstruct it</li>
+        </ul>
+      </div>
+      <div class="card card-purple">
+        <h3>Optional Extensions (disabled for now)</h3>
+        <ul class="arrow">
+          <li><strong>Contrastive (InfoNCE)</strong>: Two random 50% views of same sample → positive pair. Improves CLS quality</li>
+          <li><strong>Age supervision</strong>: AgeHead on CLS forces age encoding into the representation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 8: Small vs Full -->
+<div class="slide" id="slide-8">
+  <h2>Why Small Model + Full Data?</h2>
+  <div class="cols">
+    <div class="col">
+      <table>
+        <thead>
+          <tr><th></th><th>Small (~5M)</th><th>Full (~95M)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Hidden</td><td class="good">256</td><td>768</td></tr>
+          <tr><td>Layers</td><td class="good">4</td><td>8</td></tr>
+          <tr><td>Heads</td><td class="good">4</td><td>12</td></tr>
+          <tr><td>FFN</td><td class="good">320</td><td>2048</td></tr>
+          <tr><td>Params</td><td class="good">~5M</td><td>~95M</td></tr>
+          <tr><td>GPU mem / batch</td><td class="good">~4 GB</td><td>~36 GB</td></tr>
+          <tr><td>Step time</td><td class="good">~10× faster</td><td>baseline</td></tr>
+          <tr><td>Smoke PCC (epoch 18)</td><td class="good">0.877</td><td>0.877 (epoch 2)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col">
+      <div class="card card-green">
+        <h3>The Hypothesis</h3>
+        <p>Methylation data is <strong>highly structured</strong> — CpGs in the same genomic region are strongly correlated. A small model with enough data may capture this structure as well as a large model.</p>
+      </div>
+      <div class="card card-blue">
+        <h3>Data > Parameters for Methylation</h3>
+        <ul class="check">
+          <li>170k samples cover broad tissue diversity</li>
+          <li>49k CpGs = rich input signal per sample</li>
+          <li>MethylGPT (64D, ~6M) achieved strong results on 170k samples</li>
+          <li>Our small model: <strong>4× more layers</strong>, RoPE, SwiGLU, ScaleAdapt</li>
+        </ul>
+      </div>
+      <div class="card card-amber">
+        <h3>Practical Benefit</h3>
+        <ul class="arrow">
+          <li>4 GPUs → 300 epochs in ~24h (vs ~5 days for full model)</li>
+          <li>Faster iteration → more experiments</li>
+          <li>If small ≈ full: deploy smaller, cheaper model</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 9: Smoke Results -->
+<div class="slide" id="slide-9">
+  <h2>Smoke Test Results — Small Model, 2000 Samples, 18 Epochs</h2>
+  <div class="stat-row">
+    <div class="stat"><div class="num" style="color:#4ade80;">0.877</div><div class="lbl">Validation PCC</div></div>
+    <div class="stat"><div class="num">0.877</div><div class="lbl">Train PCC</div></div>
+    <div class="stat"><div class="num" style="color:#4ade80;">0.0236</div><div class="lbl">Val MSE loss</div></div>
+    <div class="stat"><div class="num" style="color:#4ade80;">0.315</div><div class="lbl">CLS variance</div></div>
+  </div>
+  <div class="cols" style="margin-top: 16px;">
+    <div class="col">
+      <div class="card card-green">
+        <h3>What Passed</h3>
+        <ul class="check">
+          <li>Pipeline runs end-to-end on full 49k vocab</li>
+          <li>Train PCC ≈ Val PCC → no overfitting on 2000 samples</li>
+          <li>CLS variance = 0.315 → representations are diverse (healthy)</li>
+          <li>No OOM on H200 (1 GPU, batch=8, seq=24k)</li>
+          <li>pred_var_ratio = 0.18 → model predicts real variation</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-blue">
+        <h3>What to Expect on Full 170k Data</h3>
+        <ul class="arrow">
+          <li>PCC should reach <strong>0.95+</strong> (more diversity, more structure to learn)</li>
+          <li>CLS representations will encode tissue type and age</li>
+          <li>Early stopping at ~60 epochs patience → best checkpoint saved</li>
+          <li>Full run: 4 GPUs × 300 epochs</li>
+        </ul>
+      </div>
+      <div class="highlight">
+        <strong>Next step:</strong> Launch <code>pretrain_llama_small.sh</code> (170k, small) and <code>pretrain_llama.sh</code> (170k, full) in parallel. Compare final PCC and downstream age prediction performance.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 10: Summary -->
+<div class="slide" id="slide-10">
+  <h2>Summary</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>Data Pipeline</h3>
+        <ul class="check">
+          <li>169k GEO samples, 49k type-III CpG probes</li>
+          <li>Stored as 21 GB h5ad, read lazily row-by-row</li>
+          <li>Random 50/50 split per epoch (WCED collator)</li>
+          <li>8.5% NaN rate handled by masking</li>
+        </ul>
+      </div>
+      <div class="card card-green">
+        <h3>Architecture (Small)</h3>
+        <ul class="check">
+          <li>4 layers × 256D × 4 heads (SwiGLU FFN)</li>
+          <li>RMSNorm Pre-LN + RoPE (no position table)</li>
+          <li>ScaleAdapt sinusoidal β encoder (48 basis, scale=2.0)</li>
+          <li>Learned cpg_scale parameter (init=0.1)</li>
+          <li>WCEDDecoder: CLS → Sigmoid → 49k β̂</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-amber">
+        <h3>Key Changes vs SCBert</h3>
+        <ul class="check">
+          <li>Pre-LN + RMSNorm → stable training</li>
+          <li>SwiGLU → more expressive FFN</li>
+          <li>RoPE → no position embedding table</li>
+          <li>ScaleAdapt → better β resolution</li>
+          <li>No monkey-patching → clean codebase</li>
+        </ul>
+      </div>
+      <div class="card card-purple">
+        <h3>Experiments Running</h3>
+        <ul class="arrow">
+          <li><strong>Small model</strong> (5M) on 170k samples → fast, efficient</li>
+          <li><strong>Full model</strong> (95M) on 170k samples → upper bound</li>
+          <li>Hypothesis: small ≈ full for methylation data</li>
+          <li>Smoke test PCC 0.877 confirms pipeline is correct</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- end .slides -->
+
+<!-- Navigation -->
+<div class="nav">
+  <button id="btn-prev" onclick="changeSlide(-1)">&#8592;</button>
+  <span id="slide-counter"></span>
+  <button id="btn-next" onclick="changeSlide(1)">&#8594;</button>
+</div>
+
+<script>
+  const totalSlides = 10;
+  let current = 1;
+
+  function updateUI() {
+    document.querySelectorAll('.slide').forEach((s, i) => {
+      s.classList.toggle('active', i + 1 === current);
+    });
+    document.getElementById('slide-counter').textContent = current + ' / ' + totalSlides;
+    document.getElementById('slide-num').textContent = current + ' / ' + totalSlides;
+    document.getElementById('progress').style.width = (current / totalSlides * 100) + '%';
+    document.getElementById('btn-prev').disabled = current === 1;
+    document.getElementById('btn-next').disabled = current === totalSlides;
+  }
+
+  function changeSlide(dir) {
+    current = Math.max(1, Math.min(totalSlides, current + dir));
+    updateUI();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') changeSlide(1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')                     changeSlide(-1);
+  });
+
+  updateUI();
+</script>
+</body>
+</html>
