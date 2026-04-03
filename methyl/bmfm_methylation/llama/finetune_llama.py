@@ -193,7 +193,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
                 mae = torch.abs(age_pred[valid] - age_labels[valid]).mean()
                 r2_num = ((age_pred[valid] - age_labels[valid]) ** 2).sum()
                 r2_den = ((age_labels[valid] - age_labels[valid].mean()) ** 2).sum()
-                r2 = 1.0 - r2_num / (r2_den + 1e-8)
+                r2 = 1.0 - r2_num / r2_den.clamp(min=1.0)
             else:
                 mae = torch.tensor(0.0)
                 r2  = torch.tensor(0.0)
