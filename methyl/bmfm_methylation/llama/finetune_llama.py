@@ -165,13 +165,14 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         cls = self._encode_cls(cpg_ids, beta_values, attn_mask)  # [B, D]
 
         # Age prediction (primary task)
-        age_pred_norm = self.age_head(cls).squeeze(-1)  # [B]  (normalized scale)
-        age_pred = age_pred_norm * self.age_std + self.age_mean   # real age scale
+        # age_labels from dataset are z-scored: (age - mean) / std
+        # age_pred_norm is in z-score space (same as pretraining convention)
+        age_pred_norm = self.age_head(cls).squeeze(-1)  # [B] z-score space
 
-        # Age loss on valid (non-NaN) samples
+        # Age loss on valid (non-NaN) samples — both in z-score space
         valid = ~torch.isnan(age_labels)
         if valid.any():
-            age_loss = self.age_loss_fn(age_pred[valid], age_labels[valid].float())
+            age_loss = self.age_loss_fn(age_pred_norm[valid], age_labels[valid].float())
         else:
             age_loss = torch.tensor(0.0, device=cls.device)
 
@@ -187,12 +188,14 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
 
         loss = age_loss + self.recon_weight * recon_loss
 
-        # Metrics (denormalized)
+        # Metrics in real years (denormalize both pred and labels)
         with torch.no_grad():
             if valid.any():
-                mae = torch.abs(age_pred[valid] - age_labels[valid]).mean()
-                r2_num = ((age_pred[valid] - age_labels[valid]) ** 2).sum()
-                r2_den = ((age_labels[valid] - age_labels[valid].mean()) ** 2).sum()
+                age_pred_years  = age_pred_norm[valid]  * self.age_std + self.age_mean
+                age_label_years = age_labels[valid].float() * self.age_std + self.age_mean
+                mae = torch.abs(age_pred_years - age_label_years).mean()
+                r2_num = ((age_pred_years - age_label_years) ** 2).sum()
+                r2_den = ((age_label_years - age_label_years.mean()) ** 2).sum()
                 r2 = 1.0 - r2_num / r2_den.clamp(min=1.0)
             else:
                 mae = torch.tensor(0.0)
