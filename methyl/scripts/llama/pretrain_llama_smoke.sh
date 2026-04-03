@@ -34,9 +34,7 @@ DATA="${SMOKE_DIR}/methylgpt_pretrain_type3_subset.h5ad"
 PROBE_IDS_CSV="${SMOKE_DIR}/probe_ids_type3_pretrain_subset.csv"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Model — test BOTH small and full to validate memory/step time
-# Default: full model (what the real run will use)
-# Override: MODEL_SIZE=small sbatch pretrain_llama_smoke.sh
+# Model — default: small (~5M). Override: MODEL_SIZE=full sbatch ...
 # ─────────────────────────────────────────────────────────────────────────────
 MODEL_SIZE="${MODEL_SIZE:-small}"
 
@@ -96,14 +94,13 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_smoke_${WANDB_RUN_SUFFIX}"
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
 echo "============================================================"
-echo "METHYLLAMA SMOKE TEST (${MODEL_SIZE} model)"
+echo " SMOKE TEST — MODEL: ${MODEL_SIZE} (${NUM_LAYERS}L × ${HIDDEN_SIZE}D × ${NUM_HEADS}H)"
 echo "============================================================"
 echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
-echo "Data:    ${DATA}"
-echo "CpGs:    ${SUBSET_K} (all 49k CpGs)"
-echo "Model:   ${NUM_LAYERS}L × ${HIDDEN_SIZE}D × ${NUM_HEADS}H"
+echo "Data:    ${DATA}  (2000 samples)"
+echo "CpGs:    ${SUBSET_K} (all 49k)"
 echo "Train:   lr=${LR}, batch=${BATCH_SIZE}×1GPU×${ACCUM}accum=$(( BATCH_SIZE * ACCUM )) eff"
-echo "Epochs:  ${PRETRAIN_EPOCHS} (smoke test)"
+echo "Epochs:  ${PRETRAIN_EPOCHS}"
 echo "Output:  ${OUTDIR}"
 echo "W&B:     ${WANDB_PROJECT}/${WANDB_RUN_NAME}"
 echo "============================================================"
@@ -144,8 +141,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
     data_module.subset_k="${SUBSET_K}" \
-    data_module.fixed_subset=true \
-    data_module.fixed_subset_seed=42 \
+    data_module.fixed_subset=false \
     data_module.max_length=$(python3 -c "print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=4 \
