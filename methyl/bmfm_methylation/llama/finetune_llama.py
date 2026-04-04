@@ -495,8 +495,12 @@ def main(cfg: DictConfig):
         log_every_n_steps=10,
     )
 
-    logger.info("Starting fine-tuning...")
-    trainer.fit(module, datamodule=data_module)
+    resume_ckpt = cfg.get("resume_checkpoint", None)
+    if resume_ckpt:
+        logger.info(f"Resuming fine-tuning from: {resume_ckpt}")
+    else:
+        logger.info("Starting fine-tuning from scratch...")
+    trainer.fit(module, datamodule=data_module, ckpt_path=resume_ckpt)
 
     if data_module.test_dataset is not None:
         logger.info("Running test evaluation...")

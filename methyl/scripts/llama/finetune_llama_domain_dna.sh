@@ -53,6 +53,10 @@ UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-9999}"
 # recon_weight=0.1: pretrain and finetune share the same 21k CpGs, so decoder IDs align
 RECON_WEIGHT="${RECON_WEIGHT:-0.1}"
 
+# Resume from a fine-tuning checkpoint (optional)
+# Usage: RESUME_CHECKPOINT=<path> sbatch finetune_llama_domain_dna.sh
+RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +79,7 @@ echo "CpGs:        ${SUBSET_K}, input_ratio=${INPUT_RATIO}"
 echo "Train:       lr=${LR}, batch=${BATCH_SIZE}×${ACCUM}accum=$(( BATCH_SIZE * ACCUM )) eff"
 echo "Freeze enc:  ${FREEZE_ENCODER} (unfreeze epoch=${UNFREEZE_EPOCH})"
 echo "Recon wt:    ${RECON_WEIGHT}"
+echo "Resume ckpt: ${RESUME_CHECKPOINT:-<none>}"
 echo "Output:      ${OUTDIR}"
 echo "W&B:         ${WANDB_PROJECT}/${WANDB_RUN_NAME}"
 echo "============================================================"
@@ -138,7 +143,8 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "Fine-tuning finished: $(date)"
