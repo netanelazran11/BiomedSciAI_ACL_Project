@@ -75,8 +75,8 @@ WEIGHT_DECAY=0.01
 WARMUP_STEPS=50
 BATCH_SIZE=8
 ACCUM=4                             # Effective batch = 8 × 1GPU × 4 = 32
-PRETRAIN_EPOCHS=20
-EARLY_STOP=20                       # No early stop during smoke test
+PRETRAIN_EPOCHS=60
+EARLY_STOP=60                       # No early stop during smoke test
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -90,6 +90,11 @@ OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 
 # New tokenizer for smoke-test CpGs (built automatically on first run)
 TOKENIZER_PATH="${REPO}/tokenizer_llama_smoke_${WANDB_RUN_SUFFIX}"
+
+# Resume from previous run (auto-picks best checkpoint by val_loss)
+PREV_RUN="${OUTROOT}/smoke-small-k49156-44387304"
+RESUME_CHECKPOINT="$(ls ${PREV_RUN}/checkpoints/*.ckpt 2>/dev/null | sort | tail -1)"
+echo "Resuming from: ${RESUME_CHECKPOINT}"
 
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
@@ -169,7 +174,8 @@ python -m bmfm_methylation.llama.pretrain_llama \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "Smoke test finished: $(date)"
