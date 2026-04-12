@@ -1,564 +1,389 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""W&B Analysis for BMFM Methylation Pretraining Runs.
+"""
+analyze_pretrain.py — Download and compare MethylLlama pretraining runs from WandB.
 
-Downloads history from WandB and creates visualizations to analyze:
-- Loss curves (train vs validation)
-- MAE curves
-- PCC (Pearson Correlation) curves
-- Identifies when/if training collapse occurred
+Works for:
+  - Architecture sweep:      --project arch-sweep
+  - Smoke test runs:         --project pretrain-llama-smoke
+  - Full pretrain runs:      --project pretrain-llama-wced
 
 Usage:
-    python analyze_pretrain_wandb.py
+    python scripts/utils/analyze_pretrain.py
+    python scripts/utils/analyze_pretrain.py --project arch-sweep
+    python scripts/utils/analyze_pretrain.py --project pretrain-llama-smoke --out_dir figures/smoke
 
-Environment variables:
-    WANDB_ENTITY: Your WandB entity (default: netanelazran11-hebrew-university-of-jerusalem)
-    WANDB_PROJECT: Project name (default: pretrain-bmfm-rna-methylation-8k)
-    WANDB_RUN_ID: Specific run ID to analyze (optional, analyzes latest if not set)
-    OUTDIR: Output directory for plots and CSVs
+Outputs (in --out_dir):
+    summary.csv                  one row per run, all key metrics
+    summary.txt                  ranked table printed to terminal + file
+    learning_curves_pcc.png      val/pcc over epochs, all runs
+    learning_curves_loss.png     val/loss over epochs, all runs
+    train_curves_pcc.png         train/pcc over epochs (overfitting check)
+    heatmap_val_pcc.png          hidden_size × num_layers → best val pcc   (arch-sweep only)
+    heatmap_val_loss.png         hidden_size × num_layers → best val loss  (arch-sweep only)
 """
 
-import os
-import json
-from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+import argparse
+import re
+import sys
+from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import wandb
 
-# ==============================
-# CONFIG (env overrides)
-# ==============================
-ENTITY = os.getenv("WANDB_ENTITY", "netanelazran11-hebrew-university-of-jerusalem")
-PROJECT = os.getenv("WANDB_PROJECT", "pretrain-fixed2048-bmfm-rna-methylation")
-RUN_ID = os.getenv("WANDB_RUN_ID", None)  # If None, will list runs and let user choose
+try:
+    import wandb
+except ImportError:
+    sys.exit("wandb not installed.  Run: pip install wandb")
 
-DEFAULT_OUTDIR = os.path.join(os.path.dirname(__file__), "..", "wandb_analysis")
-OUTDIR = os.path.abspath(os.path.expanduser(os.getenv("OUTDIR", DEFAULT_OUTDIR)))
+# ─────────────────────────────────────────────────────────────────────────────
+ENTITY = "netanelazran11-hebrew-university-of-jerusalem"
+COLORS = plt.cm.tab10.colors
 
-WANDB_TIMEOUT = int(os.getenv("WANDB_TIMEOUT", "600"))
-
-# Metrics to track
-TRAIN_METRICS = [
-    "train/loss_epoch",
-    "train/loss_step",
-    "train/beta_values_mae_epoch",
-    "train/beta_values_mae_step",
-    "train/beta_values_mse_epoch",
-    "train/beta_values_mse_step",
-    "train/beta_values_pcc_epoch",
-    "train/beta_values_pcc_step",
-]
-
-VAL_METRICS = [
-    "validation/loss",
-    "validation/beta_values_mae",
-    "validation/beta_values_mse",
-    "validation/beta_values_pcc",
-]
-
-LR_METRICS = [
-    "lr-AdamW/pg1",
-    "lr-AdamW/pg2",
-]
-
-# ==============================
-# Helpers
-# ==============================
-
-def ensure_outdir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
+# Metric keys logged by pretrain_llama.py  (try multiple names for robustness)
+VAL_PCC_KEYS  = ["validation/pcc",  "val/pcc",  "validation/beta_values_pcc"]
+VAL_LOSS_KEYS = ["validation/loss", "val/loss", "validation/beta_values_mse"]
+TRN_PCC_KEYS  = ["train/pcc",  "training/pcc",  "train/beta_values_pcc_epoch"]
+TRN_LOSS_KEYS = ["train/loss", "training/loss", "train/loss_epoch"]
 
 
-def fetch_runs(api: wandb.Api, entity: str, project: str) -> List[wandb.apis.public.Run]:
-    """Fetch all runs from a project."""
-    path = f"{entity}/{project}"
-    runs = api.runs(path=path)
-    return list(runs)
+# ─────────────────────────────────────────────────────────────────────────────
+# helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def first_val(d: dict, keys: list):
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                pass
+    return None
 
 
-def download_run_history(run: wandb.apis.public.Run) -> pd.DataFrame:
-    """Download full history for a run."""
-    print(f"Downloading history for run: {run.name} ({run.id})")
-
-    # Download history with all keys
-    try:
-        hist = run.history(pandas=True, samples=10000)
-    except Exception as e:
-        print(f"Error downloading history: {e}")
-        hist = pd.DataFrame()
-
-    return hist
+def parse_arch(run_name: str) -> tuple[int | None, int | None]:
+    """Extract (hidden_size, num_layers) from names like 'h256_l4-...'."""
+    m = re.search(r"h(\d+)_l(\d+)", run_name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
 
 
-def identify_collapse(df: pd.DataFrame, pcc_col: str = "validation/beta_values_pcc",
-                      threshold: float = 0.5) -> Tuple[bool, Optional[int]]:
-    """
-    Identify if training collapsed (PCC dropped significantly).
-
-    Returns:
-        (collapsed: bool, collapse_epoch: Optional[int])
-    """
-    if pcc_col not in df.columns:
-        return False, None
-
-    pcc = df[pcc_col].dropna()
-    if len(pcc) < 5:
-        return False, None
-
-    # Find max PCC and check if it dropped significantly after
-    max_pcc = pcc.max()
-    max_idx = pcc.idxmax()
-
-    # Check if PCC dropped below threshold after reaching max
-    after_max = pcc.loc[max_idx:]
-    if len(after_max) > 1:
-        final_pcc = after_max.iloc[-1]
-        if max_pcc > threshold and final_pcc < threshold:
-            # Find when it dropped below threshold
-            collapse_idx = after_max[after_max < threshold].first_valid_index()
-            if collapse_idx is not None and 'epoch' in df.columns:
-                collapse_epoch = df.loc[collapse_idx, 'epoch'] if 'epoch' in df.columns else None
-                return True, collapse_epoch
-
-    return False, None
+def approx_params_M(h: int, l: int, vocab: int = 49161) -> float:
+    attn = 4 * h * h
+    ffn  = 3 * h * (4 * h)   # SwiGLU: 3 weight matrices
+    emb  = vocab * h
+    return (l * (attn + ffn) + emb) / 1e6
 
 
-def find_best_checkpoint(df: pd.DataFrame, metric: str = "validation/loss") -> Dict[str, Any]:
-    """Find the best checkpoint based on a metric."""
-    if metric not in df.columns:
-        return {}
+def variant_label(h, l, params=None):
+    s = f"h{h}_l{l}"
+    if params:
+        s += f" (~{params:.0f}M)"
+    return s
 
-    valid_df = df[df[metric].notna()].copy()
-    if len(valid_df) == 0:
-        return {}
 
-    best_idx = valid_df[metric].idxmin()
-    best_row = valid_df.loc[best_idx]
+# ─────────────────────────────────────────────────────────────────────────────
+# WandB fetch
+# ─────────────────────────────────────────────────────────────────────────────
 
-    result = {
-        "best_loss": best_row.get(metric),
-        "best_epoch": best_row.get("epoch"),
-        "best_step": best_row.get("trainer/global_step"),
+def fetch_all_runs(project: str, entity: str = ENTITY):
+    api = wandb.Api(timeout=120)
+    print(f"Connecting to WandB: {entity}/{project} ...")
+    runs = list(api.runs(f"{entity}/{project}"))
+    print(f"  Found {len(runs)} runs")
+    return runs, api
+
+
+def run_summary_row(run) -> dict:
+    name = run.name or run.id
+    h, l = parse_arch(name)
+    s    = run.summary or {}
+
+    row = {
+        "run_id":      run.id,
+        "run_name":    name,
+        "state":       run.state,
+        "hidden_size": h,
+        "num_layers":  l,
+        "params_M":    approx_params_M(h, l) if (h and l) else None,
+        "val_pcc":     first_val(s, VAL_PCC_KEYS),
+        "val_loss":    first_val(s, VAL_LOSS_KEYS),
+        "train_pcc":   first_val(s, TRN_PCC_KEYS),
+        "train_loss":  first_val(s, TRN_LOSS_KEYS),
+        "epoch":       s.get("epoch"),
+        "runtime_h":   (s.get("_wandb") or {}).get("runtime", 0) / 3600,
     }
+    row["pcc_gap"] = (
+        row["train_pcc"] - row["val_pcc"]
+        if (row["train_pcc"] is not None and row["val_pcc"] is not None)
+        else None
+    )
+    return row
 
-    # Add other metrics at best point
-    for col in ["validation/beta_values_mae", "validation/beta_values_pcc"]:
-        if col in best_row:
-            result[col.replace("validation/", "best_")] = best_row[col]
 
-    return result
+def fetch_history(run) -> pd.DataFrame:
+    keys = VAL_PCC_KEYS + VAL_LOSS_KEYS + TRN_PCC_KEYS + TRN_LOSS_KEYS + ["epoch"]
+    try:
+        df = run.history(keys=keys, pandas=True, samples=2000)
+        return df.reset_index(drop=True)
+    except Exception as e:
+        print(f"    [warn] history failed for {run.name}: {e}")
+        return pd.DataFrame()
 
 
-# ==============================
-# Plotting
-# ==============================
+# ─────────────────────────────────────────────────────────────────────────────
+# normalise history columns to canonical names
+# ─────────────────────────────────────────────────────────────────────────────
 
-def plot_loss_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
-    """Plot train vs validation loss over epochs."""
-    fig, ax = plt.subplots(figsize=(12, 6))
+def canonical(df: pd.DataFrame) -> pd.DataFrame:
+    rename = {}
+    for target, keys in [
+        ("val_pcc",   VAL_PCC_KEYS),
+        ("val_loss",  VAL_LOSS_KEYS),
+        ("train_pcc", TRN_PCC_KEYS),
+        ("train_loss",TRN_LOSS_KEYS),
+    ]:
+        for k in keys:
+            if k in df.columns and target not in df.columns:
+                rename[k] = target
+    return df.rename(columns=rename)
 
-    # Find epoch column
-    epoch_col = "epoch" if "epoch" in df.columns else "_step"
 
-    # Plot train loss
-    if "train/loss_epoch" in df.columns:
-        train_df = df[df["train/loss_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/loss_epoch"],
-                label="Train Loss", alpha=0.8, color="blue")
+# ─────────────────────────────────────────────────────────────────────────────
+# plots
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # Plot validation loss
-    if "validation/loss" in df.columns:
-        val_df = df[df["validation/loss"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/loss"],
-                label="Validation Loss", alpha=0.8, color="orange", linewidth=2)
+def plot_curves(histories: dict, metric: str, ylabel: str, title: str, out: Path):
+    """One line per (hidden, layers) variant."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+    keys = sorted(histories.keys())
+    for i, key in enumerate(keys):
+        df = canonical(histories[key])
+        if metric not in df.columns:
+            continue
+        data = df[metric].dropna()
+        if data.empty:
+            continue
+        x = np.arange(len(data))
+        h, l = key
+        params = approx_params_M(h, l) if (h and l) else None
+        label  = variant_label(h, l, params) if (h and l) else str(key)
+        ax.plot(x, data.values, color=COLORS[i % len(COLORS)],
+                linewidth=2, marker="o", markersize=3, label=label)
 
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss (MSE)")
-    ax.set_title(f"Training Loss Curves - {run_name}")
-    ax.legend()
+    ax.set_xlabel("Epoch", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(fontsize=8, framealpha=0.9, loc="best")
     ax.grid(True, alpha=0.3)
-
-    # Add best point annotation
-    if "validation/loss" in df.columns:
-        val_df = df[df["validation/loss"].notna()]
-        if len(val_df) > 0:
-            best_idx = val_df["validation/loss"].idxmin()
-            best_loss = val_df.loc[best_idx, "validation/loss"]
-            best_epoch = val_df.loc[best_idx, epoch_col]
-            ax.axvline(x=best_epoch, color='green', linestyle='--', alpha=0.5)
-            ax.annotate(f'Best: {best_loss:.4f}',
-                       xy=(best_epoch, best_loss),
-                       xytext=(best_epoch + 1, best_loss * 1.1),
-                       fontsize=10, color='green')
-
-    plt.tight_layout()
-    path = os.path.join(outdir, "loss_curves.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  Saved: {out}")
 
 
-def plot_mae_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
-    """Plot MAE over epochs."""
-    fig, ax = plt.subplots(figsize=(12, 6))
+def plot_train_val_overlay(histories: dict, out: Path):
+    """For each variant: train_pcc (dashed) vs val_pcc (solid)."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+    keys = sorted(histories.keys())
+    for i, key in enumerate(keys):
+        df = canonical(histories[key])
+        color = COLORS[i % len(COLORS)]
+        h, l = key
+        label = variant_label(h, l)
+        if "val_pcc" in df.columns:
+            data = df["val_pcc"].dropna()
+            ax.plot(np.arange(len(data)), data.values,
+                    color=color, linewidth=2, label=f"{label} val")
+        if "train_pcc" in df.columns:
+            data = df["train_pcc"].dropna()
+            ax.plot(np.arange(len(data)), data.values,
+                    color=color, linewidth=1, linestyle="--", alpha=0.6, label=f"{label} train")
 
-    epoch_col = "epoch" if "epoch" in df.columns else "_step"
-
-    if "train/beta_values_mae_epoch" in df.columns:
-        train_df = df[df["train/beta_values_mae_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/beta_values_mae_epoch"],
-                label="Train MAE", alpha=0.8, color="blue")
-
-    if "validation/beta_values_mae" in df.columns:
-        val_df = df[df["validation/beta_values_mae"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/beta_values_mae"],
-                label="Validation MAE", alpha=0.8, color="orange", linewidth=2)
-
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("MAE (Mean Absolute Error)")
-    ax.set_title(f"MAE Curves - {run_name}")
-    ax.legend()
+    ax.set_xlabel("Epoch", fontsize=12)
+    ax.set_ylabel("PCC", fontsize=12)
+    ax.set_title("Train (dashed) vs Val (solid) PCC — Overfitting Check", fontsize=13, fontweight="bold")
+    ax.legend(fontsize=7, framealpha=0.9, loc="best", ncol=2)
     ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    path = os.path.join(outdir, "mae_curves.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  Saved: {out}")
 
 
-def plot_pcc_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
-    """Plot PCC (Pearson Correlation) over epochs."""
-    fig, ax = plt.subplots(figsize=(12, 6))
+def plot_heatmap(df: pd.DataFrame, metric: str, title: str, out: Path, higher_better: bool):
+    sub = df[df["hidden_size"].notna() & df["num_layers"].notna() & df[metric].notna()].copy()
+    if sub.empty:
+        return
+    sub["hidden_size"] = sub["hidden_size"].astype(int)
+    sub["num_layers"]  = sub["num_layers"].astype(int)
 
-    epoch_col = "epoch" if "epoch" in df.columns else "_step"
+    pivot = sub.pivot_table(
+        index="num_layers", columns="hidden_size", values=metric,
+        aggfunc="max" if higher_better else "min"
+    )
 
-    if "train/beta_values_pcc_epoch" in df.columns:
-        train_df = df[df["train/beta_values_pcc_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/beta_values_pcc_epoch"],
-                label="Train PCC", alpha=0.8, color="blue")
+    fig, ax = plt.subplots(figsize=(7, 5))
+    cmap = "RdYlGn" if higher_better else "RdYlGn_r"
+    vmin, vmax = pivot.values[~np.isnan(pivot.values)].min(), pivot.values[~np.isnan(pivot.values)].max()
+    im = ax.imshow(pivot.values.astype(float), cmap=cmap, aspect="auto",
+                   vmin=vmin, vmax=vmax)
+    plt.colorbar(im, ax=ax, label=metric)
 
-    if "validation/beta_values_pcc" in df.columns:
-        val_df = df[df["validation/beta_values_pcc"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/beta_values_pcc"],
-                label="Validation PCC", alpha=0.8, color="orange", linewidth=2)
+    ax.set_xticks(range(len(pivot.columns)))
+    ax.set_xticklabels([f"h{c}" for c in pivot.columns], fontsize=11)
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels([f"l{r}" for r in pivot.index], fontsize=11)
+    ax.set_xlabel("Hidden size", fontsize=12)
+    ax.set_ylabel("Num layers", fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
 
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("PCC (Pearson Correlation)")
-    ax.set_title(f"PCC Curves - {run_name}")
-    ax.axhline(y=0.5, color='red', linestyle='--', alpha=0.5, label='Collapse Threshold (0.5)')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(-0.1, 1.1)
+    for r in range(len(pivot.index)):
+        for c in range(len(pivot.columns)):
+            val = pivot.values[r, c]
+            if not np.isnan(float(val)):
+                ax.text(c, r, f"{val:.3f}", ha="center", va="center",
+                        fontsize=11, fontweight="bold", color="black")
 
-    # Identify collapse
-    collapsed, collapse_epoch = identify_collapse(df)
-    if collapsed and collapse_epoch is not None:
-        ax.axvline(x=collapse_epoch, color='red', linestyle='-', alpha=0.7)
-        ax.annotate(f'Collapse @ epoch {collapse_epoch:.0f}',
-                   xy=(collapse_epoch, 0.5),
-                   xytext=(collapse_epoch + 2, 0.6),
-                   fontsize=10, color='red',
-                   arrowprops=dict(arrowstyle='->', color='red'))
-
-    plt.tight_layout()
-    path = os.path.join(outdir, "pcc_curves.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
-
-
-def plot_lr_schedule(df: pd.DataFrame, outdir: str, run_name: str) -> str:
-    """Plot learning rate schedule."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    step_col = "trainer/global_step" if "trainer/global_step" in df.columns else "_step"
-
-    for lr_col in LR_METRICS:
-        if lr_col in df.columns:
-            lr_df = df[df[lr_col].notna()]
-            ax.plot(lr_df[step_col], lr_df[lr_col], label=lr_col, alpha=0.8)
-
-    ax.set_xlabel("Step")
-    ax.set_ylabel("Learning Rate")
-    ax.set_title(f"Learning Rate Schedule - {run_name}")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    path = os.path.join(outdir, "lr_schedule.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  Saved: {out}")
 
 
-def plot_all_metrics_combined(df: pd.DataFrame, outdir: str, run_name: str) -> str:
-    """Create a combined figure with all key metrics."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+# ─────────────────────────────────────────────────────────────────────────────
+# summary table
+# ─────────────────────────────────────────────────────────────────────────────
 
-    epoch_col = "epoch" if "epoch" in df.columns else "_step"
+def print_and_save_summary(df: pd.DataFrame, out: Path):
+    cols = ["run_name", "hidden_size", "num_layers", "params_M",
+            "val_pcc", "val_loss", "train_pcc", "pcc_gap", "epoch", "state"]
+    sub  = df[[c for c in cols if c in df.columns]].copy()
+    sub  = sub.sort_values("val_pcc", ascending=False, na_position="last")
 
-    # 1. Loss
-    ax = axes[0, 0]
-    if "train/loss_epoch" in df.columns:
-        train_df = df[df["train/loss_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/loss_epoch"], label="Train", alpha=0.7)
-    if "validation/loss" in df.columns:
-        val_df = df[df["validation/loss"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/loss"], label="Valid", linewidth=2)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss (MSE)")
-    ax.set_title("Loss")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    header = "\n" + "=" * 100 + "\n"
+    header += f"  RESULTS — sorted by val_pcc\n"
+    header += "=" * 100
+    print(header)
 
-    # 2. MAE
-    ax = axes[0, 1]
-    if "train/beta_values_mae_epoch" in df.columns:
-        train_df = df[df["train/beta_values_mae_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/beta_values_mae_epoch"], label="Train", alpha=0.7)
-    if "validation/beta_values_mae" in df.columns:
-        val_df = df[df["validation/beta_values_mae"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/beta_values_mae"], label="Valid", linewidth=2)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("MAE")
-    ax.set_title("Mean Absolute Error")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    with pd.option_context("display.max_columns", 20, "display.width", 120,
+                           "display.float_format", "{:.4f}".format):
+        table_str = sub.to_string(index=False)
+        print(table_str)
 
-    # 3. PCC
-    ax = axes[1, 0]
-    if "train/beta_values_pcc_epoch" in df.columns:
-        train_df = df[df["train/beta_values_pcc_epoch"].notna()]
-        ax.plot(train_df[epoch_col], train_df["train/beta_values_pcc_epoch"], label="Train", alpha=0.7)
-    if "validation/beta_values_pcc" in df.columns:
-        val_df = df[df["validation/beta_values_pcc"].notna()]
-        ax.plot(val_df[epoch_col], val_df["validation/beta_values_pcc"], label="Valid", linewidth=2)
-    ax.axhline(y=0.5, color='red', linestyle='--', alpha=0.5)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("PCC")
-    ax.set_title("Pearson Correlation")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(-0.1, 1.1)
+    print("=" * 100)
 
-    # 4. Learning Rate
-    ax = axes[1, 1]
-    step_col = "trainer/global_step" if "trainer/global_step" in df.columns else "_step"
-    for lr_col in LR_METRICS:
-        if lr_col in df.columns:
-            lr_df = df[df[lr_col].notna()]
-            ax.plot(lr_df[step_col], lr_df[lr_col], label=lr_col.split("/")[-1], alpha=0.8)
-    ax.set_xlabel("Step")
-    ax.set_ylabel("Learning Rate")
-    ax.set_title("Learning Rate Schedule")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    if not sub.empty and sub["val_pcc"].notna().any():
+        best = sub[sub["val_pcc"].notna()].iloc[0]
+        h = int(best["hidden_size"]) if pd.notna(best.get("hidden_size")) else "?"
+        l = int(best["num_layers"])  if pd.notna(best.get("num_layers"))  else "?"
+        p = f"{best['params_M']:.1f}M" if pd.notna(best.get("params_M")) else "?"
+        print(f"\n★  Best: h{h}_l{l} ({p})  "
+              f"val_pcc={best['val_pcc']:.4f}  val_loss={best['val_loss']:.4f}  "
+              f"gap={best.get('pcc_gap', float('nan')):.4f}")
 
-    plt.suptitle(f"Pretraining Analysis - {run_name}", fontsize=14, fontweight='bold')
-    plt.tight_layout()
-
-    path = os.path.join(outdir, "all_metrics_combined.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
+    with open(out, "w") as f:
+        f.write(header + "\n" + table_str + "\n")
+    print(f"  Saved: {out}")
 
 
-# ==============================
-# Analysis Report
-# ==============================
+# ─────────────────────────────────────────────────────────────────────────────
+# main
+# ─────────────────────────────────────────────────────────────────────────────
 
-def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -> str:
-    """Generate a markdown analysis report."""
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--project",    default="arch-sweep",
+                        help="WandB project (default: arch-sweep)")
+    parser.add_argument("--entity",     default=ENTITY)
+    parser.add_argument("--out_dir",    default="figures/arch_sweep")
+    parser.add_argument("--min_epochs", type=int, default=3,
+                        help="Skip runs with fewer completed epochs")
+    args = parser.parse_args()
 
-    # Find best checkpoint
-    best = find_best_checkpoint(df)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check for collapse
-    collapsed, collapse_epoch = identify_collapse(df)
+    # ── 1. fetch run summaries ─────────────────────────────────────────────
+    runs, _ = fetch_all_runs(args.project, args.entity)
+    if not runs:
+        sys.exit("No runs found.")
 
-    # Format helper
-    def fmt(val, decimals=4):
-        if val is None or val == 'N/A':
-            return 'N/A'
-        try:
-            return f"{float(val):.{decimals}f}"
-        except (ValueError, TypeError):
-            return 'N/A'
+    rows = [run_summary_row(r) for r in runs]
+    df   = pd.DataFrame(rows)
+    print(f"  Parsed {len(df)} runs")
 
-    # Pre-compute formatted values
-    best_loss = fmt(best.get('best_loss'))
-    best_mae = fmt(best.get('best_beta_values_mae'))
-    best_pcc = fmt(best.get('best_beta_values_pcc'))
-    best_epoch = best.get('best_epoch', 'N/A')
+    # filter runs that haven't started properly
+    if "epoch" in df.columns:
+        mask = df["epoch"].isna() | (df["epoch"] >= args.min_epochs)
+        n_skip = (~mask).sum()
+        if n_skip:
+            print(f"  Skipping {n_skip} runs with < {args.min_epochs} epochs")
+        df = df[mask]
 
-    # Calculate statistics
-    report = f"""# Pretraining Analysis Report
-
-**Run:** {run.name}
-**Run ID:** {run.id}
-**URL:** {run.url}
-**State:** {run.state}
-**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
----
-
-## Summary
-
-| Metric | Best Value | At Epoch |
-|--------|------------|----------|
-| Validation Loss | {best_loss} | {best_epoch} |
-| Validation MAE | {best_mae} | {best_epoch} |
-| Validation PCC | {best_pcc} | {best_epoch} |
-
-## Training Stability
-
-**Collapse Detected:** {'YES ⚠️' if collapsed else 'No ✅'}
-"""
-
-    if collapsed:
-        report += f"""
-**Collapse Epoch:** {collapse_epoch}
-
-### What happened:
-The model's PCC (Pearson Correlation) dropped significantly after reaching a peak.
-This indicates the model started predicting constant values (mean) instead of learning patterns.
-
-### Recommendation:
-Use the checkpoint from epoch {best.get('best_epoch', 'early')} (before collapse) for fine-tuning.
-Consider lowering the learning rate for future pretraining runs.
-"""
-    else:
-        report += """
-Training appeared stable throughout the run.
-"""
-
-    report += """
-## Metrics Interpretation
-
-- **Loss (MSE):** Mean Squared Error on masked beta values. Lower is better.
-- **MAE:** Mean Absolute Error. For beta values (0-1), MAE < 0.1 is good.
-- **PCC:** Pearson Correlation between predictions and ground truth. Higher is better (>0.8 is excellent).
-
-## Plots
-
-- `all_metrics_combined.png` - Overview of all metrics
-- `loss_curves.png` - Train vs Validation loss
-- `mae_curves.png` - Mean Absolute Error curves
-- `pcc_curves.png` - Pearson Correlation curves
-- `lr_schedule.png` - Learning rate over training
-
-## Best Checkpoint for Fine-tuning
-
-Based on this analysis, use the checkpoint at **epoch {best_epoch}** with validation loss **{best_loss}**.
-"""
-
-    path = os.path.join(outdir, "analysis_report.md")
-    with open(path, "w") as f:
-        f.write(report)
-
-    return path
-
-
-# ==============================
-# Main
-# ==============================
-
-def main() -> int:
-    ensure_outdir(OUTDIR)
-
-    print("=" * 80)
-    print("BMFM Methylation Pretraining - WandB Analysis")
-    print(f"ENTITY:  {ENTITY}")
-    print(f"PROJECT: {PROJECT}")
-    print(f"OUTDIR:  {OUTDIR}")
-    print("=" * 80)
-
-    api = wandb.Api(timeout=WANDB_TIMEOUT)
-
-    # Get runs
-    runs = fetch_runs(api, ENTITY, PROJECT)
-    print(f"\nFound {len(runs)} runs in project.\n")
-
-    # List runs
-    print("Available runs:")
-    print("-" * 80)
-    for i, r in enumerate(runs[:20]):  # Show first 20
-        print(f"{i+1:3d}. [{r.state:10s}] {r.name[:50]:50s} | {r.id}")
-    print("-" * 80)
-
-    # Select run
-    if RUN_ID:
-        run = api.run(f"{ENTITY}/{PROJECT}/{RUN_ID}")
-    else:
-        try:
-            choice = input("\nEnter run number to analyze (or press Enter for most recent): ").strip()
-            if choice:
-                idx = int(choice) - 1
-                run = runs[idx]
-            else:
-                run = runs[0]  # Most recent
-        except (ValueError, IndexError):
-            print("Invalid choice, using most recent run.")
-            run = runs[0]
-
-    print(f"\nAnalyzing run: {run.name} ({run.id})")
-
-    # Download history
-    df = download_run_history(run)
-
-    if df.empty:
-        print("No history data found!")
-        return 1
-
-    print(f"Downloaded {len(df)} history rows.")
-    print(f"Columns: {list(df.columns)[:20]}...")
-
-    # Save raw data
-    csv_path = os.path.join(OUTDIR, "history_raw.csv")
+    # ── 2. save CSV ────────────────────────────────────────────────────────
+    csv_path = out_dir / "summary.csv"
     df.to_csv(csv_path, index=False)
-    print(f"\nSaved raw history: {csv_path}")
+    print(f"  Saved: {csv_path}")
 
-    # Generate plots
-    print("\nGenerating plots...")
+    # ── 3. summary table ───────────────────────────────────────────────────
+    print_and_save_summary(df, out_dir / "summary.txt")
 
-    plots = []
-    plots.append(plot_all_metrics_combined(df, OUTDIR, run.name))
-    plots.append(plot_loss_curves(df, OUTDIR, run.name))
-    plots.append(plot_mae_curves(df, OUTDIR, run.name))
-    plots.append(plot_pcc_curves(df, OUTDIR, run.name))
-    plots.append(plot_lr_schedule(df, OUTDIR, run.name))
+    # ── 4. fetch per-epoch histories ───────────────────────────────────────
+    print("\nFetching epoch histories ...")
+    run_map   = {r.id: r for r in runs}
+    histories = {}
 
-    for p in plots:
-        print(f"  Saved: {p}")
+    for _, row in df.iterrows():
+        rid = row["run_id"]
+        r   = run_map.get(rid)
+        if r is None:
+            continue
+        key = (row["hidden_size"], row["num_layers"])
+        print(f"  {row['run_name']} ({row['state']}) ...", end=" ", flush=True)
+        hist = fetch_history(r)
+        if not hist.empty:
+            histories[key] = hist
+            print(f"{len(hist)} rows")
+        else:
+            print("empty")
 
-    # Generate report
-    report_path = generate_report(df, run, OUTDIR)
-    print(f"\nSaved report: {report_path}")
+    if not histories:
+        print("No history data available yet — runs may still be starting.")
+        return
 
-    # Print summary
-    best = find_best_checkpoint(df)
-    collapsed, collapse_epoch = identify_collapse(df)
+    # ── 5. learning curve plots ────────────────────────────────────────────
+    print("\nGenerating plots ...")
+    plot_curves(histories, "val_pcc",  "Validation PCC",
+                f"Val PCC — {args.project}",
+                out_dir / "learning_curves_pcc.png")
 
-    print("\n" + "=" * 80)
-    print("ANALYSIS SUMMARY")
-    print("=" * 80)
-    print(f"Best Validation Loss: {best.get('best_loss', 'N/A')}")
-    print(f"Best Epoch: {best.get('best_epoch', 'N/A')}")
-    print(f"Best PCC: {best.get('best_beta_values_pcc', 'N/A')}")
-    print(f"Collapse Detected: {'YES' if collapsed else 'No'}")
-    if collapsed:
-        print(f"Collapse Epoch: {collapse_epoch}")
-    print("=" * 80)
+    plot_curves(histories, "val_loss", "Validation Loss (MSE)",
+                f"Val Loss — {args.project}",
+                out_dir / "learning_curves_loss.png")
 
-    print(f"\nAll outputs saved to: {OUTDIR}")
-    print("DONE.")
+    plot_curves(histories, "train_pcc", "Train PCC",
+                f"Train PCC — {args.project}",
+                out_dir / "train_curves_pcc.png")
 
-    return 0
+    plot_train_val_overlay(histories, out_dir / "overfitting_check.png")
+
+    # ── 6. heatmaps (arch sweep only — need hidden/layer grid) ────────────
+    has_arch = df["hidden_size"].notna().any() and df["num_layers"].notna().any()
+    if has_arch:
+        if df["val_pcc"].notna().any():
+            plot_heatmap(df, "val_pcc",  "Best Val PCC by Architecture",
+                         out_dir / "heatmap_val_pcc.png",  higher_better=True)
+        if df["val_loss"].notna().any():
+            plot_heatmap(df, "val_loss", "Best Val Loss by Architecture",
+                         out_dir / "heatmap_val_loss.png", higher_better=False)
+
+    print(f"\nAll outputs → {out_dir.resolve()}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
