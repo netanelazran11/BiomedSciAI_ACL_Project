@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=8:00:00
-#SBATCH --array=0-8
+#SBATCH --array=0-7
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-smoke/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-smoke/%x_%A_%a.err
@@ -87,7 +87,7 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_sweep_${VARIANT_TAG}"
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
 echo "============================================================"
-echo " ARCH SWEEP [task ${SLURM_ARRAY_TASK_ID}/8] — ${VARIANT_TAG}"
+echo " ARCH SWEEP [task ${SLURM_ARRAY_TASK_ID}/7] — ${VARIANT_TAG}"
 echo " Model: ${NUM_LAYERS}L × ${HIDDEN_SIZE}D × ${NUM_HEADS}H  FFN=${INTERMEDIATE_SIZE}"
 echo "============================================================"
 echo "Job: ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} | Host: $(hostname) | Time: $(date)"
