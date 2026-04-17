@@ -126,10 +126,14 @@ def run_summary_row(run) -> dict:
 
 
 def fetch_history(run) -> pd.DataFrame:
-    keys = VAL_PCC_KEYS + VAL_LOSS_KEYS + TRN_PCC_KEYS + TRN_LOSS_KEYS + ["epoch"]
+    # Fetch ALL columns — don't filter by keys (filtering returns empty if names differ)
     try:
-        df = run.history(keys=keys, pandas=True, samples=2000)
-        return df.reset_index(drop=True)
+        df = run.history(pandas=True, samples=5000)
+        if df.empty:
+            # scan_history is slower but more reliable for finished runs
+            rows = list(run.scan_history())
+            df = pd.DataFrame(rows)
+        return df.reset_index(drop=True) if not df.empty else pd.DataFrame()
     except Exception as e:
         print(f"    [warn] history failed for {run.name}: {e}")
         return pd.DataFrame()
@@ -338,6 +342,7 @@ def main():
     run_map   = {r.id: r for r in runs}
     histories = {}
 
+    first = True
     for _, row in df.iterrows():
         rid = row["run_id"]
         r   = run_map.get(rid)
@@ -349,6 +354,10 @@ def main():
         if not hist.empty:
             histories[key] = hist
             print(f"{len(hist)} rows")
+            if first:
+                metric_cols = [c for c in hist.columns if not c.startswith("_")]
+                print(f"    Available metrics: {metric_cols[:20]}")
+                first = False
         else:
             print("empty")
 
