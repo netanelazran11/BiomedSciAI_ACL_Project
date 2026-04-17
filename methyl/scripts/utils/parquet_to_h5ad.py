@@ -40,22 +40,61 @@ OUT = Path(
         "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad",
     )
 )
+# Authoritative pretrain probe IDs (same 49156 CpGs, known illumina_probe_id column)
+PRETRAIN_PROBE_CSV = Path(
+    os.environ.get(
+        "PRETRAIN_PROBE_CSV",
+        "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_pretrain_type3_h5ad/probe_ids_type3_pretrain.csv",
+    )
+)
 PROBE_CSV = DATA_DIR / "cpg_mapping" / "probe_ids_type3.csv"
 
-print(f"DATA_DIR : {DATA_DIR}")
-print(f"OUT      : {OUT}")
-print(f"PROBE_CSV: {PROBE_CSV}")
+print(f"DATA_DIR          : {DATA_DIR}")
+print(f"OUT               : {OUT}")
+print(f"PROBE_CSV         : {PROBE_CSV}")
+print(f"PRETRAIN_PROBE_CSV: {PRETRAIN_PROBE_CSV}")
+
+
+def _load_probe_ids(csv_path: Path) -> list:
+    """Read probe IDs from a CSV, trying common column names. Returns list of strings."""
+    df = pd.read_csv(csv_path)
+    for col in ("illumina_probe_id", "probe_id", "cpg_id"):
+        if col in df.columns:
+            ids = df[col].astype(str).tolist()
+            if ids[0].startswith("cg"):
+                return ids
+    # Try every column for cg... values
+    for col in df.columns:
+        ids = df[col].astype(str).tolist()
+        if ids[0].startswith("cg"):
+            return ids
+    return None
+
 
 # ─── 1. Load probe IDs ────────────────────────────────────────────────────────
 print("\n[1] Loading probe IDs …")
-probe_df = pd.read_csv(PROBE_CSV)
-# Accept either 'probe_id' column or first column
-if "probe_id" in probe_df.columns:
-    probe_ids = probe_df["probe_id"].tolist()
-else:
-    probe_ids = probe_df.iloc[:, 0].tolist()
+probe_ids = None
+
+# Try the fine-tuning mapping CSV first
+if PROBE_CSV.exists():
+    probe_ids = _load_probe_ids(PROBE_CSV)
+    if probe_ids:
+        print(f"    Loaded from {PROBE_CSV.name}: {probe_ids[0]} … {probe_ids[-1]}")
+
+# Fall back to authoritative pretrain probe CSV
+if probe_ids is None:
+    if not PRETRAIN_PROBE_CSV.exists():
+        raise FileNotFoundError(
+            f"Could not find cg-named probe IDs in {PROBE_CSV}\n"
+            f"and pretrain fallback not found: {PRETRAIN_PROBE_CSV}"
+        )
+    probe_ids = _load_probe_ids(PRETRAIN_PROBE_CSV)
+    if probe_ids is None:
+        raise ValueError(f"No cg-prefixed probe IDs found in {PRETRAIN_PROBE_CSV}")
+    print(f"    Loaded from pretrain fallback: {probe_ids[0]} … {probe_ids[-1]}")
+
 n_cpgs = len(probe_ids)
-print(f"    {n_cpgs} probe IDs loaded")
+print(f"    {n_cpgs} probe IDs  (first: {probe_ids[0]}, last: {probe_ids[-1]})")
 
 # ─── 2. Read each split ───────────────────────────────────────────────────────
 splits = ["train", "valid", "test"]
