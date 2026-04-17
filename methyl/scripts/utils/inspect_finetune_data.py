@@ -17,7 +17,7 @@ for split in ["train", "valid", "test"]:
     print(f"  {split.upper()}: {path}")
     print(f"{'='*60}")
 
-    df = pd.read_parquet(path)
+    df = pd.read_parquet(path).iloc[:200]  # sample only — avoid OOM
     print(f"  Shape:   {df.shape}")
     print(f"  Columns: {list(df.columns[:10])}{'...' if len(df.columns)>10 else ''}")
     print(f"  Dtypes:\n{df.dtypes.value_counts().to_string()}")
