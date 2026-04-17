@@ -47,7 +47,7 @@ ACCUM="${ACCUM:-2}"
 FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-100}"
 EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
-UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-9999}"
+UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
 RECON_WEIGHT="${RECON_WEIGHT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
