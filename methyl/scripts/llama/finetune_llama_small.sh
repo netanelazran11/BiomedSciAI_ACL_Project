@@ -34,12 +34,8 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 SUBSET_K="${SUBSET_K:-49156}"
 INPUT_RATIO="${INPUT_RATIO:-0.5}"    # Match pretraining distribution (50% visible)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Age normalization — computed from finetuning_49k train split
-# train age: min=0, max=114, mean≈45, std≈20 (approximate — update after inspection)
-# ─────────────────────────────────────────────────────────────────────────────
-AGE_MEAN="${AGE_MEAN:-45.0}"
-AGE_STD="${AGE_STD:-20.0}"
+# Age normalization is computed automatically from the training split by
+# MethylationDataset — no need to hardcode mean/std here.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fine-tuning settings
@@ -52,7 +48,7 @@ FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-100}"
 EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-9999}"
-RECON_WEIGHT="${RECON_WEIGHT:-0.0}"
+RECON_WEIGHT="${RECON_WEIGHT:-0.1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -73,7 +69,7 @@ echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
 echo "Checkpoint: ${CHECKPOINT}"
 echo "Strategy: freeze_encoder=${FREEZE_ENCODER}, recon_weight=${RECON_WEIGHT}"
 echo "LR=${LR}, batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff"
-echo "Age norm: mean=${AGE_MEAN}, std=${AGE_STD}"
+echo "Age norm: auto-computed from training split"
 echo "Output: ${OUTDIR}"
 echo "============================================================"
 
@@ -106,8 +102,6 @@ python -m bmfm_methylation.llama.finetune_llama \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     wced_input_ratio="${INPUT_RATIO}" \
-    age_mean="${AGE_MEAN}" \
-    age_std="${AGE_STD}" \
     finetune.head_hidden_size=128 \
     finetune.learning_rate="${LR}" \
     finetune.weight_decay="${WEIGHT_DECAY}" \

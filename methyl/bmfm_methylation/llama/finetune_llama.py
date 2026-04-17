@@ -381,11 +381,6 @@ def main(cfg: DictConfig):
     wced_input_ratio  = cfg.get("wced_input_ratio", 0.5)
     vocab_size        = subset_k
 
-    # Age normalization
-    age_mean = cfg.get("age_mean", 0.0)
-    age_std  = cfg.get("age_std", 1.0)
-    logger.info(f"Age normalization: mean={age_mean:.2f}, std={age_std:.2f}")
-
     # Data module (uses WCEDCollator)
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
@@ -431,6 +426,11 @@ def main(cfg: DictConfig):
 
     data_module.setup = _setup_with_wrap
     data_module.setup()
+
+    # Age normalization — pulled from training dataset (auto-computed, not hardcoded)
+    age_mean = data_module.age_mean
+    age_std  = data_module.age_std
+    logger.info(f"Age normalization (from training data): mean={age_mean:.2f}, std={age_std:.2f}")
 
     # Load pretrained checkpoint
     checkpoint_path = cfg.get("checkpoint_path")
