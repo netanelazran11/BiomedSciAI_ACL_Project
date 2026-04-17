@@ -378,10 +378,14 @@ try:
     else:
         fail(f"Non-finite loss: {out['loss'].item()}")
 
-    age_pred_years = out["predicted_age"] * ds.age_std + ds.age_mean
-    age_true_years = batch2["age"] * ds.age_std + ds.age_mean
-    print(f"  Predicted ages (years): {age_pred_years.tolist()}")
-    print(f"  True ages (years):      {age_true_years.tolist()}")
+    if out["recon_loss"].item() > 0:
+        ok(f"Reconstruction loss is non-zero: {out['recon_loss'].item():.4f}")
+    else:
+        warn("Reconstruction loss=0 — no valid non-input CpGs (check INPUT_RATIO vs NaN rate)")
+
+    # MAE in years (mae is computed in _shared_step in z-score space * std)
+    mae_years = out["mae"].item() * ds.age_std
+    print(f"  MAE (years, untrained): {mae_years:.1f}")
 
 except Exception as e:
     import traceback

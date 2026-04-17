@@ -32,7 +32,8 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 # Data settings — use ALL 49k CpGs, match pretraining input ratio
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-49156}"
-INPUT_RATIO="${INPUT_RATIO:-0.5}"    # Match pretraining distribution (50% visible)
+INPUT_RATIO="${INPUT_RATIO:-0.3}"    # 0.3 × 49156 = 14747 input CpGs < 19608 valid → leaves ~4861 for reconstruction
+                                    # Cannot use 0.5: with 60% NaN only 19608 valid → 0.5×49156=24578 > 19608 → ALL valid go to input, recon_mask=0
 
 # Age normalization is computed automatically from the training split by
 # MethylationDataset — no need to hardcode mean/std here.

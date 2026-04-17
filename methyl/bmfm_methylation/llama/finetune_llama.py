@@ -177,14 +177,18 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             age_loss = torch.tensor(0.0, device=cls.device)
 
         # Reconstruction regularizer (optional, only if decoder + all_betas available)
+        # Only reconstruct non-input AND non-NaN positions (valid_mask excludes NaN)
         recon_loss = torch.tensor(0.0, device=cls.device)
         if self.decoder is not None and all_betas is not None and input_mask is not None:
             with torch.set_grad_enabled(self.recon_weight > 0 and self.training):
                 predicted_betas = self.decoder(cls)  # [B, vocab_size]
                 non_input = ~input_mask
-                loss_per_cpg = self.recon_loss_fn(predicted_betas, all_betas)
-                masked = loss_per_cpg * non_input.float()
-                recon_loss = masked.sum() / non_input.float().sum().clamp(min=1)
+                valid_mask = batch.get("valid_mask")  # [B, vocab_size] True=non-NaN
+                recon_mask = non_input & valid_mask if valid_mask is not None else non_input
+                n_recon = recon_mask.float().sum().clamp(min=1)
+                if n_recon > 1:
+                    loss_per_cpg = self.recon_loss_fn(predicted_betas, all_betas)
+                    recon_loss = (loss_per_cpg * recon_mask.float()).sum() / n_recon
 
         loss = age_loss + self.recon_weight * recon_loss
 
