@@ -17,7 +17,11 @@ for split in ["train", "valid", "test"]:
     print(f"  {split.upper()}: {path}")
     print(f"{'='*60}")
 
-    df = pd.read_parquet(path).iloc[:200]  # sample only — avoid OOM
+    import pyarrow.parquet as pq
+    pf = pq.ParquetFile(path)
+    print(f"  Total rows: {pf.metadata.num_rows}")
+    print(f"  Row groups: {pf.metadata.num_row_groups}")
+    df = next(pf.iter_batches(batch_size=100)).to_pandas()  # read only first 100 rows
     print(f"  Shape:   {df.shape}")
     print(f"  Columns: {list(df.columns[:10])}{'...' if len(df.columns)>10 else ''}")
     print(f"  Dtypes:\n{df.dtypes.value_counts().to_string()}")
