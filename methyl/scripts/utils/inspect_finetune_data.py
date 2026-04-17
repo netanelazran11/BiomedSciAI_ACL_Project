@@ -83,4 +83,30 @@ try:
 except Exception as e:
     print(f"  could not read pretrain csv: {e}")
 
+# ── 6. Inspect one data array — NaN/zero pattern ──────────────────────────
+print("\n=== One sample data array (first row only) ===")
+import pyarrow.compute as pc
+tbl_one = pq.read_table(DATA_DIR / "train.parquet", columns=["data"]).slice(0, 1)
+arr = np.array(tbl_one["data"][0].as_py(), dtype=np.float64)
+print(f"  length:     {len(arr)}")
+print(f"  NaN count:  {np.isnan(arr).sum()} ({100*np.isnan(arr).mean():.1f}%)")
+print(f"  Zero count: {(arr==0).sum()} ({100*(arr==0).mean():.1f}%)")
+print(f"  Non-NaN non-zero: {((~np.isnan(arr)) & (arr!=0)).sum()}")
+print(f"  value range (non-NaN): [{np.nanmin(arr):.4f}, {np.nanmax(arr):.4f}]")
+print(f"  mean (non-NaN): {np.nanmean(arr):.4f}")
+
+# Where are the NaNs — beginning, end, or scattered?
+nan_positions = np.where(np.isnan(arr))[0]
+val_positions = np.where(~np.isnan(arr))[0]
+if len(nan_positions) > 0:
+    print(f"  NaN positions: first={nan_positions[0]}, last={nan_positions[-1]}, scattered={len(np.unique(np.diff(nan_positions)))>1}")
+if len(val_positions) > 0:
+    print(f"  Valid positions: first={val_positions[0]}, last={val_positions[-1]}")
+
+# Check if NaN CpGs match a specific subset (e.g. positions > 21k)
+print(f"\n  Values at positions 0-5:      {arr[:5].tolist()}")
+print(f"  Values at positions 21000-21005: {arr[21000:21005].tolist()}")
+print(f"  Values at positions 40000-40005: {arr[40000:40005].tolist()}")
+print(f"  Values at positions -5 to end:  {arr[-5:].tolist()}")
+
 print("\nDONE")
