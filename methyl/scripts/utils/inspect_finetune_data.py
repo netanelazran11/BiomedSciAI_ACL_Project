@@ -19,53 +19,45 @@ for split in ["train", "valid", "test"]:
 
     import pyarrow.parquet as pq
     pf = pq.ParquetFile(path)
-    print(f"  Total rows: {pf.metadata.num_rows}")
-    print(f"  Row groups: {pf.metadata.num_row_groups}")
-    df = next(pf.iter_batches(batch_size=100)).to_pandas()  # read only first 100 rows
-    print(f"  Shape:   {df.shape}")
-    print(f"  Columns: {list(df.columns[:10])}{'...' if len(df.columns)>10 else ''}")
-    print(f"  Dtypes:\n{df.dtypes.value_counts().to_string()}")
+    n_rows = pf.metadata.num_rows
+    n_cols = pf.metadata.num_columns
+    all_cols = pf.schema_arrow.names
+    print(f"  Total rows:    {n_rows}")
+    print(f"  Total columns: {n_cols}")
+    print(f"  First 10 cols: {all_cols[:10]}")
+    print(f"  Last  10 cols: {all_cols[-10:]}")
 
-    # Check for age/label column
-    label_cols = [c for c in df.columns if any(k in c.lower() for k in ["age","label","target","y"])]
-    print(f"  Label columns: {label_cols}")
-    for col in label_cols:
-        print(f"    {col}: min={df[col].min():.1f}  max={df[col].max():.1f}  mean={df[col].mean():.1f}  nulls={df[col].isna().sum()}")
+    # Read only label-like columns (cheap — small subset)
+    label_candidates = [c for c in all_cols if any(k in c.lower() for k in ["age","label","target","split","id","sample"])]
+    print(f"\n  Label-like columns: {label_candidates}")
 
-    # Check CpG columns (non-label numeric columns)
-    cpg_cols = [c for c in df.columns if c not in label_cols and df[c].dtype in [np.float32, np.float64, "float32", "float64"]]
-    print(f"  CpG columns: {len(cpg_cols)}")
+    if label_candidates:
+        df_labels = pq.read_table(path, columns=label_candidates).to_pandas()
+        for col in label_candidates:
+            try:
+                print(f"    {col}: dtype={df_labels[col].dtype}  sample={df_labels[col].iloc[:5].tolist()}")
+                if pd.api.types.is_numeric_dtype(df_labels[col]):
+                    print(f"      min={df_labels[col].min():.2f}  max={df_labels[col].max():.2f}  mean={df_labels[col].mean():.2f}  nulls={df_labels[col].isna().sum()}")
+            except Exception as e:
+                print(f"    {col}: error {e}")
 
-    if cpg_cols:
-        cpg_data = df[cpg_cols].values.astype(np.float32)
-        nan_pct   = np.isnan(cpg_data).mean() * 100
-        zero_pct  = (cpg_data == 0).mean() * 100
-        print(f"  NaN  %:  {nan_pct:.2f}%")
-        print(f"  Zero %:  {zero_pct:.2f}%")
-        print(f"  Value range: [{np.nanmin(cpg_data):.4f}, {np.nanmax(cpg_data):.4f}]")
-        print(f"  Mean:  {np.nanmean(cpg_data):.4f}  Std: {np.nanstd(cpg_data):.4f}")
-
-        # Per-column NaN analysis
-        col_nan = np.isnan(cpg_data).mean(axis=0)
-        all_nan_cols  = (col_nan == 1.0).sum()
-        high_nan_cols = (col_nan > 0.5).sum()
-        zero_nan_cols = (col_nan == 0.0).sum()
-        print(f"  Cols with ALL NaN:   {all_nan_cols}")
-        print(f"  Cols with >50% NaN:  {high_nan_cols}")
-        print(f"  Cols with 0% NaN:    {zero_nan_cols}")
+    # Read only 5 CpG columns to check NaN/zero pattern (cheap)
+    cpg_candidates = [c for c in all_cols if c not in label_candidates]
+    sample_cpgs = cpg_candidates[:5] + cpg_candidates[len(cpg_candidates)//2:len(cpg_candidates)//2+5]
+    print(f"\n  Sampling 10 CpG columns to check NaN/zero pattern...")
+    df_cpg = pq.read_table(path, columns=sample_cpgs).to_pandas()
+    for col in sample_cpgs:
+        nan_pct  = df_cpg[col].isna().mean() * 100
+        zero_pct = (df_cpg[col] == 0).mean() * 100
+        print(f"    {col}: NaN={nan_pct:.1f}%  zero={zero_pct:.1f}%  sample={df_cpg[col].dropna().iloc[:3].round(4).tolist()}")
 
     # Check overlap with pretrain vocab
     pretrain_probes = set(pd.read_csv(PRETRAIN_PROBES)["illumina_probe_id"].tolist())
-    overlap = set(cpg_cols) & pretrain_probes
-    only_in_ft = set(cpg_cols) - pretrain_probes
-    print(f"\n  Pretrain vocab size:  {len(pretrain_probes)}")
-    print(f"  Finetune CpG cols:    {len(cpg_cols)}")
-    print(f"  Overlap:              {len(overlap)} ({100*len(overlap)/max(len(cpg_cols),1):.1f}% of finetune in pretrain)")
-    print(f"  Only in finetune:     {len(only_in_ft)}")
-
-    # Sample rows
-    print(f"\n  First 3 rows (first 5 cols):")
-    print(df.iloc[:3, :5].to_string())
+    cpg_cols_set = set(cpg_candidates)
+    overlap = pretrain_probes & cpg_cols_set
+    print(f"\n  Pretrain vocab:    {len(pretrain_probes)}")
+    print(f"  Finetune CpG cols: {len(cpg_candidates)}")
+    print(f"  Overlap:           {len(overlap)} ({100*len(overlap)/max(len(cpg_candidates),1):.1f}%)")
     break  # only inspect train for speed
 
 print("\n\nDONE")
