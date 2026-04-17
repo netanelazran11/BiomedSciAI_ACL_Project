@@ -670,8 +670,104 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ SLIDE 11: Architecture Decision -->
+<!-- ══════════════════════════════════════════════════ SLIDE 11: Pretraining Data -->
 <div class="slide" id="slide-11">
+  <h2>Pretraining Data — 169k Methylomes, 49k CpG Probes</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>Dataset Overview</h3>
+        <ul class="arrow">
+          <li><strong>169,120 samples</strong> × <strong>49,156 CpG probes</strong> (type-III Illumina EPIC array)</li>
+          <li>Stored as <strong>33 GB h5ad</strong> — loaded lazily row-by-row (never fully in RAM)</li>
+          <li>Source: GEO public methylation studies (TWPID cohort)</li>
+          <li>No age / tissue labels — fully self-supervised</li>
+          <li>Split: random <strong>80 / 10 / 10</strong> (no pre-existing split column)</li>
+        </ul>
+      </div>
+      <div class="card card-green">
+        <h3>Beta Value Statistics (per CpG)</h3>
+        <table style="margin-top:4px">
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Range</td><td>0.0 – 1.0 (methylation fraction)</td></tr>
+            <tr><td>Typical mean</td><td>~0.25–0.55 (CpG-dependent)</td></tr>
+            <tr><td>NaN rate</td><td>~8.5% (failed probes, natural)</td></tr>
+            <tr><td>Zero rate</td><td>0% — NaN replaces unmeasured</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-amber">
+        <h3>What is a Beta Value?</h3>
+        <p>β = (methylated signal) / (methylated + unmethylated signal)</p>
+        <p style="margin-top:6px">β ∈ [0, 1] — 0 = fully unmethylated, 1 = fully methylated</p>
+        <p style="margin-top:6px">Type-III probes: consistent measurement across tissue types. Used for cross-tissue generalisation.</p>
+      </div>
+      <div class="card card-purple">
+        <h3>Why ~8.5% NaN in Pretrain?</h3>
+        <ul class="arrow">
+          <li>Some Illumina probes fail per sample (low intensity, SNP overlap, cross-hybridisation)</li>
+          <li>NaN = "probe not measured" — biologically meaningful absence</li>
+          <li>WCED collator <strong>excludes NaN positions from loss</strong> — no imputation needed</li>
+          <li>Model learns to reconstruct from partial observations → naturally robust to missing probes</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ SLIDE 12: Fine-tuning Data -->
+<div class="slide" id="slide-12">
+  <h2>Fine-tuning Data — 11k Annotated Methylomes, 60% Natural NaN</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="card card-blue">
+        <h3>Dataset Overview</h3>
+        <ul class="arrow">
+          <li><strong>11,453 samples</strong> × <strong>49,156 CpG probes</strong> — same vocab as pretrain ✓</li>
+          <li>Splits: <strong>5,461 train / 1,366 valid / 4,626 test</strong></li>
+          <li>Labels: <strong>age</strong> (continuous, 0–114 years)</li>
+          <li>Stored as 1.02 GB h5ad (converted from parquet)</li>
+          <li>Same tokenizer as pretrain — no vocab mismatch</li>
+        </ul>
+      </div>
+      <div class="card card-green">
+        <h3>Beta Value Statistics (non-NaN values)</h3>
+        <table style="margin-top:4px">
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Range</td><td>0.007 – 0.972</td></tr>
+            <tr><td>Mean</td><td>0.277</td></tr>
+            <tr><td>NaN rate</td><td><strong>60.1%</strong> (natural probe failures)</td></tr>
+            <tr><td>Zero rate</td><td>0% — all zeros are real methylation</td></tr>
+            <tr><td>Age range</td><td>0 – 114 years (mean ≈ 45, std ≈ 20)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card card-amber">
+        <h3>Why 60% NaN — and Why It's Fine</h3>
+        <ul class="arrow">
+          <li>Fine-tuning samples come from <strong>multiple array platforms</strong> — each measures only a subset of the 49k type-III probes</li>
+          <li>NaNs are <strong>scattered</strong> (not a contiguous block) — random per sample</li>
+          <li>On average, <strong>~19,660 valid CpGs per sample</strong> — enough signal for age prediction</li>
+          <li>Pretrain was trained with ~50% masking (24,578 visible CpGs) — the model already learned from partial observations</li>
+          <li>WCED collator excludes NaN from loss — <strong>no change needed to handle 60% NaN</strong></li>
+        </ul>
+      </div>
+      <div class="highlight">
+        <strong>Key insight:</strong> 60% NaN in fine-tuning ≈ 50% masking in pretraining. The encoder was
+        explicitly trained for this scenario — predicting from incomplete observations is the pretraining task itself.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ SLIDE 13: Architecture Decision -->
+<div class="slide" id="slide-13">
   <h2>Architecture Decision — Which Model to Proceed With?</h2>
   <div class="cols">
     <div class="col">
@@ -718,8 +814,8 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ SLIDE 12: Summary -->
-<div class="slide" id="slide-12">
+<!-- ══════════════════════════════════════════════════ SLIDE 14: Summary -->
+<div class="slide" id="slide-14">
   <h2>Summary</h2>
   <div class="cols">
     <div class="col">
@@ -776,7 +872,7 @@
 </div>
 
 <script>
-  const totalSlides = 12;
+  const totalSlides = 14;
   let current = 1;
 
   function updateUI() {
