@@ -22,8 +22,8 @@ LOGDIR="${REPO}/logs_llama-wced"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
 
-# REQUIRED: set to your pretrained small-model checkpoint
-CHECKPOINT="${CHECKPOINT:-???}"
+# Pretrained small-model checkpoint (h256_l4, epoch 72, val_loss=0.0061)
+CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=72-val_loss=0.0061.ckpt}"
 
 # Same tokenizer as pretrain — CpG ID→index mapping must be consistent
 TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
