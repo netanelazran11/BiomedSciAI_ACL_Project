@@ -23,7 +23,7 @@ import torch
 REPO        = "/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 H5AD        = "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
 TOKENIZER   = f"{REPO}/tokenizer_llama_pretrain49k"
-CHECKPOINT  = f"{REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=72-val_loss=0.0061.ckpt"
+CHECKPOINT  = f"{REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=97-val_loss=0.0059.ckpt"
 VOCAB_SIZE  = 49156
 INPUT_RATIO = 0.5
 
