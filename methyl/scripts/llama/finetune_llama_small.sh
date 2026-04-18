@@ -32,8 +32,7 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 # Data settings — use ALL 49k CpGs, match pretraining input ratio
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-49156}"
-INPUT_RATIO="${INPUT_RATIO:-0.3}"    # 0.3 × 49156 = 14747 input CpGs < 19608 valid → leaves ~4861 for reconstruction
-                                    # Cannot use 0.5: with 60% NaN only 19608 valid → 0.5×49156=24578 > 19608 → ALL valid go to input, recon_mask=0
+INPUT_RATIO="${INPUT_RATIO:-0.5}"    # All valid CpGs go to input (60% NaN → only 19608 valid < 24578 requested)
 
 # Age normalization is computed automatically from the training split by
 # MethylationDataset — no need to hardcode mean/std here.
@@ -49,7 +48,7 @@ FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-100}"
 EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
-RECON_WEIGHT="${RECON_WEIGHT:-0.1}"
+RECON_WEIGHT="${RECON_WEIGHT:-0.0}"  # No reconstruction in fine-tuning: all valid CpGs are already input
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
