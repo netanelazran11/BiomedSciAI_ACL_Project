@@ -92,10 +92,10 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # Fine-tuning
 # ─────────────────────────────────────────────────────────────────────────────
 python -m bmfm_methylation.llama.finetune_llama \
-    data_path="${DATA}" \
-    checkpoint_path="${CHECKPOINT}" \
-    tokenizer_path="${TOKENIZER_PATH}" \
-    output_directory="${OUTDIR}" \
+    "data_path='${DATA}'" \
+    "checkpoint_path='${CHECKPOINT}'" \
+    "tokenizer_path='${TOKENIZER_PATH}'" \
+    "output_directory='${OUTDIR}'" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=$(python3 -c "print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
