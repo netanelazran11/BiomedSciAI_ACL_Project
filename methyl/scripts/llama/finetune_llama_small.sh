@@ -48,7 +48,7 @@ FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-100}"
 EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
-RECON_WEIGHT="${RECON_WEIGHT:-0.0}"  # No reconstruction in fine-tuning: all valid CpGs are already input
+RECON_WEIGHT="${RECON_WEIGHT:-0.1}"  # Reconstruction regularizer: 50% of valid CpGs hidden from encoder
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB

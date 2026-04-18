@@ -839,8 +839,12 @@ class WCEDCollator:
 
             # Only sample input views from valid (non-NaN) positions
             valid_indices = np.where(vocab_valid)[0]
-            n_input = int(self.actual_vocab_size * self.input_ratio)
-            n_input = min(n_input, len(valid_indices))
+            # input_ratio applied to VALID CpGs (not total vocab):
+            # "show 50% of what is actually observed in this sample"
+            # This is correct for both low-NaN pretrain data and high-NaN fine-tune data.
+            # Using vocab_size as denominator breaks when NaN rate is high:
+            #   50% × 49156 = 24578 > 19608 valid → all valid go to input → recon_mask=0
+            n_input = int(len(valid_indices) * self.input_ratio)
 
             # View 1: Random subset of valid CpGs (unsorted — random order forces
             # model to rely on token IDs not positions, avoids positional shortcuts)
