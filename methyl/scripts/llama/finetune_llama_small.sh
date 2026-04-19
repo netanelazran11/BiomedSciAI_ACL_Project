@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=6:00:00
+#SBATCH --time=24:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
@@ -49,6 +49,7 @@ EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
 RECON_WEIGHT="${RECON_WEIGHT:-0.1}"  # Reconstruction regularizer: 50% of valid CpGs hidden from encoder
+RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"  # set to resume from a fine-tune checkpoint
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -71,6 +72,7 @@ echo "Strategy: freeze_encoder=${FREEZE_ENCODER}, recon_weight=${RECON_WEIGHT}"
 echo "LR=${LR}, batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff"
 echo "Age norm: auto-computed from training split"
 echo "Output: ${OUTDIR}"
+echo "Resume: ${RESUME_CHECKPOINT:-none}"
 echo "============================================================"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,7 +118,8 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "Small model fine-tuning finished: $(date)"
