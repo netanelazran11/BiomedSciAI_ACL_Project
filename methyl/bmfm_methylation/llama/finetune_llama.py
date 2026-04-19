@@ -135,12 +135,21 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.recon_loss_fn = nn.MSELoss(reduction="none")
 
     def on_train_epoch_start(self):
-        """Unfreeze encoder after warmup epochs."""
+        """Unfreeze encoder after warmup epochs and add its params to the optimizer."""
         epoch = self.current_epoch
         if epoch == self.hparams.unfreeze_encoder_epoch:
             logger.info(f"Epoch {epoch}: unfreezing encoder")
             for p in self.encoder.parameters():
                 p.requires_grad = True
+            # configure_optimizers captured only head params at init — add encoder now
+            encoder_lr = self.hparams.learning_rate * 0.1  # 10x lower: preserve pretrained repr
+            optimizer = self.optimizers()
+            optimizer.add_param_group({
+                "params": list(self.encoder.parameters()),
+                "lr": encoder_lr,
+                "weight_decay": self.hparams.weight_decay,
+            })
+            logger.info(f"Encoder params added to optimizer (lr={encoder_lr:.2e})")
 
     def _encode_cls(
         self,
