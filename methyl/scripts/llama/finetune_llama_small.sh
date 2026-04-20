@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
@@ -22,7 +22,7 @@ LOGDIR="${REPO}/logs_llama-wced"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
 
-# Pretrained small-model checkpoint (h256_l4, epoch 72, val_loss=0.0061)
+# Pretrained small-model checkpoint (h256_l4, epoch 98, val_loss=0.0059, val/pcc=0.971)
 CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"
 
 # Same tokenizer as pretrain — CpG ID→index mapping must be consistent
@@ -32,7 +32,7 @@ TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 # Data settings — use ALL 49k CpGs, match pretraining input ratio
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-49156}"
-INPUT_RATIO="${INPUT_RATIO:-0.5}"    # All valid CpGs go to input (60% NaN → only 19608 valid < 24578 requested)
+INPUT_RATIO="${INPUT_RATIO:-1.0}"    # ALL valid CpGs as input (19,608 of 49,156 — no info bottleneck)
 
 # Age normalization is computed automatically from the training split by
 # MethylationDataset — no need to hardcode mean/std here.
@@ -50,7 +50,6 @@ EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
 RECON_WEIGHT="${RECON_WEIGHT:-0.0}"      # disabled: input_ratio=1.0 leaves no recon targets
-INPUT_RATIO="${INPUT_RATIO:-1.0}"        # use ALL valid CpGs as input
 HEAD_HIDDEN="${HEAD_HIDDEN:-256}"        # head: 256→256→128→64→1
 POOLING="${POOLING:-mean}"               # mean pooling over all tokens (better than CLS-only)
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
