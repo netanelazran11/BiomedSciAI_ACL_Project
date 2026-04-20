@@ -90,14 +90,15 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         head_hidden_size: int = 256,
         head_dropout: float = 0.1,
         learning_rate: float = 1e-4,
+        encoder_lr: float = 1e-5,
         weight_decay: float = 0.01,
-        warmup_steps: int = 500,
         max_steps: int = 10000,
         age_mean: float = 0.0,
         age_std: float = 1.0,
         freeze_encoder: bool = True,
         unfreeze_encoder_epoch: int = 9999,
         recon_weight: float = 0.1,
+        pooling: str = "mean",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["encoder", "decoder"])
@@ -107,6 +108,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.age_mean = age_mean
         self.age_std  = age_std
         self.recon_weight = recon_weight
+        self.pooling = pooling
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -119,7 +121,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
                 p.requires_grad = False
             logger.info("Decoder frozen (reconstruction regularizer)")
 
-        # MLP age head: hidden → head_hidden → head_hidden//2 → 1
+        # MLP age head: hidden → head_hidden → head_hidden//2 → head_hidden//4 → 1
         self.age_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
@@ -129,7 +131,11 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             nn.LayerNorm(head_hidden_size // 2),
             nn.GELU(),
             nn.Dropout(head_dropout),
-            nn.Linear(head_hidden_size // 2, 1),
+            nn.Linear(head_hidden_size // 2, head_hidden_size // 4),
+            nn.LayerNorm(head_hidden_size // 4),
+            nn.GELU(),
+            nn.Dropout(head_dropout),
+            nn.Linear(head_hidden_size // 4, 1),
         )
 
         self.age_loss_fn   = nn.MSELoss()
@@ -151,14 +157,13 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             for p in self.encoder.parameters():
                 p.requires_grad = True
             # configure_optimizers captured only head params at init — add encoder now
-            encoder_lr = self.hparams.learning_rate * 0.1  # 10x lower: preserve pretrained repr
             optimizer = self.optimizers()
             optimizer.add_param_group({
                 "params": list(self.encoder.parameters()),
-                "lr": encoder_lr,
+                "lr": self.hparams.encoder_lr,
                 "weight_decay": self.hparams.weight_decay,
             })
-            logger.info(f"Encoder params added to optimizer (lr={encoder_lr:.2e})")
+            logger.info(f"Encoder params added to optimizer (lr={self.hparams.encoder_lr:.2e})")
 
     def _encode_cls(
         self,
@@ -166,10 +171,17 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         beta_values: torch.Tensor,
         attention_mask: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        """Run encoder and return CLS pooler_output."""
+        """Run encoder and return pooled representation."""
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)  # [B, 2, L]
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        return out.pooler_output  # [B, D]
+
+        if self.pooling == "mean":
+            # Mean over all non-padding tokens (exclude CLS at pos 0)
+            hidden = out.last_hidden_state[:, 1:, :]   # [B, L-1, D]
+            mask   = attention_mask[:, 1:].unsqueeze(-1).float()  # [B, L-1, 1]
+            return (hidden * mask).sum(1) / mask.sum(1).clamp(min=1)  # [B, D]
+        else:
+            return out.pooler_output  # [B, D]
 
     def _shared_step(self, batch, stage: str):
         cpg_ids      = batch["cpg_ids"]
@@ -479,6 +491,14 @@ def main(cfg: DictConfig):
 
     # Fine-tuning module
     ft_cfg = cfg.get("finetune", {})
+    finetune_epochs = cfg.get("finetune_epochs", 100)
+    batch_size      = dm_cfg.get("batch_size", 32)
+    accum           = cfg.get("accumulate_grad_batches", 2)
+    train_size      = len(data_module.train_dataset)
+    steps_per_epoch = max(1, (train_size + batch_size - 1) // batch_size // accum)
+    max_steps       = ft_cfg.get("max_steps", steps_per_epoch * finetune_epochs)
+    logger.info(f"LR schedule: steps_per_epoch={steps_per_epoch}, max_steps={max_steps}")
+
     module = MethylationAgeRegressorLlama(
         encoder=encoder,
         decoder=decoder,
@@ -486,14 +506,15 @@ def main(cfg: DictConfig):
         head_hidden_size=ft_cfg.get("head_hidden_size", 256),
         head_dropout=ft_cfg.get("head_dropout", 0.1),
         learning_rate=ft_cfg.get("learning_rate", 1e-4),
+        encoder_lr=ft_cfg.get("encoder_lr", 5e-5),
         weight_decay=ft_cfg.get("weight_decay", 0.01),
-        warmup_steps=ft_cfg.get("warmup_steps", 500),
-        max_steps=ft_cfg.get("max_steps", 10000),
+        max_steps=max_steps,
         age_mean=age_mean,
         age_std=age_std,
         freeze_encoder=ft_cfg.get("freeze_encoder", True),
         unfreeze_encoder_epoch=ft_cfg.get("unfreeze_encoder_epoch", 9999),
-        recon_weight=ft_cfg.get("recon_weight", 0.1),
+        recon_weight=ft_cfg.get("recon_weight", 0.0),
+        pooling=ft_cfg.get("pooling", "mean"),
     )
 
     n_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)

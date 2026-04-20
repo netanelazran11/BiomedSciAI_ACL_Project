@@ -41,15 +41,19 @@ INPUT_RATIO="${INPUT_RATIO:-0.5}"    # All valid CpGs go to input (60% NaN → o
 # Fine-tuning settings
 # ─────────────────────────────────────────────────────────────────────────────
 LR="${LR:-1e-4}"
+ENCODER_LR="${ENCODER_LR:-5e-5}"       # encoder lr after unfreeze (5x lower than head)
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 ACCUM="${ACCUM:-2}"
-FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-100}"
+FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-150}"
 EARLY_STOP="${EARLY_STOP:-30}"
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
-RECON_WEIGHT="${RECON_WEIGHT:-0.1}"  # Reconstruction regularizer: 50% of valid CpGs hidden from encoder
-RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"  # set to resume from a fine-tune checkpoint
+RECON_WEIGHT="${RECON_WEIGHT:-0.0}"      # disabled: input_ratio=1.0 leaves no recon targets
+INPUT_RATIO="${INPUT_RATIO:-1.0}"        # use ALL valid CpGs as input
+HEAD_HIDDEN="${HEAD_HIDDEN:-512}"        # wider head: 256→512→256→128→1
+POOLING="${POOLING:-mean}"               # mean pooling over all tokens (better than CLS-only)
+RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -104,12 +108,14 @@ python -m bmfm_methylation.llama.finetune_llama \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     wced_input_ratio="${INPUT_RATIO}" \
-    finetune.head_hidden_size=128 \
+    finetune.head_hidden_size="${HEAD_HIDDEN}" \
     finetune.learning_rate="${LR}" \
+    finetune.encoder_lr="${ENCODER_LR}" \
     finetune.weight_decay="${WEIGHT_DECAY}" \
     finetune.freeze_encoder="${FREEZE_ENCODER}" \
     finetune.unfreeze_encoder_epoch="${UNFREEZE_EPOCH}" \
     finetune.recon_weight="${RECON_WEIGHT}" \
+    finetune.pooling="${POOLING}" \
     finetune_epochs="${FINETUNE_EPOCHS}" \
     accumulate_grad_batches="${ACCUM}" \
     gradient_clip_val=1.0 \
