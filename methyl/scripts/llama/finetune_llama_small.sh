@@ -51,7 +51,7 @@ FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"   # unfreeze encoder after head warmup
 RECON_WEIGHT="${RECON_WEIGHT:-0.0}"      # disabled: input_ratio=1.0 leaves no recon targets
 INPUT_RATIO="${INPUT_RATIO:-1.0}"        # use ALL valid CpGs as input
-HEAD_HIDDEN="${HEAD_HIDDEN:-512}"        # wider head: 256→512→256→128→1
+HEAD_HIDDEN="${HEAD_HIDDEN:-256}"        # head: 256→256→128→64→1
 POOLING="${POOLING:-mean}"               # mean pooling over all tokens (better than CLS-only)
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
