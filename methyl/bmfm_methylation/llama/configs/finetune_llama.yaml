@@ -47,7 +47,7 @@ finetune:
   encoder_lr: 5e-5            # Encoder lr after unfreeze (5x lower than head)
   weight_decay: 0.01
   warmup_steps: 500
-  max_steps: 10000
+  # max_steps: auto-computed in code as steps_per_epoch × finetune_epochs
   # Encoder: keep frozen (M1 strategy — WCED CLS already encodes age from pretraining)
   # Set to false for M2 strategy (fine-tune encoder too, but risks corrupting WCED repr)
   freeze_encoder: true

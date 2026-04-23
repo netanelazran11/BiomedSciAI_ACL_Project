@@ -52,7 +52,21 @@ import hydra
 import pytorch_lightning as pl
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
+import torchmetrics
 from torchmetrics import MeanAbsoluteError, R2Score
+
+
+class MedianAbsoluteError(torchmetrics.Metric):
+    """Dataset-level Median Absolute Error — robust to age outliers."""
+    def __init__(self):
+        super().__init__()
+        self.add_state("abs_errors", default=[], dist_reduce_fx="cat")
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        self.abs_errors.append(torch.abs(preds - target).detach())
+
+    def compute(self) -> torch.Tensor:
+        return torch.cat(self.abs_errors).median()
 
 
 from bmfm_methylation.shared.tokenizer import (
@@ -142,12 +156,15 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.recon_loss_fn = nn.MSELoss(reduction="none")
 
         # Dataset-level metrics (accumulate across full epoch, then compute)
-        self.train_r2  = R2Score()
-        self.val_r2    = R2Score()
-        self.test_r2   = R2Score()
-        self.train_mae = MeanAbsoluteError()
-        self.val_mae   = MeanAbsoluteError()
-        self.test_mae  = MeanAbsoluteError()
+        self.train_r2    = R2Score()
+        self.val_r2      = R2Score()
+        self.test_r2     = R2Score()
+        self.train_mae   = MeanAbsoluteError()
+        self.val_mae     = MeanAbsoluteError()
+        self.test_mae    = MeanAbsoluteError()
+        self.train_medae = MedianAbsoluteError()
+        self.val_medae   = MedianAbsoluteError()
+        self.test_medae  = MedianAbsoluteError()
 
     def on_train_epoch_start(self):
         """Unfreeze encoder after warmup epochs and add its params to the optimizer."""
@@ -241,48 +258,57 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         out = self._shared_step(batch, "train")
-        self.train_r2.update(out["age_pred_years"],  out["age_label_years"])
-        self.train_mae.update(out["age_pred_years"], out["age_label_years"])
+        self.train_r2.update(out["age_pred_years"],    out["age_label_years"])
+        self.train_mae.update(out["age_pred_years"],   out["age_label_years"])
+        self.train_medae.update(out["age_pred_years"], out["age_label_years"])
         self.log("train/loss",       out["loss"],       on_step=True,  on_epoch=True, prog_bar=True)
         self.log("train/age_loss",   out["age_loss"],   on_step=False, on_epoch=True)
         self.log("train/recon_loss", out["recon_loss"], on_step=False, on_epoch=True)
         return out["loss"]
 
     def on_train_epoch_end(self):
-        self.log("train/r2",  self.train_r2.compute(),  prog_bar=True)
-        self.log("train/mae", self.train_mae.compute(), prog_bar=True)
+        self.log("train/r2",    self.train_r2.compute(),    prog_bar=True)
+        self.log("train/mae",   self.train_mae.compute(),   prog_bar=True)
+        self.log("train/medae", self.train_medae.compute())
         self.train_r2.reset()
         self.train_mae.reset()
+        self.train_medae.reset()
 
     def validation_step(self, batch, batch_idx):
         out = self._shared_step(batch, "val")
-        self.val_r2.update(out["age_pred_years"],  out["age_label_years"])
-        self.val_mae.update(out["age_pred_years"], out["age_label_years"])
+        self.val_r2.update(out["age_pred_years"],    out["age_label_years"])
+        self.val_mae.update(out["age_pred_years"],   out["age_label_years"])
+        self.val_medae.update(out["age_pred_years"], out["age_label_years"])
         self.log("val/loss",       out["loss"],       on_epoch=True, prog_bar=True)
         self.log("val/age_loss",   out["age_loss"],   on_epoch=True)
         self.log("val/recon_loss", out["recon_loss"], on_epoch=True)
         return out["loss"]
 
     def on_validation_epoch_end(self):
-        self.log("val/r2",  self.val_r2.compute(),  prog_bar=True)
-        self.log("val/mae", self.val_mae.compute(),  prog_bar=True)
+        self.log("val/r2",    self.val_r2.compute(),    prog_bar=True)
+        self.log("val/mae",   self.val_mae.compute(),   prog_bar=True)
+        self.log("val/medae", self.val_medae.compute())
         self.val_r2.reset()
         self.val_mae.reset()
+        self.val_medae.reset()
 
     def test_step(self, batch, batch_idx):
         out = self._shared_step(batch, "test")
-        self.test_r2.update(out["age_pred_years"],  out["age_label_years"])
-        self.test_mae.update(out["age_pred_years"], out["age_label_years"])
+        self.test_r2.update(out["age_pred_years"],    out["age_label_years"])
+        self.test_mae.update(out["age_pred_years"],   out["age_label_years"])
+        self.test_medae.update(out["age_pred_years"], out["age_label_years"])
         self.log("test/loss",       out["loss"],       on_epoch=True)
         self.log("test/age_loss",   out["age_loss"],   on_epoch=True)
         self.log("test/recon_loss", out["recon_loss"], on_epoch=True)
         return out["loss"]
 
     def on_test_epoch_end(self):
-        self.log("test/r2",  self.test_r2.compute())
-        self.log("test/mae", self.test_mae.compute())
+        self.log("test/r2",    self.test_r2.compute())
+        self.log("test/mae",   self.test_mae.compute())
+        self.log("test/medae", self.test_medae.compute())
         self.test_r2.reset()
         self.test_mae.reset()
+        self.test_medae.reset()
 
     def configure_optimizers(self):
         # Only optimize trainable parameters
