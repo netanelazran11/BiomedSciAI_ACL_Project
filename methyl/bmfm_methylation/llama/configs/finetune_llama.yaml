@@ -44,6 +44,7 @@ finetune:
   head_hidden_size: 256
   head_dropout: 0.1
   learning_rate: 1e-4         # MLP head
+  encoder_lr: 5e-5            # Encoder lr after unfreeze (5x lower than head)
   weight_decay: 0.01
   warmup_steps: 500
   max_steps: 10000
@@ -53,6 +54,7 @@ finetune:
   unfreeze_encoder_epoch: 9999  # Set to e.g. 5 for M2-style gradual unfreeze
   # Decoder regularizer weight (keeps reconstruction objective alive during fine-tuning)
   recon_weight: 0.1
+  pooling: mean               # mean pooling over all tokens (better than CLS-only)
 
 finetune_epochs: 100
 accumulate_grad_batches: 4
