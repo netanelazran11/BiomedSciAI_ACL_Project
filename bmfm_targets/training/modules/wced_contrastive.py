@@ -79,16 +79,26 @@ class WCEDContrastiveTrainingModule(SequenceLabelingTrainingModule):
             and "attention_mask_view2" in batch
         )
 
+    @staticmethod
+    def _cls_from_outputs(outputs) -> torch.Tensor:
+        """Extract the CLS token embedding from model outputs.
+
+        Uses ``hidden_states[-1][:, 0, :]`` — the first token of the last
+        transformer layer.  Requires the model to have been called with
+        ``output_hidden_states=True``.
+        """
+        return outputs.hidden_states[-1][:, 0, :]
+
     def _compute_contrastive_loss(
         self,
-        embeddings_v1: torch.Tensor,
+        cls_v1: torch.Tensor,
         batch: dict,
     ) -> torch.Tensor:
-        """Encode view 2 and return InfoNCE loss between the two projections.
+        """Encode view 2 and return InfoNCE loss between the two CLS projections.
 
         Args:
         ----
-            embeddings_v1: CLS embeddings from view 1, shape ``(batch, hidden)``.
+            cls_v1: CLS embeddings from view 1, shape ``(batch, hidden)``.
             batch: Batch dict containing ``input_ids_view2`` and
                 ``attention_mask_view2``.
 
@@ -100,25 +110,29 @@ class WCEDContrastiveTrainingModule(SequenceLabelingTrainingModule):
         outputs_v2 = self.model(
             input_ids=batch["input_ids_view2"],
             attention_mask=batch["attention_mask_view2"],
+            output_hidden_states=True,
         )
-        z1 = self.projection_head(embeddings_v1)
-        z2 = self.projection_head(outputs_v2.embeddings)
+        cls_v2 = self._cls_from_outputs(outputs_v2)
+        z1 = self.projection_head(cls_v1)
+        z2 = self.projection_head(cls_v2)
         return self.contrastive_loss_fn(z1, z2)
 
     def training_step(self, batch, batch_idx):
         """Training step with optional contrastive loss when view 2 is present."""
         labels = batch["labels"]
         batch_size = batch["input_ids"].shape[0]
+        contrastive = self._is_contrastive_batch(batch)
 
         outputs = self.model(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             labels=labels,
+            output_hidden_states=contrastive,
         )
         all_losses = metrics.calculate_losses(self.loss_tasks, outputs.logits, labels)
 
-        if self._is_contrastive_batch(batch):
-            c_loss = self._compute_contrastive_loss(outputs.embeddings, batch)
+        if contrastive:
+            c_loss = self._compute_contrastive_loss(self._cls_from_outputs(outputs), batch)
             all_losses["contrastive_loss"] = c_loss
             all_losses["loss"] = all_losses["loss"] + self.contrastive_weight * c_loss
 
@@ -139,16 +153,18 @@ class WCEDContrastiveTrainingModule(SequenceLabelingTrainingModule):
         """Validation step with optional contrastive loss when view 2 is present."""
         labels = batch["labels"]
         batch_size = batch["input_ids"].shape[0]
+        contrastive = self._is_contrastive_batch(batch)
 
         outputs = self.model(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             labels=labels,
+            output_hidden_states=contrastive,
         )
         all_losses = metrics.calculate_losses(self.loss_tasks, outputs.logits, labels)
 
-        if self._is_contrastive_batch(batch):
-            c_loss = self._compute_contrastive_loss(outputs.embeddings, batch)
+        if contrastive:
+            c_loss = self._compute_contrastive_loss(self._cls_from_outputs(outputs), batch)
             all_losses["contrastive_loss"] = c_loss
             all_losses["loss"] = all_losses["loss"] + self.contrastive_weight * c_loss
 
@@ -173,16 +189,18 @@ class WCEDContrastiveTrainingModule(SequenceLabelingTrainingModule):
         """Test step with optional contrastive loss when view 2 is present."""
         labels = batch["labels"]
         batch_size = batch["input_ids"].shape[0]
+        contrastive = self._is_contrastive_batch(batch)
 
         outputs = self.model(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             labels=labels,
+            output_hidden_states=contrastive,
         )
         all_losses = metrics.calculate_losses(self.loss_tasks, outputs.logits, labels)
 
-        if self._is_contrastive_batch(batch):
-            c_loss = self._compute_contrastive_loss(outputs.embeddings, batch)
+        if contrastive:
+            c_loss = self._compute_contrastive_loss(self._cls_from_outputs(outputs), batch)
             all_losses["contrastive_loss"] = c_loss
             all_losses["loss"] = all_losses["loss"] + self.contrastive_weight * c_loss
 
