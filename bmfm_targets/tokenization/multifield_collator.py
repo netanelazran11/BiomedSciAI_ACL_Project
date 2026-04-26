@@ -66,6 +66,7 @@ class MultiFieldCollator:
         renoise: float | None = 0.6,
         limit_input_tokens: list | None = None,
         label_ontology: dict[str, LabelOntology] | None = None,
+        contrastive: bool = False,
     ):
         """
         Multifield Data collator.
@@ -117,6 +118,7 @@ class MultiFieldCollator:
         self.renoise = renoise
         self.limit_input_tokens = limit_input_tokens
         self.label_ontology = label_ontology
+        self.contrastive = contrastive
         self.sample_metadata_keys = ["cell_name", "seq_id", "perturbed_genes"]
         self.__post__init__()
 
@@ -288,6 +290,10 @@ class MultiFieldCollator:
             self._mark_rda_special_tokens(batch, self.fields)
 
         return_dict = self._prepare_return_dict(batch)
+
+        if self.contrastive and examples_pair is None:
+            return_dict.update(self._prepare_view2(pre_transformed_examples))
+
         return return_dict
 
     @property
@@ -375,3 +381,47 @@ class MultiFieldCollator:
         )
 
         return return_dict
+
+    def _prepare_view2(self, original_examples) -> dict:
+        """Create a second augmented view for contrastive learning.
+
+        Applies :func:`transform_inputs` independently on the original
+        (pre-transform) examples, producing different random gene subsets
+        when ``sequence_dropout_factor`` is set.  Only ``input_ids`` and
+        ``attention_mask`` are returned; labels are not needed for the
+        contrastive term.
+
+        Args:
+        ----
+            original_examples: The list of :class:`MultiFieldInstance` objects
+                before any transform has been applied (i.e. the value of
+                ``pre_transformed_examples`` captured at the start of
+                :meth:`__call__`).
+
+        Returns:
+        -------
+            Dict with keys ``input_ids_view2`` and ``attention_mask_view2``.
+
+        """
+        from bmfm_targets.training.sample_transforms import transform_inputs
+
+        view2_examples = transform_inputs(
+            list(original_examples), **self._transform_inputs_kwargs
+        )
+        view2_batch = self.tokenize_batch(view2_examples)
+        self._encode_continuous_value_special_tokens(view2_batch, self.fields)
+
+        input_ids_v2 = torch.stack(
+            [view2_batch[field]["input_ids"] for field in self.input_field_names], dim=1
+        )
+        attention_mask_v2 = view2_batch[self.input_field_names[0]]["attention_mask"]
+
+        if self.masker is not None:
+            input_ids_v2, _, attention_mask_v2 = self.masker.mask_inputs(
+                self.fields, view2_batch
+            )
+
+        return {
+            "input_ids_view2": input_ids_v2,
+            "attention_mask_view2": attention_mask_v2,
+        }

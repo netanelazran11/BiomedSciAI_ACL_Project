@@ -2,16 +2,19 @@
 import logging
 
 from bmfm_targets.training.data_module import DataModule
-from .sequence_classification import SequenceClassificationTrainingModule
+
 from .masked_language_modeling import MLMTrainingModule
-from .sequence_labeling import SequenceLabelingTrainingModule
 from .multitask_modeling import MultiTaskTrainingModule
+from .sequence_classification import SequenceClassificationTrainingModule
+from .sequence_labeling import SequenceLabelingTrainingModule
+from .wced_contrastive import WCEDContrastiveTrainingModule
 
 __all__ = [
-    "SequenceClassificationTrainingModule",
     "MLMTrainingModule",
-    "SequenceLabelingTrainingModule",
     "MultiTaskTrainingModule",
+    "SequenceClassificationTrainingModule",
+    "SequenceLabelingTrainingModule",
+    "WCEDContrastiveTrainingModule",
 ]
 
 
@@ -46,5 +49,7 @@ def get_training_module_class_for_data_module(data_module: DataModule):
         return SequenceClassificationTrainingModule
     elif data_module.collation_strategy == "sequence_labeling":
         return SequenceLabelingTrainingModule
+    elif data_module.collation_strategy == "wced_contrastive":
+        return WCEDContrastiveTrainingModule
     else:
         raise ValueError(f"Unknown model type {data_module.collation_strategy}")
