@@ -63,7 +63,51 @@ def section(title):
 def load_data(path):
     print(f"\nLoading: {path}")
     print(f"File size: {os.path.getsize(path) / 1e9:.2f} GB")
-    adata = sc.read_h5ad(path)
+    try:
+        adata = sc.read_h5ad(path)
+    except ValueError:
+        # Pretrain file has a 1-row obs stub (old anndata format).
+        # Build a minimal AnnData directly from h5py to bypass shape validation.
+        import h5py
+        import anndata as ad
+        print("  obs/X shape mismatch — building AnnData from h5py directly")
+        with h5py.File(path, "r") as f:
+            # X can be a dataset or a group (sparse CSR/CSC)
+            if "X" in f and isinstance(f["X"], h5py.Dataset):
+                X = f["X"][:]
+            elif "X" in f:
+                # sparse matrix stored as group with data/indices/indptr
+                grp = f["X"]
+                data = grp["data"][:]
+                indices = grp["indices"][:]
+                indptr = grp["indptr"][:]
+                shape = tuple(grp.attrs.get("shape", grp.attrs.get("h5sparse_shape")))
+                X = sp.csr_matrix((data, indices, indptr), shape=shape)
+            else:
+                raise RuntimeError("Cannot find X in h5ad file")
+            n_obs = X.shape[0]
+            # var_names
+            if "var" in f and "_index" in f["var"]:
+                var_names = f["var"]["_index"][:].astype(str).tolist()
+            elif "var" in f:
+                keys = list(f["var"].keys())
+                var_names = f["var"][keys[0]][:].astype(str).tolist()
+            else:
+                var_names = [str(i) for i in range(X.shape[1])]
+            # obs metadata (best-effort)
+            obs_df = pd.DataFrame(index=pd.RangeIndex(n_obs))
+            if "obs" in f:
+                for col in f["obs"].keys():
+                    if col.startswith("_"):
+                        continue
+                    try:
+                        vals = f["obs"][col][:]
+                        if len(vals) == n_obs:
+                            obs_df[col] = vals
+                    except Exception:
+                        pass
+        var_df = pd.DataFrame(index=var_names)
+        adata = ad.AnnData(X=X, obs=obs_df, var=var_df)
     print(f"Loaded OK  →  {adata.n_obs:,} samples × {adata.n_vars:,} CpGs")
     return adata
 
