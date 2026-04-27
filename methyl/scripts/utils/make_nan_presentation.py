@@ -1,14 +1,8 @@
 """
 Generate PowerPoint: Data Pipeline & NaN Handling in MethylLlama
 ================================================================
-Covers:
-  - The two datasets (pretrain 169k×49k, finetune 11.5k×49k)
-  - Why NaN exists (Illumina array union)
-  - Full pipeline: h5ad → Dataset → Collator → Model
-  - Step-by-step NaN handling in each file
-  - Bug in old SCBert code vs correct LLaMA code
-  - Pretrain metrics (run 44450919, epoch 99)
-  - Placeholders for investigation script results
+White-background, diagram-first version.
+No raw code panels — every step shown as visual flow / table / diagram.
 
 Usage:
     python scripts/utils/make_nan_presentation.py
@@ -20,24 +14,28 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
-# ── Color palette ──────────────────────────────────────────────────────────────
-DARK_BG       = RGBColor(0x1A, 0x1A, 0x2E)
-ACCENT        = RGBColor(0x16, 0x21, 0x3E)
-ACCENT2       = RGBColor(0x0F, 0x17, 0x2A)
-HIGHLIGHT     = RGBColor(0x00, 0xB4, 0xD8)
-HIGHLIGHT2    = RGBColor(0x90, 0xE0, 0xEF)
-GREEN         = RGBColor(0x06, 0xD6, 0xA0)
-ORANGE        = RGBColor(0xFF, 0xB7, 0x03)
-RED           = RGBColor(0xFF, 0x6B, 0x6B)
-WHITE         = RGBColor(0xFF, 0xFF, 0xFF)
-LIGHT_GRAY    = RGBColor(0xCC, 0xCC, 0xCC)
-SUBTITLE_GRAY = RGBColor(0xAA, 0xBB, 0xCC)
-CODE_BG       = RGBColor(0x0D, 0x17, 0x26)
-CODE_TEXT     = RGBColor(0xA8, 0xD8, 0xEA)
-CODE_COMMENT  = RGBColor(0x6A, 0x73, 0x7D)
-CODE_KEY      = RGBColor(0x50, 0xFA, 0x7B)
-YELLOW        = RGBColor(0xF1, 0xFA, 0x8C)
-PURPLE        = RGBColor(0xBD, 0x93, 0xF9)
+# ── White-style palette ────────────────────────────────────────────────────────
+BG           = RGBColor(0xFF, 0xFF, 0xFF)   # pure white
+PANEL_BG     = RGBColor(0xF2, 0xF6, 0xFB)  # very light blue-gray
+PANEL_BG2    = RGBColor(0xE8, 0xF4, 0xED)  # very light green
+PANEL_BG3    = RGBColor(0xFD, 0xF3, 0xE4)  # very light orange
+PANEL_BG4    = RGBColor(0xFD, 0xEC, 0xEC)  # very light red
+TEXT_DARK    = RGBColor(0x1A, 0x26, 0x3A)  # dark navy — headings
+TEXT_BODY    = RGBColor(0x3A, 0x4A, 0x5C)  # medium navy — body
+TEXT_LIGHT   = RGBColor(0x78, 0x8F, 0xA8)  # muted — captions
+DIVIDER      = RGBColor(0xCC, 0xD9, 0xE8)  # light border
+BLUE         = RGBColor(0x00, 0x7A, 0xC2)  # primary accent
+BLUE_DARK    = RGBColor(0x00, 0x4F, 0x80)  # darker blue
+GREEN        = RGBColor(0x00, 0x8F, 0x6A)  # green
+GREEN_DARK   = RGBColor(0x00, 0x60, 0x45)  # darker green
+ORANGE       = RGBColor(0xD4, 0x7E, 0x00)  # amber
+ORANGE_DARK  = RGBColor(0x9A, 0x5A, 0x00)
+RED          = RGBColor(0xC0, 0x30, 0x30)  # red
+PURPLE       = RGBColor(0x6A, 0x28, 0x9A)  # purple
+BADGE_BLUE   = RGBColor(0xD6, 0xEA, 0xF8)  # pastel blue for badge bg
+BADGE_GREEN  = RGBColor(0xD5, 0xF0, 0xE4)  # pastel green
+BADGE_ORANGE = RGBColor(0xFD, 0xEA, 0xC8)  # pastel orange
+BADGE_RED    = RGBColor(0xFA, 0xD7, 0xD7)   # pastel red
 
 SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
@@ -50,26 +48,30 @@ blank_layout = prs.slide_layouts[6]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def set_bg(slide, color):
+def set_bg(slide, color=BG):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = color
 
 
-def add_rect(slide, left, top, width, height, color):
+def add_rect(slide, left, top, width, height, color, line_color=None):
     shape = slide.shapes.add_shape(1, left, top, width, height)
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
-    shape.line.fill.background()
+    if line_color:
+        shape.line.color.rgb = line_color
+        shape.line.width = Pt(1)
+    else:
+        shape.line.fill.background()
     return shape
 
 
 def add_textbox(slide, text, left, top, width, height,
-                font_size=18, bold=False, color=WHITE,
-                align=PP_ALIGN.LEFT, italic=False):
+                font_size=16, bold=False, color=TEXT_DARK,
+                align=PP_ALIGN.LEFT, italic=False, wrap=True):
     tb = slide.shapes.add_textbox(left, top, width, height)
     tf = tb.text_frame
-    tf.word_wrap = True
+    tf.word_wrap = wrap
     p = tf.paragraphs[0]
     p.alignment = align
     run = p.add_run()
@@ -81,821 +83,987 @@ def add_textbox(slide, text, left, top, width, height,
     return tb
 
 
-def slide_header(slide, title, underline_width=Inches(5)):
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.07), HIGHLIGHT)
-    add_rect(slide, 0, SLIDE_H - Inches(0.07), SLIDE_W, Inches(0.07), HIGHLIGHT)
-    add_textbox(slide, title, Inches(0.5), Inches(0.18), Inches(12), Inches(0.65),
-                font_size=30, bold=True, color=HIGHLIGHT)
-    add_rect(slide, Inches(0.5), Inches(0.88), underline_width, Inches(0.035), HIGHLIGHT)
+def slide_header(slide, title, subtitle=None):
+    """Top bar + title + optional subtitle."""
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), BLUE)
+    add_textbox(slide, title,
+                Inches(0.55), Inches(0.15), Inches(12.2), Inches(0.65),
+                font_size=28, bold=True, color=TEXT_DARK)
+    if subtitle:
+        add_textbox(slide, subtitle,
+                    Inches(0.55), Inches(0.82), Inches(12.2), Inches(0.35),
+                    font_size=14, color=TEXT_LIGHT, italic=True)
+    # bottom divider
+    add_rect(slide, Inches(0.55), Inches(1.22), Inches(12.2), Inches(0.025), DIVIDER)
 
 
-def add_panel(slide, left, top, width, height, title, title_color=ORANGE):
-    add_rect(slide, left, top, width, height, ACCENT)
-    add_textbox(slide, title, left + Inches(0.18), top + Inches(0.12),
-                width - Inches(0.36), Inches(0.42),
-                font_size=18, bold=True, color=title_color)
-    add_rect(slide, left + Inches(0.18), top + Inches(0.58),
-             width - Inches(0.36), Inches(0.03), title_color)
+def card(slide, left, top, width, height, bg=PANEL_BG,
+         border_color=None, radius=False):
+    """Flat card (rounded not supported in python-pptx, just a rect)."""
+    return add_rect(slide, left, top, width, height, bg,
+                    line_color=border_color or DIVIDER)
 
 
-def add_code_panel(slide, left, top, width, height, lines, comment_prefix="#"):
-    """Dark code box. lines: list of (text, color) tuples."""
-    add_rect(slide, left, top, width, height, CODE_BG)
-    tb = slide.shapes.add_textbox(left + Inches(0.15), top + Inches(0.12),
-                                   width - Inches(0.3), height - Inches(0.24))
-    tf = tb.text_frame
-    tf.word_wrap = False
-    first = True
-    for line_text, line_color in lines:
-        if first:
-            p = tf.paragraphs[0]
-            first = False
-        else:
-            p = tf.add_paragraph()
-        p.space_before = Pt(1)
-        run = p.add_run()
-        run.text = line_text
-        run.font.size = Pt(13)
-        run.font.color.rgb = line_color
-    return tb
+def badge(slide, text, left, top, width, height,
+          bg=BADGE_BLUE, fg=BLUE_DARK, font_size=13, bold=False):
+    add_rect(slide, left, top, width, height, bg, line_color=None)
+    add_textbox(slide, text, left, top, width, height,
+                font_size=font_size, bold=bold, color=fg, align=PP_ALIGN.CENTER)
 
 
-def add_metric_box(slide, left, top, width, height, label, value,
-                   val_color=ORANGE, label_color=SUBTITLE_GRAY):
-    add_rect(slide, left, top, width, height, ACCENT)
-    add_textbox(slide, value, left, top + Inches(0.1),
-                width, Inches(0.55),
-                font_size=28, bold=True, color=val_color, align=PP_ALIGN.CENTER)
-    add_textbox(slide, label, left, top + Inches(0.62),
-                width, Inches(0.35),
-                font_size=13, color=label_color, align=PP_ALIGN.CENTER)
+def section_label(slide, text, left, top, color=BLUE):
+    """Small ALL-CAPS section label."""
+    add_textbox(slide, text, left, top, Inches(6), Inches(0.3),
+                font_size=11, bold=True, color=color)
 
 
-def add_step_arrow(slide, left, top):
-    add_textbox(slide, "▼", left, top, Inches(0.5), Inches(0.4),
-                font_size=20, color=HIGHLIGHT, align=PP_ALIGN.CENTER)
+def arrow_right(slide, left, top, width=Inches(0.5), height=Inches(0.4)):
+    add_textbox(slide, "→", left, top, width, height,
+                font_size=22, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
+
+
+def arrow_down(slide, left, top, width=Inches(0.5), height=Inches(0.4)):
+    add_textbox(slide, "▼", left, top, width, height,
+                font_size=18, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
+
+
+def icon_box(slide, icon, label, left, top, width, height,
+             icon_color=BLUE, bg=PANEL_BG):
+    card(slide, left, top, width, height, bg=bg)
+    add_textbox(slide, icon, left, top + Inches(0.1), width, Inches(0.55),
+                font_size=28, color=icon_color, align=PP_ALIGN.CENTER)
+    add_textbox(slide, label, left, top + Inches(0.62), width, Inches(0.45),
+                font_size=12, bold=True, color=TEXT_DARK, align=PP_ALIGN.CENTER)
+
+
+def metric_card(slide, left, top, width, height, value, label,
+                val_color=BLUE, bg=PANEL_BG):
+    card(slide, left, top, width, height, bg=bg, border_color=val_color)
+    add_textbox(slide, value, left, top + Inches(0.08), width, Inches(0.55),
+                font_size=30, bold=True, color=val_color, align=PP_ALIGN.CENTER)
+    add_textbox(slide, label, left, top + Inches(0.58), width, Inches(0.45),
+                font_size=12, color=TEXT_BODY, align=PP_ALIGN.CENTER)
+
+
+def flow_box(slide, left, top, width, height, title, body,
+             accent=BLUE, bg=PANEL_BG):
+    card(slide, left, top, width, height, bg=bg, border_color=None)
+    add_rect(slide, left, top, Inches(0.06), height, accent)
+    add_textbox(slide, title, left + Inches(0.14), top + Inches(0.1),
+                width - Inches(0.2), Inches(0.38),
+                font_size=13, bold=True, color=accent)
+    add_textbox(slide, body, left + Inches(0.14), top + Inches(0.48),
+                width - Inches(0.2), height - Inches(0.55),
+                font_size=12, color=TEXT_BODY)
+
+
+def table_row(slide, cols, y, col_widths, col_lefts,
+              fg=TEXT_BODY, bg=None, font_size=13, bold=False):
+    if bg:
+        add_rect(slide, col_lefts[0], y, sum(col_widths), Inches(0.42), bg)
+    for text, w, x in zip(cols, col_widths, col_lefts):
+        add_textbox(slide, text, x + Inches(0.1), y + Inches(0.05),
+                    w - Inches(0.2), Inches(0.35),
+                    font_size=font_size, color=fg, bold=bold)
 
 
 # =============================================================================
 # SLIDE 1 — Title
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), HIGHLIGHT)
-add_rect(slide, 0, SLIDE_H - Inches(0.1), SLIDE_W, Inches(0.1), HIGHLIGHT)
+set_bg(slide)
+add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), BLUE)
+add_rect(slide, 0, SLIDE_H - Inches(0.08), SLIDE_W, Inches(0.08), BLUE)
 
 add_textbox(slide, "Data Pipeline & NaN Handling",
-            Inches(1), Inches(1.4), Inches(11.3), Inches(1.1),
-            font_size=46, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+            Inches(1.2), Inches(1.5), Inches(10.9), Inches(1.1),
+            font_size=46, bold=True, color=TEXT_DARK, align=PP_ALIGN.CENTER)
 add_textbox(slide, "MethylLlama Pretraining on the 49k CpG Union Corpus",
-            Inches(1.5), Inches(2.7), Inches(10.3), Inches(0.7),
-            font_size=22, color=HIGHLIGHT2, align=PP_ALIGN.CENTER)
-add_rect(slide, Inches(3.5), Inches(3.55), Inches(6.3), Inches(0.04), HIGHLIGHT)
+            Inches(1.5), Inches(2.75), Inches(10.3), Inches(0.6),
+            font_size=22, color=BLUE, align=PP_ALIGN.CENTER)
+add_rect(slide, Inches(4.0), Inches(3.55), Inches(5.3), Inches(0.04), DIVIDER)
 add_textbox(slide,
     "How missing measurements (NaN) flow through the pipeline\n"
     "and are correctly excluded from the reconstruction loss",
-    Inches(1.5), Inches(3.7), Inches(10.3), Inches(0.8),
-    font_size=17, color=LIGHT_GRAY, align=PP_ALIGN.CENTER)
-add_textbox(slide, "Netanel Azran  |  BMFM-RNA Methylation  |  Hebrew University",
-            Inches(1), Inches(5.8), Inches(11.3), Inches(0.5),
-            font_size=15, color=SUBTITLE_GRAY, align=PP_ALIGN.CENTER)
-add_textbox(slide, "Run: llama-small-all49k-r0.5-w0.0-44450919",
-            Inches(1), Inches(6.2), Inches(11.3), Inches(0.4),
-            font_size=13, color=CODE_TEXT, align=PP_ALIGN.CENTER)
+    Inches(2.0), Inches(3.72), Inches(9.3), Inches(0.7),
+    font_size=17, color=TEXT_BODY, align=PP_ALIGN.CENTER)
+
+for i, (line, col, sz) in enumerate([
+    ("Netanel Azran  |  BMFM-RNA Methylation  |  Hebrew University", TEXT_LIGHT, 14),
+    ("Run: llama-small-all49k-r0.5-w0.0-44450919", BLUE, 13),
+]):
+    add_textbox(slide, line, Inches(1.5), Inches(5.6 + i * 0.38),
+                Inches(10.3), Inches(0.38), font_size=sz, color=col, align=PP_ALIGN.CENTER)
 
 
 # =============================================================================
 # SLIDE 2 — The Two Datasets
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "The Two Datasets", Inches(4))
+set_bg(slide)
+slide_header(slide, "The Two Datasets",
+             "Pretrain: 169k samples × 49k CpGs   |   Fine-tune: 11.5k samples × 49k CpGs")
 
-# Left — pretrain
-add_panel(slide, Inches(0.4), Inches(1.1), Inches(5.9), Inches(5.7),
-          "PRETRAINING CORPUS", HIGHLIGHT)
-for text, yoff, col, sz in [
-    ("169,120 samples × 49,156 CpGs", 0.75, WHITE, 19),
-    ("File: methylgpt_pretrain_type3.h5ad", 1.25, CODE_TEXT, 14),
-    ("Path: data_methyl_pretrain_type3_h5ad/", 1.6, CODE_COMMENT, 13),
-    ("Run: pretrain_llama_small.sh", 2.05, HIGHLIGHT2, 14),
-    ("Job ID: 44450919", 2.4, ORANGE, 14),
-    ("Script: bmfm_methylation/llama/pretrain_llama.py", 2.85, CODE_TEXT, 13),
-    ("Module: WCEDLlamaModule  (wced_llama.py)", 3.2, CODE_TEXT, 13),
-    ("Architecture: 256D × 4L × 4H  (~5M params)", 3.7, LIGHT_GRAY, 14),
-    ("Input ratio: 0.5  (50% of valid CpGs per view)", 4.05, LIGHT_GRAY, 14),
-    ("Age weight: 0.0  (pure reconstruction)", 4.4, LIGHT_GRAY, 14),
-]:
-    add_textbox(slide, text, Inches(0.65), Inches(yoff + 1.1),
-                Inches(5.4), Inches(0.45), font_size=sz, color=col)
+# Left — pretrain card
+card(slide, Inches(0.4), Inches(1.4), Inches(5.9), Inches(5.7),
+     bg=PANEL_BG, border_color=BLUE)
+add_rect(slide, Inches(0.4), Inches(1.4), Inches(5.9), Inches(0.06), BLUE)
+badge(slide, "PRETRAINING", Inches(0.55), Inches(1.5), Inches(1.5), Inches(0.3),
+      bg=BADGE_BLUE, fg=BLUE_DARK, font_size=11, bold=True)
+add_textbox(slide, "169,120 samples × 49,156 CpGs",
+            Inches(0.6), Inches(1.92), Inches(5.5), Inches(0.45),
+            font_size=20, bold=True, color=TEXT_DARK)
 
-# Right — finetune
-add_panel(slide, Inches(7.0), Inches(1.1), Inches(5.9), Inches(5.7),
-          "FINE-TUNING CORPUS", GREEN)
-for text, yoff, col, sz in [
-    ("11,500 samples × 49,156 CpGs", 0.75, WHITE, 19),
-    ("File: finetuning_49k.h5ad", 1.25, CODE_TEXT, 14),
-    ("Path: data_methyl_finetune_49k_h5ad/", 1.6, CODE_COMMENT, 13),
-    ("Run: finetune_llama_small.sh", 2.05, HIGHLIGHT2, 14),
-    ("Job ID: 44574410", 2.4, ORANGE, 14),
-    ("Script: bmfm_methylation/llama/finetune_llama.py", 2.85, CODE_TEXT, 13),
-    ("Recon weight: 0.0  (age MSE only)", 3.2, GREEN, 14),
-    ("Input ratio: 1.0  (all valid CpGs as input)", 3.7, LIGHT_GRAY, 14),
-    ("Pooling: mean over all tokens", 4.05, LIGHT_GRAY, 14),
-    ("Freeze encoder: true  (then unfreeze epoch 10)", 4.4, LIGHT_GRAY, 14),
-]:
-    add_textbox(slide, text, Inches(7.25), Inches(yoff + 1.1),
-                Inches(5.4), Inches(0.45), font_size=sz, color=col)
+rows_pre = [
+    ("📁 File",       "methylgpt_pretrain_type3.h5ad"),
+    ("⚙  Script",    "pretrain_llama_small.sh  →  pretrain_llama.py"),
+    ("🔷 Module",     "WCEDLlamaModule  (wced_llama.py)"),
+    ("📐 Architecture", "256D × 4L × 4H  ≈ 5M params"),
+    ("🎯 Input ratio", "0.5  — 50% of valid CpGs per view"),
+    ("🏋  Age weight", "0.0  — pure reconstruction pretraining"),
+    ("🔖 Job ID",     "44450919  (7-day run)"),
+]
+for i, (k, v) in enumerate(rows_pre):
+    y = Inches(2.52 + i * 0.46)
+    add_textbox(slide, k, Inches(0.65), y, Inches(1.6), Inches(0.4),
+                font_size=12, bold=True, color=BLUE)
+    add_textbox(slide, v, Inches(2.3), y, Inches(3.85), Inches(0.4),
+                font_size=12, color=TEXT_BODY)
 
-# Middle divider
-add_textbox(slide, "Same 49k\nvocabulary", Inches(6.05), Inches(3.4),
-            Inches(0.9), Inches(0.9), font_size=12, color=HIGHLIGHT2, align=PP_ALIGN.CENTER)
+# Right — finetune card
+card(slide, Inches(7.0), Inches(1.4), Inches(5.9), Inches(5.7),
+     bg=PANEL_BG2, border_color=GREEN)
+add_rect(slide, Inches(7.0), Inches(1.4), Inches(5.9), Inches(0.06), GREEN)
+badge(slide, "FINE-TUNING", Inches(7.15), Inches(1.5), Inches(1.5), Inches(0.3),
+      bg=BADGE_GREEN, fg=GREEN_DARK, font_size=11, bold=True)
+add_textbox(slide, "11,500 samples × 49,156 CpGs",
+            Inches(7.2), Inches(1.92), Inches(5.5), Inches(0.45),
+            font_size=20, bold=True, color=TEXT_DARK)
+
+rows_ft = [
+    ("📁 File",       "finetuning_49k.h5ad"),
+    ("⚙  Script",    "finetune_llama_small.sh  →  finetune_llama.py"),
+    ("🔷 Module",     "WCEDLlamaModule  (wced_llama.py)"),
+    ("📐 Pooling",    "Mean over all tokens"),
+    ("🎯 Input ratio", "1.0  — all valid CpGs as input"),
+    ("🏋  Recon weight", "0.0  — age MSE loss only"),
+    ("❄  Encoder",   "Frozen  (unfrozen after epoch 10)"),
+]
+for i, (k, v) in enumerate(rows_ft):
+    y = Inches(2.52 + i * 0.46)
+    add_textbox(slide, k, Inches(7.25), y, Inches(1.6), Inches(0.4),
+                font_size=12, bold=True, color=GREEN)
+    add_textbox(slide, v, Inches(8.9), y, Inches(3.85), Inches(0.4),
+                font_size=12, color=TEXT_BODY)
+
+# Middle connector
+add_textbox(slide, "Same\n49k vocab", Inches(6.08), Inches(3.6), Inches(0.85), Inches(0.75),
+            font_size=11, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
 
 
 # =============================================================================
 # SLIDE 3 — Why NaN Exists
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Why NaN Exists — The Illumina Array Union Problem", Inches(8))
+set_bg(slide)
+slide_header(slide, "Why NaN Exists — The Illumina Array Union Problem",
+             "Each sample was measured on ONE array type → other probes are structurally missing")
 
-# Three array boxes
-for i, (array, probes, color) in enumerate([
-    ("27k Array",  "~27,000 probes",  ORANGE),
-    ("450k Array", "~450,000 probes", HIGHLIGHT),
-    ("EPIC Array",  "~850,000 probes", GREEN),
+# Three array cards
+for i, (array, probes, year, color, bg) in enumerate([
+    ("27k Array",   "~27,000 probes", "Legacy",   ORANGE,  BADGE_ORANGE),
+    ("450k Array",  "~450,000 probes","2012–",     BLUE,    BADGE_BLUE),
+    ("EPIC Array",  "~850,000 probes","2016–",     GREEN,   BADGE_GREEN),
 ]):
-    lx = Inches(0.4 + i * 3.2)
-    add_rect(slide, lx, Inches(1.15), Inches(2.9), Inches(1.4), ACCENT)
-    add_textbox(slide, array, lx + Inches(0.15), Inches(1.25),
-                Inches(2.6), Inches(0.45), font_size=18, bold=True, color=color)
-    add_textbox(slide, probes, lx + Inches(0.15), Inches(1.7),
-                Inches(2.6), Inches(0.35), font_size=14, color=LIGHT_GRAY)
-    add_textbox(slide, "↓", lx + Inches(1.1), Inches(2.6),
-                Inches(0.7), Inches(0.4), font_size=22, color=HIGHLIGHT, align=PP_ALIGN.CENTER)
+    lx = Inches(0.5 + i * 3.0)
+    card(slide, lx, Inches(1.45), Inches(2.7), Inches(1.55), bg=bg, border_color=color)
+    add_textbox(slide, array, lx + Inches(0.15), Inches(1.55), Inches(2.4), Inches(0.42),
+                font_size=18, bold=True, color=color)
+    add_textbox(slide, probes, lx + Inches(0.15), Inches(1.98), Inches(2.4), Inches(0.35),
+                font_size=14, color=TEXT_BODY)
+    add_textbox(slide, year, lx + Inches(0.15), Inches(2.3), Inches(2.4), Inches(0.3),
+                font_size=12, color=TEXT_LIGHT)
+    arrow_down(slide, lx + Inches(1.1), Inches(3.03))
 
-# Union result
-add_rect(slide, Inches(0.4), Inches(3.05), Inches(9.4), Inches(0.9), ACCENT)
-add_textbox(slide, "Union of all studies  →  49,156 CpGs in dataset",
-            Inches(0.6), Inches(3.15), Inches(9.0), Inches(0.6),
-            font_size=20, bold=True, color=WHITE)
+# Union box
+card(slide, Inches(0.5), Inches(3.46), Inches(8.7), Inches(0.75),
+     bg=BADGE_BLUE, border_color=BLUE)
+add_textbox(slide, "Union of all studies  →  49,156 CpGs in shared vocabulary",
+            Inches(0.65), Inches(3.56), Inches(8.3), Inches(0.5),
+            font_size=18, bold=True, color=BLUE_DARK)
+arrow_right(slide, Inches(9.35), Inches(3.65))
+card(slide, Inches(9.9), Inches(3.46), Inches(3.0), Inches(0.75),
+     bg=BADGE_RED, border_color=RED)
+add_textbox(slide, "NaN where not measured",
+            Inches(10.0), Inches(3.56), Inches(2.8), Inches(0.5),
+            font_size=14, bold=True, color=RED)
 
-# Consequence
-add_textbox(slide, "→", Inches(9.9), Inches(3.25), Inches(0.6), Inches(0.5),
-            font_size=28, bold=True, color=ORANGE)
-add_rect(slide, Inches(10.55), Inches(3.05), Inches(2.4), Inches(0.9), ACCENT)
-add_textbox(slide, "NaN where\nnot measured", Inches(10.65), Inches(3.1),
-            Inches(2.2), Inches(0.8), font_size=16, bold=True, color=ORANGE)
+# Per-sample breakdown table
+section_label(slide, "PER-SAMPLE BREAKDOWN", Inches(0.5), Inches(4.42))
+card(slide, Inches(0.5), Inches(4.75), Inches(12.4), Inches(2.35), bg=PANEL_BG)
 
-# Explanation panel
-add_rect(slide, Inches(0.4), Inches(4.1), Inches(12.5), Inches(2.7), ACCENT2)
-add_textbox(slide, "What this means per sample:",
-            Inches(0.6), Inches(4.2), Inches(6), Inches(0.4),
-            font_size=17, bold=True, color=HIGHLIGHT)
+# Table header
+col_w = [Inches(3.0), Inches(2.5), Inches(2.5), Inches(2.5), Inches(1.9)]
+col_x = [Inches(0.5), Inches(3.5), Inches(6.0), Inches(8.5), Inches(11.0)]
+table_row(slide,
+    ["Sample type", "Valid CpGs", "NaN positions", "NaN rate", "Typical in"],
+    Inches(4.75), col_w, col_x,
+    fg=TEXT_LIGHT, font_size=12, bold=True)
+add_rect(slide, Inches(0.5), Inches(5.18), Inches(12.4), Inches(0.02), DIVIDER)
 
 rows = [
-    ("450k-array sample", "~19,600 valid CpGs", "~29,556 NaN  (60%)",  HIGHLIGHT, RED),
-    ("EPIC-array sample", "~40,000 valid CpGs",  "~9,156 NaN  (19%)",   GREEN,     ORANGE),
-    ("27k-array sample",  "~27,000 valid CpGs",  "~22,156 NaN  (45%)",  ORANGE,    RED),
+    ("450k-array sample", "~19,600", "~29,556", "~60%", RED,   "Most legacy EWAS"),
+    ("EPIC-array sample",  "~40,000", "~9,156",  "~19%", ORANGE,"Modern arrays"),
+    ("27k-array sample",   "~27,000", "~22,156", "~45%", ORANGE,"Older datasets"),
 ]
-for i, (sample, valid, nan, vc, nc) in enumerate(rows):
-    y = Inches(4.7 + i * 0.62)
-    add_textbox(slide, sample, Inches(0.65), y, Inches(3.2), Inches(0.5),
-                font_size=15, color=LIGHT_GRAY)
-    add_textbox(slide, valid,  Inches(4.0),  y, Inches(3.0), Inches(0.5),
-                font_size=15, color=vc)
-    add_textbox(slide, nan,    Inches(7.2),  y, Inches(3.0), Inches(0.5),
-                font_size=15, color=nc)
+for i, (samp, valid, nan, rate, rc, tip) in enumerate(rows):
+    y = Inches(5.22 + i * 0.58)
+    bg2 = PANEL_BG if i % 2 == 0 else BG
+    add_rect(slide, Inches(0.5), y, Inches(12.4), Inches(0.56), bg2)
+    for text, w, x, fc in [
+        (samp, col_w[0], col_x[0], TEXT_BODY),
+        (valid, col_w[1], col_x[1], GREEN),
+        (nan,   col_w[2], col_x[2], RED),
+        (rate,  col_w[3], col_x[3], rc),
+        (tip,   col_w[4], col_x[4], TEXT_LIGHT),
+    ]:
+        add_textbox(slide, text, x + Inches(0.1), y + Inches(0.1),
+                    w - Inches(0.15), Inches(0.38), font_size=13, color=fc)
 
 add_textbox(slide,
-    "From pretrain run valid_pct≈42%  →  NaN rate ≈ 16%  (pretrain corpus has mostly well-measured probes)",
-    Inches(0.6), Inches(6.55), Inches(12), Inches(0.45),
-    font_size=14, color=GREEN, italic=True)
+    "★  From pretrain valid_pct ≈ 42%  →  NaN rate ≈ 16%  "
+    "(pretrain corpus is mostly well-measured EPIC-array samples)",
+    Inches(0.5), Inches(7.1), Inches(12.4), Inches(0.32),
+    font_size=13, italic=True, color=GREEN)
 
 
 # =============================================================================
 # SLIDE 4 — Full Pipeline Overview
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Full Pipeline — NaN Handling at Each Stage", Inches(7))
+set_bg(slide)
+slide_header(slide, "Full Pipeline — NaN Handling at Each Stage",
+             "From raw file to loss function: where NaN is detected, imputed, and excluded")
 
 steps = [
-    ("h5ad File",              "methylgpt_pretrain_type3.h5ad\n169k × 49k  |  NaN = raw missing values", HIGHLIGHT, "Input"),
-    ("MethylationDataset",     "shared/data_module.py\nComputes valid_mask = isfinite(β)\nNaN preserved in beta_values", ORANGE, "Step 1"),
-    ("WCEDCollator  Part A",   "shared/data_module.py\nNaN → 0  in all_betas (targets)\nvalid_mask stored for loss", GREEN, "Step 2a"),
-    ("WCEDCollator  Part B",   "shared/data_module.py\nInput views: only valid CpGs sampled\nNaN positions never shown to encoder", HIGHLIGHT2, "Step 2b"),
-    ("WCEDLlamaModule",        "llama/wced_llama.py\nrecon_mask = ~input_mask & valid_mask\nLoss on measured, held-out CpGs ONLY", PURPLE, "Step 3"),
+    ("h5ad File",           "methylgpt_pretrain\n_type3.h5ad\n169k × 49k",   BLUE,   "Input",   BADGE_BLUE),
+    ("MethylationDataset",  "Reads β values\nComputes valid_mask\n= isfinite(β)",ORANGE,"Step 1", BADGE_ORANGE),
+    ("WCEDCollator  2a",    "NaN → 0 in targets\nvalid_mask stored\nin batch dict",GREEN,"Step 2a",BADGE_GREEN),
+    ("WCEDCollator  2b",    "Input views built\nfrom valid CpGs only\n(NaN never tokenised)",PURPLE,"Step 2b",RGBColor(0xEE,0xE0,0xF8)),
+    ("WCEDLlamaModule",     "recon_mask =\n~input_mask\n& valid_mask",        BLUE,   "Step 3",  BADGE_BLUE),
 ]
 
-box_w = Inches(2.3)
-box_h = Inches(1.5)
-gap   = Inches(0.22)
-start_x = Inches(0.3)
-start_y = Inches(1.2)
+bw = Inches(2.22)
+bh = Inches(1.9)
+gap = Inches(0.18)
+sx = Inches(0.3)
+sy = Inches(1.45)
 
-for i, (title, body, color, tag) in enumerate(steps):
-    lx = start_x + i * (box_w + gap)
-    add_rect(slide, lx, start_y, box_w, box_h, ACCENT)
-    add_rect(slide, lx, start_y, box_w, Inches(0.06), color)
-    add_textbox(slide, tag,   lx + Inches(0.08), start_y + Inches(0.08),
-                Inches(0.7), Inches(0.3), font_size=11, color=color)
-    add_textbox(slide, title, lx + Inches(0.08), start_y + Inches(0.35),
-                box_w - Inches(0.16), Inches(0.45),
-                font_size=14, bold=True, color=WHITE)
-    add_textbox(slide, body,  lx + Inches(0.08), start_y + Inches(0.82),
-                box_w - Inches(0.16), Inches(0.65),
-                font_size=11, color=LIGHT_GRAY)
+for i, (title, body, color, tag, bg) in enumerate(steps):
+    lx = sx + i * (bw + gap)
+    card(slide, lx, sy, bw, bh, bg=bg, border_color=color)
+    badge(slide, tag, lx + Inches(0.1), sy + Inches(0.08),
+          Inches(0.9), Inches(0.27), bg=color, fg=BG, font_size=10, bold=True)
+    add_textbox(slide, title, lx + Inches(0.1), sy + Inches(0.38),
+                bw - Inches(0.2), Inches(0.4), font_size=13, bold=True, color=color)
+    add_textbox(slide, body, lx + Inches(0.1), sy + Inches(0.82),
+                bw - Inches(0.2), bh - Inches(0.9), font_size=11, color=TEXT_BODY)
     if i < len(steps) - 1:
-        arrow_x = lx + box_w + Inches(0.03)
-        add_textbox(slide, "→", arrow_x, start_y + Inches(0.55),
-                    gap + Inches(0.1), Inches(0.4),
-                    font_size=20, bold=True, color=HIGHLIGHT, align=PP_ALIGN.CENTER)
+        arrow_right(slide, lx + bw + Inches(0.01), sy + Inches(0.72))
 
 # Three outcome lanes
-lane_y = Inches(3.1)
-add_textbox(slide, "Three categories of CpG positions per sample:",
-            Inches(0.4), lane_y, Inches(12.5), Inches(0.4),
-            font_size=17, bold=True, color=HIGHLIGHT)
+section_label(slide, "CpG POSITIONS — THREE CATEGORIES PER SAMPLE", Inches(0.4), Inches(3.58))
 
-for i, (label, desc, val, color) in enumerate([
-    ("In input view",        "Shown to encoder as tokens\n~50% of valid CpGs", "EXCLUDED from recon loss", ORANGE),
-    ("Valid — held out",     "Real β target, not in input\n~50% of valid CpGs", "INCLUDED in recon loss ✓", GREEN),
-    ("NaN position",         "Never measured, target=0\n~16% of vocab (pretrain)", "EXCLUDED by valid_mask ✓", RED),
+for i, (label, desc, outcome, color, bg) in enumerate([
+    ("In input view",    "~20.5k positions\n50% of valid CpGs\nshown to encoder",
+     "EXCLUDED from recon loss\n(encoder already saw it)", ORANGE, BADGE_ORANGE),
+    ("Valid — held out", "~20.5k positions\n50% of valid CpGs\nnot in input",
+     "INCLUDED in recon loss ✓\nReal β target  →  true signal", GREEN, BADGE_GREEN),
+    ("NaN position",     "~8k positions\nnever measured\ntarget = 0.0 (imputed)",
+     "EXCLUDED by valid_mask ✓\nNo gradient from fake zeros", RED, BADGE_RED),
 ]):
     lx = Inches(0.4 + i * 4.3)
-    add_rect(slide, lx, lane_y + Inches(0.45), Inches(4.1), Inches(2.8), ACCENT)
-    add_rect(slide, lx, lane_y + Inches(0.45), Inches(4.1), Inches(0.05), color)
-    add_textbox(slide, label, lx + Inches(0.15), lane_y + Inches(0.55),
-                Inches(3.8), Inches(0.4), font_size=16, bold=True, color=color)
-    add_textbox(slide, desc,  lx + Inches(0.15), lane_y + Inches(1.0),
-                Inches(3.8), Inches(0.75), font_size=13, color=LIGHT_GRAY)
-    add_rect(slide, lx + Inches(0.15), lane_y + Inches(1.85), Inches(3.5), Inches(0.03), color)
-    add_textbox(slide, val,   lx + Inches(0.15), lane_y + Inches(1.95),
-                Inches(3.8), Inches(0.4), font_size=13, bold=True, color=color)
+    card(slide, lx, Inches(3.95), Inches(4.1), Inches(3.2), bg=bg, border_color=color)
+    add_rect(slide, lx, Inches(3.95), Inches(4.1), Inches(0.05), color)
+    add_textbox(slide, label, lx + Inches(0.2), Inches(4.05),
+                Inches(3.7), Inches(0.4), font_size=15, bold=True, color=color)
+    add_textbox(slide, desc, lx + Inches(0.2), Inches(4.52),
+                Inches(3.7), Inches(0.88), font_size=12, color=TEXT_BODY)
+    add_rect(slide, lx + Inches(0.2), Inches(5.44), Inches(3.4), Inches(0.025), color)
+    add_textbox(slide, outcome, lx + Inches(0.2), Inches(5.5),
+                Inches(3.7), Inches(0.6), font_size=12, bold=True, color=color)
 
 
 # =============================================================================
 # SLIDE 5 — Step 1: MethylationDataset
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Step 1 — MethylationDataset: Reading the Data", Inches(7.5))
+set_bg(slide)
+slide_header(slide, "Step 1 — MethylationDataset: Reading the Data",
+             "bmfm_methylation/shared/data_module.py  ·  MethylationDataset.__getitem__")
 
-add_textbox(slide, "File: bmfm_methylation/shared/data_module.py   |   Class: MethylationDataset",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+# Flow diagram
+flow_nodes = [
+    ("📄  adata.X[idx]", "Raw row from h5ad\n49,156 float values\nSparse or dense"),
+    ("🔢  float32 array", "Convert to numpy\nfloat32 array\nshape: (49156,)"),
+    ("🔍  isfinite(β)", "np.isfinite(beta_values)\nTrue  = real value\nFalse = NaN"),
+]
+node_w = Inches(2.8)
+node_h = Inches(1.8)
+for i, (title, body) in enumerate(flow_nodes):
+    lx = Inches(0.4 + i * 3.3)
+    card(slide, lx, Inches(1.45), node_w, node_h, bg=PANEL_BG, border_color=BLUE)
+    add_textbox(slide, title, lx + Inches(0.15), Inches(1.55), node_w - Inches(0.3),
+                Inches(0.45), font_size=13, bold=True, color=BLUE)
+    add_textbox(slide, body, lx + Inches(0.15), Inches(2.02), node_w - Inches(0.3),
+                Inches(1.1), font_size=12, color=TEXT_BODY)
+    if i < len(flow_nodes) - 1:
+        arrow_right(slide, Inches(0.4 + i * 3.3) + node_w + Inches(0.05),
+                    Inches(2.1))
 
-# Left: code
-add_code_panel(slide, Inches(0.4), Inches(1.4), Inches(7.5), Inches(4.5), [
-    ("# MethylationDataset.__getitem__", CODE_COMMENT),
-    ("def __getitem__(self, idx):", CODE_KEY),
-    ("    beta_values = self.adata.X[idx]", CODE_TEXT),
-    ("    if hasattr(beta_values, 'toarray'):", CODE_TEXT),
-    ("        beta_values = beta_values.toarray().flatten()", CODE_TEXT),
-    ("    beta_values = beta_values.astype(np.float32)", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("    # Compute mask: True = real value, False = NaN", CODE_COMMENT),
-    ("    valid_mask = np.isfinite(beta_values)", CODE_KEY),
-    ("", CODE_TEXT),
-    ("    # NaN is PRESERVED in beta_values at this stage", CODE_COMMENT),
-    ("    mfi = MultiFieldInstance(", CODE_TEXT),
-    ("        data={", CODE_TEXT),
-    ('            "beta_values": beta_values.tolist(),  # NaN intact', CODE_TEXT),
-    ('            "valid_mask": valid_mask.tolist(),    # True/False mask', CODE_KEY),
-    ("        },", CODE_TEXT),
-    ("        metadata={'labels': float(age), ...}", CODE_TEXT),
-    ("    )", CODE_TEXT),
-    ("    return mfi", CODE_TEXT),
-])
+# Split into two outputs
+arrow_down(slide, Inches(3.78), Inches(3.28))
+add_textbox(slide, "Two outputs", Inches(3.1), Inches(3.72), Inches(2.15), Inches(0.3),
+            font_size=12, color=TEXT_LIGHT, align=PP_ALIGN.CENTER)
+add_textbox(slide, "↙         ↘", Inches(3.1), Inches(3.98), Inches(2.15), Inches(0.4),
+            font_size=20, color=BLUE, align=PP_ALIGN.CENTER)
 
-# Right: explanation boxes
-add_panel(slide, Inches(8.1), Inches(1.4), Inches(4.8), Inches(2.1),
-          "What happens at this step", HIGHLIGHT)
+# Left output: beta_values
+card(slide, Inches(2.0), Inches(4.42), Inches(2.8), Inches(1.65),
+     bg=BADGE_ORANGE, border_color=ORANGE)
+add_textbox(slide, "beta_values", Inches(2.15), Inches(4.52), Inches(2.5),
+            Inches(0.38), font_size=13, bold=True, color=ORANGE)
 add_textbox(slide,
-    "• Raw β-value extracted from adata.X\n"
-    "• valid_mask computed: np.isfinite(β)\n"
-    "• NaN is NOT replaced — preserved as-is\n"
-    "• Both β and mask passed to collator",
-    Inches(8.3), Inches(2.0), Inches(4.4), Inches(1.4),
-    font_size=14, color=LIGHT_GRAY)
+    "Shape: (49156,)  float32\n"
+    "NaN values preserved\n"
+    "Passed to collator as-is",
+    Inches(2.15), Inches(4.92), Inches(2.5), Inches(1.1),
+    font_size=12, color=TEXT_BODY)
 
-add_panel(slide, Inches(8.1), Inches(3.65), Inches(4.8), Inches(2.2),
-          "Why preserve NaN here?", ORANGE)
+# Right output: valid_mask
+card(slide, Inches(5.4), Inches(4.42), Inches(2.8), Inches(1.65),
+     bg=BADGE_GREEN, border_color=GREEN)
+add_textbox(slide, "valid_mask", Inches(5.55), Inches(4.52), Inches(2.5),
+            Inches(0.38), font_size=13, bold=True, color=GREEN)
 add_textbox(slide,
-    "The collator decides what to do with NaN.\n\n"
-    "Replacing NaN with 0 here would hide the\n"
-    "missing-value information before the mask\n"
-    "is computed. Preserving NaN ensures the\n"
-    "valid_mask is always accurate.",
-    Inches(8.3), Inches(4.25), Inches(4.4), Inches(1.5),
-    font_size=14, color=LIGHT_GRAY)
+    "Shape: (49156,)  bool\n"
+    "True = measured\n"
+    "False = NaN position",
+    Inches(5.55), Inches(4.92), Inches(2.5), Inches(1.1),
+    font_size=12, color=TEXT_BODY)
+
+# Right: why card
+card(slide, Inches(9.2), Inches(1.45), Inches(3.9), Inches(4.65),
+     bg=PANEL_BG, border_color=DIVIDER)
+section_label(slide, "WHY THIS DESIGN", Inches(9.35), Inches(1.58), color=ORANGE)
+for i, point in enumerate([
+    "NaN is preserved — not replaced here",
+    "valid_mask is computed while NaN is still visible",
+    "If we replaced NaN→0 first, the mask would be wrong",
+    "Separation of concerns: Dataset reads, Collator decides",
+    "valid_mask travels through the batch dict to the loss fn",
+]):
+    add_textbox(slide, f"{'●'}  {point}",
+                Inches(9.35), Inches(1.98 + i * 0.74), Inches(3.55), Inches(0.65),
+                font_size=13, color=TEXT_BODY)
 
 # Bottom status
-add_rect(slide, Inches(0.4), Inches(6.1), Inches(12.5), Inches(0.75), ACCENT2)
-add_textbox(slide, "NaN status after Step 1:   beta_values contains NaN    ✓ valid_mask computed",
-            Inches(0.6), Inches(6.2), Inches(12), Inches(0.45),
-            font_size=15, color=GREEN)
+card(slide, Inches(0.4), Inches(6.28), Inches(8.65), Inches(0.55),
+     bg=BADGE_GREEN, border_color=GREEN)
+add_textbox(slide,
+    "After Step 1:   beta_values contains NaN  ·  valid_mask = True/False array  ·  both in MultiFieldInstance",
+    Inches(0.55), Inches(6.35), Inches(8.35), Inches(0.4),
+    font_size=13, bold=True, color=GREEN_DARK)
 
 
 # =============================================================================
 # SLIDE 6 — Step 2a: WCEDCollator — NaN Detection & Replacement
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Step 2a — WCEDCollator: NaN Detection & Replacement", Inches(8))
+set_bg(slide)
+slide_header(slide, "Step 2a — WCEDCollator: NaN Detection & Replacement",
+             "bmfm_methylation/shared/data_module.py  ·  WCEDCollator.__call__")
 
-add_textbox(slide, "File: bmfm_methylation/shared/data_module.py   |   Class: WCEDCollator.__call__",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+# Visual: before → after tensor
+section_label(slide, "VISUAL EXAMPLE — ONE SAMPLE ROW (6 CpGs shown)", Inches(0.4), Inches(1.4))
 
-# Code panel
-add_code_panel(slide, Inches(0.4), Inches(1.4), Inches(7.5), Inches(4.5), [
-    ("# For each sample i in the batch:", CODE_COMMENT),
-    ("betas = np.asarray(ex.data['beta_values'], dtype=np.float32)", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("# Slice to vocabulary of 49,156 CpGs", CODE_COMMENT),
-    ("vocab_betas = betas[self.vocab_cpg_indices]", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("# Detect NaN: True = measured, False = NaN", CODE_COMMENT),
-    ("vocab_valid = np.isfinite(vocab_betas)", CODE_KEY),
-    ("", CODE_TEXT),
-    ("# Replace NaN → 0.0 (harmless: excluded from loss later)", CODE_COMMENT),
-    ("vocab_betas_clean = np.where(vocab_valid, vocab_betas, 0.0)", CODE_KEY),
-    ("", CODE_TEXT),
-    ("# Store targets: NaN positions have value 0.0", CODE_COMMENT),
-    ("all_betas[i] = torch.tensor(vocab_betas_clean)   # [vocab_size]", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("# Store mask: True=real, False=NaN  ← used in Step 3", CODE_COMMENT),
-    ("valid_mask[i] = torch.tensor(vocab_valid)         # [vocab_size]", CODE_KEY),
-])
+# Before row
+add_textbox(slide, "Input (beta_values):", Inches(0.4), Inches(1.72),
+            Inches(2.5), Inches(0.38), font_size=13, bold=True, color=TEXT_BODY)
+cells_before = [("0.23", BADGE_GREEN, GREEN_DARK), ("NaN", BADGE_RED, RED),
+                ("0.87", BADGE_GREEN, GREEN_DARK), ("NaN", BADGE_RED, RED),
+                ("0.61", BADGE_GREEN, GREEN_DARK), ("NaN", BADGE_RED, RED)]
+for j, (val, bg, fg) in enumerate(cells_before):
+    lx = Inches(3.1 + j * 1.12)
+    card(slide, lx, Inches(1.72), Inches(1.0), Inches(0.38), bg=bg, border_color=None)
+    add_textbox(slide, val, lx, Inches(1.72), Inches(1.0), Inches(0.38),
+                font_size=14, bold=True, color=fg, align=PP_ALIGN.CENTER)
 
-# Right explanation
-add_panel(slide, Inches(8.1), Inches(1.4), Inches(4.8), Inches(2.1),
-          "all_betas — the reconstruction target", ORANGE)
+arrow_down(slide, Inches(6.4), Inches(2.14))
+add_textbox(slide, "np.where(valid, β, 0.0)", Inches(5.4), Inches(2.52),
+            Inches(2.5), Inches(0.3), font_size=12, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
+arrow_down(slide, Inches(6.4), Inches(2.78))
+
+# After: all_betas
+add_textbox(slide, "all_betas (target):", Inches(0.4), Inches(3.14),
+            Inches(2.5), Inches(0.38), font_size=13, bold=True, color=TEXT_BODY)
+cells_after = [("0.23", BADGE_GREEN, GREEN_DARK), ("0.00", BADGE_ORANGE, ORANGE_DARK),
+               ("0.87", BADGE_GREEN, GREEN_DARK), ("0.00", BADGE_ORANGE, ORANGE_DARK),
+               ("0.61", BADGE_GREEN, GREEN_DARK), ("0.00", BADGE_ORANGE, ORANGE_DARK)]
+for j, (val, bg, fg) in enumerate(cells_after):
+    lx = Inches(3.1 + j * 1.12)
+    card(slide, lx, Inches(3.14), Inches(1.0), Inches(0.38), bg=bg, border_color=None)
+    add_textbox(slide, val, lx, Inches(3.14), Inches(1.0), Inches(0.38),
+                font_size=14, bold=True, color=fg, align=PP_ALIGN.CENTER)
+add_textbox(slide, "← NaN replaced with 0.0", Inches(9.85), Inches(3.14),
+            Inches(3.0), Inches(0.38), font_size=12, italic=True, color=ORANGE)
+
+# valid_mask
+add_textbox(slide, "valid_mask:", Inches(0.4), Inches(3.68),
+            Inches(2.5), Inches(0.38), font_size=13, bold=True, color=TEXT_BODY)
+cells_vm = [("True", BADGE_GREEN, GREEN_DARK), ("False", BADGE_RED, RED),
+            ("True", BADGE_GREEN, GREEN_DARK), ("False", BADGE_RED, RED),
+            ("True", BADGE_GREEN, GREEN_DARK), ("False", BADGE_RED, RED)]
+for j, (val, bg, fg) in enumerate(cells_vm):
+    lx = Inches(3.1 + j * 1.12)
+    card(slide, lx, Inches(3.68), Inches(1.0), Inches(0.38), bg=bg, border_color=None)
+    add_textbox(slide, val, lx, Inches(3.68), Inches(1.0), Inches(0.38),
+                font_size=13, bold=True, color=fg, align=PP_ALIGN.CENTER)
+add_textbox(slide, "← passed in batch dict →  Step 3", Inches(9.85), Inches(3.68),
+            Inches(3.0), Inches(0.38), font_size=12, italic=True, color=GREEN)
+
+# Two result cards
+card(slide, Inches(0.4), Inches(4.28), Inches(5.85), Inches(1.9),
+     bg=BADGE_ORANGE, border_color=ORANGE)
+add_textbox(slide, "all_betas  — reconstruction target",
+            Inches(0.55), Inches(4.35), Inches(5.5), Inches(0.38),
+            font_size=14, bold=True, color=ORANGE_DARK)
 add_textbox(slide,
-    "Shape: [batch, 49156]\n"
-    "• Real positions: actual β ∈ [0, 1]\n"
-    "• NaN positions: 0.0  (imputed)\n\n"
-    "Imputing 0.0 is safe because valid_mask\n"
-    "will exclude these from the loss.",
-    Inches(8.3), Inches(2.0), Inches(4.4), Inches(1.4),
-    font_size=14, color=LIGHT_GRAY)
+    "Shape: [batch, 49156]   dtype: float32\n"
+    "Real positions: actual β ∈ [0, 1]\n"
+    "NaN positions: 0.0  (imputed — safe because valid_mask will exclude them from loss)\n"
+    "This is what the model tries to predict",
+    Inches(0.55), Inches(4.75), Inches(5.5), Inches(1.3),
+    font_size=13, color=TEXT_BODY)
 
-add_panel(slide, Inches(8.1), Inches(3.65), Inches(4.8), Inches(2.2),
-          "valid_mask — the key guard", GREEN)
+card(slide, Inches(6.7), Inches(4.28), Inches(6.25), Inches(1.9),
+     bg=BADGE_GREEN, border_color=GREEN)
+add_textbox(slide, "valid_mask  — the critical guard",
+            Inches(6.85), Inches(4.35), Inches(5.9), Inches(0.38),
+            font_size=14, bold=True, color=GREEN_DARK)
 add_textbox(slide,
-    "Shape: [batch, 49156]\n"
-    "• True  = position was measured\n"
-    "• False = position was NaN\n\n"
-    "This is what Step 3 uses to exclude\n"
-    "NaN positions from reconstruction loss.\n"
-    "It is returned in the batch dict.",
-    Inches(8.3), Inches(4.25), Inches(4.4), Inches(1.5),
-    font_size=14, color=LIGHT_GRAY)
+    "Shape: [batch, 49156]   dtype: bool\n"
+    "True  = position was actually measured  →  include in loss\n"
+    "False = position was NaN                →  exclude from loss\n"
+    "Returned in batch dict  →  used in Step 3 to build recon_mask",
+    Inches(6.85), Inches(4.75), Inches(5.9), Inches(1.3),
+    font_size=13, color=TEXT_BODY)
 
-add_rect(slide, Inches(0.4), Inches(6.1), Inches(12.5), Inches(0.75), ACCENT2)
+card(slide, Inches(0.4), Inches(6.32), Inches(12.55), Inches(0.55),
+     bg=BADGE_GREEN, border_color=GREEN)
 add_textbox(slide,
-    "After Step 2a:   all_betas ready (NaN→0)    valid_mask ready (True/False)    "
-    "both will be in the batch dict",
-    Inches(0.6), Inches(6.2), Inches(12), Inches(0.45),
-    font_size=15, color=GREEN)
+    "After Step 2a:   all_betas ready (NaN→0.0)  ·  valid_mask ready (True/False)  ·  both in batch dict",
+    Inches(0.55), Inches(6.39), Inches(12.2), Inches(0.4),
+    font_size=13, bold=True, color=GREEN_DARK)
 
 
 # =============================================================================
 # SLIDE 7 — Step 2b: WCEDCollator — Input View Selection
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Step 2b — WCEDCollator: Input View Selection (Valid Only)", Inches(8))
+set_bg(slide)
+slide_header(slide, "Step 2b — WCEDCollator: Input View Selection",
+             "NaN positions are never tokenised — input is sampled from valid CpGs only")
 
-add_textbox(slide, "File: bmfm_methylation/shared/data_module.py   |   Class: WCEDCollator.__call__",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+# Segmented bar — 49k CpG vocabulary
+section_label(slide, "49,156 CpG VOCABULARY — BREAKDOWN PER SAMPLE", Inches(0.4), Inches(1.38))
 
-add_code_panel(slide, Inches(0.4), Inches(1.4), Inches(7.5), Inches(3.2), [
-    ("# Only sample input from VALID (non-NaN) positions", CODE_COMMENT),
-    ("valid_indices = np.where(vocab_valid)[0]   # e.g. ~41k of 49k", CODE_KEY),
-    ("", CODE_TEXT),
-    ("# input_ratio applied to valid CpGs — not total vocab", CODE_COMMENT),
-    ("# This handles high-NaN samples correctly:", CODE_COMMENT),
-    ("#   50% × 41k = 20.5k input  (not 50% × 49k = 24.5k)", CODE_COMMENT),
-    ("n_input = int(len(valid_indices) * self.input_ratio)", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("# Random subset of valid positions for input view", CODE_COMMENT),
-    ("indices_v1 = rng.choice(valid_indices, size=n_input, replace=False)", CODE_KEY),
-    ("# NaN positions are NEVER in indices_v1", CODE_COMMENT),
-    ("", CODE_TEXT),
-    ("# Build token sequence: [CLS] + selected CpG tokens", CODE_COMMENT),
-    ("ids  = [cls_id] + [vocab_cpg_ids[j] for j in indices_v1]", CODE_TEXT),
-    ("vals = [cls_beta] + vocab_betas_clean[indices_v1].tolist()", CODE_TEXT),
-])
+bar_left = Inches(0.55)
+bar_top  = Inches(1.72)
+bar_h    = Inches(0.72)
+bar_total_w = Inches(12.2)
 
-# Right: 3 categories diagram
-add_textbox(slide, "Position categories within the 49k vocabulary:",
-            Inches(8.1), Inches(1.35), Inches(4.8), Inches(0.4),
-            font_size=15, bold=True, color=HIGHLIGHT)
+segments = [
+    ("NaN positions\n~8k  (16%)",    0.16, BADGE_RED,    RED),
+    ("Input view\n~20.5k  (42%)",    0.42, BADGE_ORANGE, ORANGE),
+    ("Held-out (recon target)\n~20.5k  (42%)", 0.42, BADGE_GREEN, GREEN),
+]
+x = bar_left
+for label, frac, bg, fg in segments:
+    w = bar_total_w * frac
+    add_rect(slide, x, bar_top, w, bar_h, bg)
+    lw = Pt(1.5)
+    shape = slide.shapes[-1]
+    shape.line.color.rgb = fg
+    shape.line.width = lw
+    add_textbox(slide, label, x + Inches(0.05), bar_top + Inches(0.08),
+                w - Inches(0.1), bar_h - Inches(0.12),
+                font_size=11, bold=True, color=fg, align=PP_ALIGN.CENTER)
+    x += w
 
-for i, (label, count, status, col) in enumerate([
-    ("In input view",     "~20.5k positions", "EXCLUDED from recon loss\n(encoder already saw it)", ORANGE),
-    ("Valid, held out",   "~20.5k positions", "INCLUDED in recon loss\n(real target → true signal)", GREEN),
-    ("NaN position",      "~8k positions",    "target = 0.0\nexcluded via valid_mask", RED),
+# Formula
+section_label(slide, "INPUT RATIO FORMULA", Inches(0.4), Inches(2.66))
+card(slide, Inches(0.4), Inches(2.96), Inches(7.2), Inches(1.5),
+     bg=PANEL_BG, border_color=BLUE)
+add_textbox(slide,
+    "valid_indices  =  positions where isfinite(β)  →  ~41k of 49k",
+    Inches(0.55), Inches(3.02), Inches(6.9), Inches(0.4),
+    font_size=14, color=TEXT_BODY)
+add_textbox(slide,
+    "n_input  =  int( len(valid_indices)  ×  input_ratio )\n"
+    "         =  int( 41,000  ×  0.5 )  =  20,500",
+    Inches(0.55), Inches(3.42), Inches(6.9), Inches(0.55),
+    font_size=14, bold=True, color=BLUE)
+add_textbox(slide,
+    "input_ratio applied to valid CpGs  —  NOT to the full 49k vocabulary",
+    Inches(0.55), Inches(3.98), Inches(6.9), Inches(0.38),
+    font_size=12, italic=True, color=ORANGE)
+
+# Why it matters card
+card(slide, Inches(7.75), Inches(2.66), Inches(5.25), Inches(1.8),
+     bg=BADGE_ORANGE, border_color=ORANGE)
+add_textbox(slide, "Why this matters for high-NaN samples",
+            Inches(7.9), Inches(2.73), Inches(5.0), Inches(0.38),
+            font_size=14, bold=True, color=ORANGE_DARK)
+add_textbox(slide,
+    "450k sample (60% NaN)  →  only 19.6k valid CpGs\n"
+    "n_input = 0.5 × 19.6k = 9.8k  (not 0.5 × 49k = 24.5k)\n\n"
+    "Always exactly 50% of what was measured is shown.\n"
+    "NaN positions NEVER appear as encoder input tokens.",
+    Inches(7.9), Inches(3.12), Inches(5.0), Inches(1.25),
+    font_size=13, color=TEXT_BODY)
+
+# 3 outcome cards
+section_label(slide, "WHAT GETS ASSIGNED TO EACH CATEGORY", Inches(0.4), Inches(4.7))
+for i, (title, body, action, color, bg) in enumerate([
+    ("In input view\n~n_input positions",
+     "randomly sampled from valid_indices\ninput_ratio × |valid_indices|",
+     "→ encoder tokens\n→ excluded from recon loss",
+     ORANGE, BADGE_ORANGE),
+    ("Valid — held out\nremaining valid positions",
+     "|valid_indices| - n_input positions\nnot sampled into input view",
+     "→ recon_mask = True\n→ included in loss ✓",
+     GREEN, BADGE_GREEN),
+    ("NaN positions\nnever in valid_indices",
+     "np.where(vocab_valid) returns only\nnon-NaN indices — NaN excluded",
+     "→ valid_mask = False\n→ excluded from loss ✓",
+     RED, BADGE_RED),
 ]):
-    ly = Inches(1.9 + i * 1.5)
-    add_rect(slide, Inches(8.1), ly, Inches(4.8), Inches(1.35), ACCENT)
-    add_rect(slide, Inches(8.1), ly, Inches(0.07), Inches(1.35), col)
-    add_textbox(slide, label,  Inches(8.3), ly + Inches(0.1),
-                Inches(4.3), Inches(0.35), font_size=14, bold=True, color=col)
-    add_textbox(slide, count,  Inches(8.3), ly + Inches(0.45),
-                Inches(2.5), Inches(0.3), font_size=13, color=ORANGE)
-    add_textbox(slide, status, Inches(8.3), ly + Inches(0.75),
-                Inches(4.3), Inches(0.5), font_size=12, color=LIGHT_GRAY)
-
-add_rect(slide, Inches(0.4), Inches(4.75), Inches(7.5), Inches(0.75), ACCENT2)
-add_textbox(slide,
-    "Key: input_ratio is applied to valid_indices — not to all 49k CpGs\n"
-    "This ensures the model always sees exactly 50% of what was actually measured",
-    Inches(0.55), Inches(4.82), Inches(7.2), Inches(0.6),
-    font_size=13, color=GREEN, italic=True)
-
-add_rect(slide, Inches(0.4), Inches(6.1), Inches(12.5), Inches(0.75), ACCENT2)
-add_textbox(slide,
-    "After Step 2b:   input view built (NaN-free tokens)    "
-    "NaN positions excluded from encoder input entirely",
-    Inches(0.6), Inches(6.2), Inches(12), Inches(0.45),
-    font_size=15, color=GREEN)
+    lx = Inches(0.4 + i * 4.3)
+    card(slide, lx, Inches(5.02), Inches(4.1), Inches(2.05), bg=bg, border_color=color)
+    add_textbox(slide, title, lx + Inches(0.15), Inches(5.1), Inches(3.8),
+                Inches(0.5), font_size=13, bold=True, color=color)
+    add_textbox(slide, body, lx + Inches(0.15), Inches(5.62), Inches(3.8),
+                Inches(0.5), font_size=12, color=TEXT_BODY)
+    add_rect(slide, lx + Inches(0.15), Inches(6.16), Inches(3.4), Inches(0.02), color)
+    add_textbox(slide, action, lx + Inches(0.15), Inches(6.2), Inches(3.8),
+                Inches(0.55), font_size=12, bold=True, color=color)
 
 
 # =============================================================================
 # SLIDE 8 — Step 3: WCEDLlamaModule — Loss Masking
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Step 3 — WCEDLlamaModule: Correct Reconstruction Loss", Inches(8.5))
+set_bg(slide)
+slide_header(slide, "Step 3 — WCEDLlamaModule: Correct Reconstruction Loss",
+             "bmfm_methylation/llama/wced_llama.py  ·  _shared_step")
 
-add_textbox(slide, "File: bmfm_methylation/llama/wced_llama.py   |   Method: _shared_step",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+# recon_mask formula
+section_label(slide, "HOW recon_mask IS BUILT", Inches(0.4), Inches(1.38))
 
-add_code_panel(slide, Inches(0.4), Inches(1.4), Inches(7.5), Inches(4.9), [
-    ("# _shared_step — reconstruction loss calculation", CODE_COMMENT),
-    ("input_mask = batch['input_mask']   # [B, 49156] True = in input view", CODE_TEXT),
-    ("all_betas  = batch['all_betas']    # [B, 49156] targets (0 where NaN)", CODE_TEXT),
-    ("valid_mask = batch.get('valid_mask')  # [B, 49156] True = non-NaN", CODE_TEXT),
-    ("", CODE_TEXT),
-    ("# Step 3 core: combine both exclusion masks", CODE_COMMENT),
-    ("non_input_mask = ~input_mask          # not shown to encoder", CODE_TEXT),
-    ("recon_mask = non_input_mask           # start with non-input", CODE_TEXT),
-    ("if valid_mask is not None:", CODE_TEXT),
-    ("    recon_mask = non_input_mask & valid_mask  # EXCLUDE NaN too", CODE_KEY),
-    ("", CODE_TEXT),
-    ("# MSE loss — element-wise, then masked", CODE_COMMENT),
-    ("loss_per_cpg = recon_loss_fn(pred_betas, all_betas)  # [B, 49156]", CODE_TEXT),
-    ("masked_loss  = loss_per_cpg * recon_mask.float()", CODE_TEXT),
-    ("recon_loss   = masked_loss.sum()", CODE_TEXT),
-    ("             / recon_mask.float().sum().clamp(min=1)  # correct denom", CODE_KEY),
-    ("", CODE_TEXT),
-    ("# Metrics also computed on recon_mask (not just ~input_mask)", CODE_COMMENT),
-    ("ni_pred   = pred_betas[recon_mask]     # only real, held-out CpGs", CODE_TEXT),
-    ("ni_target = all_betas[recon_mask]", CODE_TEXT),
-    ("pcc = pearson_corr(ni_pred, ni_target)", CODE_KEY),
-])
+mask_parts = [
+    ("~input_mask", "Positions NOT\nshown to encoder", ORANGE, BADGE_ORANGE),
+    ("AND", "", TEXT_LIGHT, BG),
+    ("valid_mask", "Positions that were\nactually measured", GREEN, BADGE_GREEN),
+    ("=", "", TEXT_LIGHT, BG),
+    ("recon_mask", "Positions included\nin loss computation", BLUE, BADGE_BLUE),
+]
+x = Inches(0.5)
+for title, sub, color, bg in mask_parts:
+    if title in ("AND", "="):
+        add_textbox(slide, title, x, Inches(1.78), Inches(0.65), Inches(0.55),
+                    font_size=24, bold=True, color=TEXT_LIGHT, align=PP_ALIGN.CENTER)
+        x += Inches(0.65)
+    else:
+        card(slide, x, Inches(1.72), Inches(2.3), Inches(0.85), bg=bg, border_color=color)
+        add_textbox(slide, title, x + Inches(0.1), Inches(1.78), Inches(2.1),
+                    Inches(0.38), font_size=15, bold=True, color=color, align=PP_ALIGN.CENTER)
+        add_textbox(slide, sub, x + Inches(0.1), Inches(2.18), Inches(2.1),
+                    Inches(0.35), font_size=11, color=TEXT_LIGHT, align=PP_ALIGN.CENTER)
+        x += Inches(2.35)
 
-# Right: formula and explanation
-add_panel(slide, Inches(8.1), Inches(1.4), Inches(4.8), Inches(2.3),
-          "recon_mask definition", HIGHLIGHT)
+# Decision table
+section_label(slide, "POSITION-BY-POSITION DECISION TABLE", Inches(0.4), Inches(2.78))
+
+t_left   = Inches(0.4)
+t_top    = Inches(3.08)
+t_w      = Inches(12.55)
+t_row_h  = Inches(0.58)
+col_ws   = [Inches(2.6), Inches(1.8), Inches(1.8), Inches(2.0), Inches(2.0), Inches(2.3)]
+col_xs   = [Inches(0.4), Inches(3.0), Inches(4.8), Inches(6.6), Inches(8.6), Inches(10.6)]
+
+# Header
+add_rect(slide, t_left, t_top, t_w, t_row_h, PANEL_BG)
+for text, w, x in zip(
+    ["Position type", "~Count", "Encoder sees?", "in ~input_mask?", "valid_mask?", "In recon loss?"],
+    col_ws, col_xs
+):
+    add_textbox(slide, text, x + Inches(0.08), t_top + Inches(0.12),
+                w - Inches(0.12), Inches(0.38), font_size=13, bold=True,
+                color=TEXT_DARK)
+
+add_rect(slide, t_left, t_top + t_row_h, t_w, Inches(0.025), DIVIDER)
+
+data_rows = [
+    ("In input view",    "~20.5k", "✓  Yes", "True",  "True",  "✗  NO",    ORANGE, BADGE_ORANGE),
+    ("Valid — held out", "~20.5k", "✗  No",  "False", "True",  "✓  YES",   GREEN,  BADGE_GREEN),
+    ("NaN position",     "~8k",    "✗  No",  "False", "False", "✗  NO",    RED,    BADGE_RED),
+]
+for i, (pos, cnt, sees, inm, vm, inloss, color, bg) in enumerate(data_rows):
+    y = t_top + t_row_h + Inches(0.025) + i * (t_row_h + Inches(0.04))
+    add_rect(slide, t_left, y, t_w, t_row_h, bg)
+    il_color = GREEN if "YES" in inloss else RED
+    for text, w, x, fc in [
+        (pos,    col_ws[0], col_xs[0], color),
+        (cnt,    col_ws[1], col_xs[1], TEXT_BODY),
+        (sees,   col_ws[2], col_xs[2], GREEN if "Yes" in sees else TEXT_LIGHT),
+        (inm,    col_ws[3], col_xs[3], ORANGE if inm == "True" else TEXT_LIGHT),
+        (vm,     col_ws[4], col_xs[4], GREEN if vm == "True" else RED),
+        (inloss, col_ws[5], col_xs[5], il_color),
+    ]:
+        add_textbox(slide, text, x + Inches(0.08), y + Inches(0.12),
+                    w - Inches(0.12), Inches(0.38), font_size=13, color=fc, bold=(fc==il_color and "YES" in text))
+
+# Bottom panels
+card(slide, Inches(0.4), Inches(5.72), Inches(6.0), Inches(1.35),
+     bg=BADGE_BLUE, border_color=BLUE)
+add_textbox(slide, "Loss formula",
+            Inches(0.55), Inches(5.79), Inches(5.7), Inches(0.35),
+            font_size=13, bold=True, color=BLUE_DARK)
 add_textbox(slide,
-    "recon_mask = ~input_mask  AND  valid_mask\n\n"
-    "Positions included in loss:\n"
-    "  (a) NOT in input view\n"
-    "  (b) Actually measured (non-NaN)\n\n"
-    "≈ 42% of vocab per step  (from valid_pct metric)",
-    Inches(8.3), Inches(2.0), Inches(4.4), Inches(1.6),
-    font_size=13, color=LIGHT_GRAY)
+    "loss = Σ  MSE(pred, target) × recon_mask\n"
+    "     ÷  recon_mask.sum()  (true denominator)\n"
+    "≈ 42% of 49k positions contribute per step",
+    Inches(0.55), Inches(6.14), Inches(5.7), Inches(0.85),
+    font_size=13, color=TEXT_BODY)
 
-add_panel(slide, Inches(8.1), Inches(3.85), Inches(4.8), Inches(2.4),
-          "Why the denominator matters", ORANGE)
+card(slide, Inches(6.7), Inches(5.72), Inches(6.25), Inches(1.35),
+     bg=BADGE_GREEN, border_color=GREEN)
+add_textbox(slide, "Metrics (PCC, MAE) use same recon_mask",
+            Inches(6.85), Inches(5.79), Inches(5.9), Inches(0.35),
+            font_size=13, bold=True, color=GREEN_DARK)
 add_textbox(slide,
-    "Old code (SCBert): denominator = all non-input positions\n"
-    "  → includes ~29k NaN positions with target=0\n"
-    "  → loss looks artificially small\n\n"
-    "LLaMA code: denominator = recon_mask.sum()\n"
-    "  → only real, measured positions\n"
-    "  → honest metric",
-    Inches(8.3), Inches(4.48), Inches(4.4), Inches(1.65),
-    font_size=13, color=LIGHT_GRAY)
-
-add_rect(slide, Inches(0.4), Inches(6.45), Inches(12.5), Inches(0.75), ACCENT2)
-add_textbox(slide,
-    "✓  Loss computed only on (non-input  ∩  non-NaN) positions    "
-    "✓  PCC and MAE metrics use the same clean mask",
-    Inches(0.6), Inches(6.55), Inches(12), Inches(0.45),
-    font_size=15, color=GREEN)
+    "pred_values  = pred_betas[recon_mask]\n"
+    "true_values  = all_betas[recon_mask]\n"
+    "PCC computed only on real, held-out CpGs  →  honest metric",
+    Inches(6.85), Inches(6.14), Inches(5.9), Inches(0.85),
+    font_size=13, color=TEXT_BODY)
 
 
 # =============================================================================
-# SLIDE 9 — Bug (Old Code) vs Fix (LLaMA)
+# SLIDE 9 — Bug vs Fix
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Bug in Old Code vs. Correct Implementation in LLaMA", Inches(8.5))
+set_bg(slide)
+slide_header(slide, "Bug in Old Code vs. Correct Implementation in LLaMA",
+             "Your LLaMA runs are NOT affected — the fix is already in wced_llama.py  ✓")
 
-add_textbox(slide, "Your LLaMA runs are NOT affected — the fix is already in wced_llama.py",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=15, color=GREEN, bold=True)
+# Side-by-side comparison (visual, no code)
+card(slide, Inches(0.4), Inches(1.38), Inches(6.1), Inches(5.7),
+     bg=RGBColor(0xFF,0xF5,0xF5), border_color=RED)
+add_rect(slide, Inches(0.4), Inches(1.38), Inches(6.1), Inches(0.06), RED)
+add_textbox(slide, "✗  BUG — wced_module.py  (SCBert)",
+            Inches(0.55), Inches(1.48), Inches(5.8), Inches(0.42),
+            font_size=17, bold=True, color=RED)
+badge(slide, "NOT YOUR RUN", Inches(0.55), Inches(1.92), Inches(1.8), Inches(0.28),
+      bg=BADGE_RED, fg=RED, font_size=11, bold=True)
 
-# Left: BUG
-add_rect(slide, Inches(0.4), Inches(1.4), Inches(6.1), Inches(4.2), ACCENT)
-add_rect(slide, Inches(0.4), Inches(1.4), Inches(6.1), Inches(0.07), RED)
-add_textbox(slide, "❌  BUG — wced_module.py  (SCBert WCED)",
-            Inches(0.55), Inches(1.48), Inches(5.8), Inches(0.4),
-            font_size=16, bold=True, color=RED)
-add_textbox(slide, "NOT used by your LLaMA runs",
-            Inches(0.55), Inches(1.88), Inches(5.8), Inches(0.3),
-            font_size=12, color=ORANGE, italic=True)
-add_code_panel(slide, Inches(0.45), Inches(2.25), Inches(6.0), Inches(3.2), [
-    ("# _shared_step — INCORRECT", CODE_COMMENT),
-    ("non_input_mask_v1 = ~input_mask_v1", CODE_TEXT),
-    ("# valid_mask is in the batch but never read!", RED),
-    ("", CODE_TEXT),
-    ("loss_per_cpg = recon_loss_fn(pred, all_betas)", CODE_TEXT),
-    ("masked_loss  = loss_per_cpg * non_input_mask_v1.float()", CODE_TEXT),
-    ("recon_loss   = masked_loss.sum()", CODE_TEXT),
-    ("             / non_input_mask_v1.float().sum()", RED),
-    ("# ↑ denominator includes ~29k NaN positions!", RED),
-    ("", CODE_TEXT),
-    ("# Result: 75% of gradient signal is from NaN", RED),
-    ("# positions where target=0.0 (imputed, not real)", RED),
-])
+bug_points = [
+    ("recon_mask = ~input_mask ONLY",
+     "valid_mask is in the batch dict but never read"),
+    ("Denominator includes NaN positions",
+     "~29k NaN positions with target=0 are in the loss denominator"),
+    ("75% of gradient is from fake zeros",
+     "model is trained on artificial 0.0 values it never actually saw"),
+    ("MSE looks artificially low",
+     "easy-to-predict zeros pull the loss down — misleading metric"),
+    ("PCC computed on all non-input",
+     "correlation diluted by 29k positions with target=0"),
+]
+for i, (title, desc) in enumerate(bug_points):
+    y = Inches(2.32 + i * 0.82)
+    add_rect(slide, Inches(0.55), y + Inches(0.12), Inches(0.06), Inches(0.5), RED)
+    add_textbox(slide, title, Inches(0.72), y + Inches(0.1),
+                Inches(5.5), Inches(0.38), font_size=13, bold=True, color=RED)
+    add_textbox(slide, desc, Inches(0.72), y + Inches(0.46),
+                Inches(5.5), Inches(0.38), font_size=12, color=TEXT_BODY)
 
-# Right: FIX
-add_rect(slide, Inches(7.2), Inches(1.4), Inches(5.7), Inches(4.2), ACCENT)
-add_rect(slide, Inches(7.2), Inches(1.4), Inches(5.7), Inches(0.07), GREEN)
+card(slide, Inches(7.2), Inches(1.38), Inches(5.75), Inches(5.7),
+     bg=RGBColor(0xF0,0xFB,0xF5), border_color=GREEN)
+add_rect(slide, Inches(7.2), Inches(1.38), Inches(5.75), Inches(0.06), GREEN)
 add_textbox(slide, "✓  CORRECT — wced_llama.py  (LLaMA)",
-            Inches(7.35), Inches(1.48), Inches(5.4), Inches(0.4),
-            font_size=16, bold=True, color=GREEN)
-add_textbox(slide, "Used by run 44450919  (your 7-day pretrain)",
-            Inches(7.35), Inches(1.88), Inches(5.4), Inches(0.3),
-            font_size=12, color=HIGHLIGHT2, italic=True)
-add_code_panel(slide, Inches(7.25), Inches(2.25), Inches(5.6), Inches(3.2), [
-    ("# _shared_step — CORRECT", CODE_COMMENT),
-    ("non_input_mask = ~input_mask_v1", CODE_TEXT),
-    ("valid_mask = batch.get('valid_mask')", CODE_TEXT),
-    ("recon_mask = non_input_mask", CODE_TEXT),
-    ("if valid_mask is not None:", CODE_TEXT),
-    ("    recon_mask = non_input_mask & valid_mask", CODE_KEY),
-    ("# ↑ NaN positions excluded from loss", CODE_KEY),
-    ("", CODE_TEXT),
-    ("loss_per_cpg = recon_loss_fn(pred, all_betas)", CODE_TEXT),
-    ("masked_loss  = loss_per_cpg * recon_mask.float()", CODE_TEXT),
-    ("recon_loss   = masked_loss.sum()", CODE_TEXT),
-    ("             / recon_mask.float().sum().clamp(min=1)", CODE_KEY),
-    ("# ↑ denominator = only real, held-out CpGs", CODE_KEY),
-])
+            Inches(7.35), Inches(1.48), Inches(5.4), Inches(0.42),
+            font_size=17, bold=True, color=GREEN)
+badge(slide, "YOUR PRETRAIN RUN 44450919", Inches(7.35), Inches(1.92), Inches(2.7), Inches(0.28),
+      bg=BADGE_GREEN, fg=GREEN_DARK, font_size=11, bold=True)
 
-# Impact comparison
-add_rect(slide, Inches(0.4), Inches(5.75), Inches(12.5), Inches(1.05), ACCENT2)
-for i, (label, old_val, new_val, col) in enumerate([
-    ("Signal in recon loss:",  "25% real / 75% NaN zeros",    "~100% real measured CpGs", GREEN),
-    ("Reported MSE metric:",   "Artificially small (easy 0s)", "Honest — real CpGs only",  GREEN),
-    ("Your run affected?",     "N/A — not your code",          "✓ Already correct",        HIGHLIGHT),
+fix_points = [
+    ("recon_mask = ~input_mask  AND  valid_mask",
+     "valid_mask explicitly applied — NaN positions excluded"),
+    ("Denominator = recon_mask.sum()",
+     "only counts positions that are real AND held-out"),
+    ("100% of gradient from real CpGs",
+     "every position contributing to loss has a true β measurement"),
+    ("MSE is honest",
+     "no artificial zeros — metric reflects true reconstruction quality"),
+    ("PCC on real held-out only",
+     "correlation computed on the same clean mask as the loss"),
+]
+for i, (title, desc) in enumerate(fix_points):
+    y = Inches(2.32 + i * 0.82)
+    add_rect(slide, Inches(7.35), y + Inches(0.12), Inches(0.06), Inches(0.5), GREEN)
+    add_textbox(slide, title, Inches(7.52), y + Inches(0.1),
+                Inches(5.2), Inches(0.38), font_size=13, bold=True, color=GREEN)
+    add_textbox(slide, desc, Inches(7.52), y + Inches(0.46),
+                Inches(5.2), Inches(0.38), font_size=12, color=TEXT_BODY)
+
+# Impact comparison table
+card(slide, Inches(0.4), Inches(7.1), Inches(12.55), Inches(0.22), bg=PANEL_BG)
+for i, (label, old_val, new_val) in enumerate([
+    ("Real signal:", "25%", "~100%"),
 ]):
-    y = Inches(5.82 + i * 0.3)
-    add_textbox(slide, label,   Inches(0.55), y, Inches(2.5),  Inches(0.28), font_size=12, color=SUBTITLE_GRAY)
-    add_textbox(slide, old_val, Inches(3.2),  y, Inches(4.5),  Inches(0.28), font_size=12, color=RED)
-    add_textbox(slide, new_val, Inches(8.0),  y, Inches(4.5),  Inches(0.28), font_size=12, color=col)
+    pass  # handled below
+
+add_textbox(slide,
+    "Signal quality:  OLD = 25% real  ·  NEW = ~100% real     "
+    "Metric honesty:  OLD = inflated  ·  NEW = correct     "
+    "Your run:  ✓ Already correct from day 1",
+    Inches(0.55), Inches(7.12), Inches(12.2), Inches(0.2),
+    font_size=12, color=GREEN_DARK)
 
 
 # =============================================================================
-# SLIDE 10 — Pretrain Metrics (Run 44450919, Epoch 99)
+# SLIDE 10 — Pretrain Metrics
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Pretrain Results — Run 44450919  (Epoch 99 / 300)", Inches(7))
+set_bg(slide)
+slide_header(slide, "Pretrain Results — Run 44450919  (Epoch 99 / 300)",
+             "llama-small-all49k-r0.5-w0.0  ·  256D × 4L × 4H  ·  ~5M params  ·  Runtime: ~4.5 days")
 
-add_textbox(slide, "llama-small-all49k-r0.5-w0.0   |   256D × 4L × 4H  |  ~5M params  |  Runtime: 4.5 days",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=SUBTITLE_GRAY, italic=True)
-
-# Metric boxes — top row
-metrics_top = [
-    ("0.971",  "val/pcc\nRecon quality"),
-    ("0.043",  "val/mae\nBeta error [0,1]"),
-    ("0.006",  "val/loss\nRecon MSE"),
-    ("42.0%",  "valid_pct\nUseful positions/step"),
+# Top metrics
+top_m = [
+    ("0.971",  "val / pcc\nReconstruction quality",    GREEN,  BADGE_GREEN),
+    ("0.043",  "val / mae\nβ error on [0, 1]",          BLUE,   BADGE_BLUE),
+    ("0.006",  "val / loss\nRecon MSE",                  BLUE,   BADGE_BLUE),
+    ("42.0%",  "valid_pct\nUseful positions / step",    ORANGE, BADGE_ORANGE),
 ]
-for i, (val, label) in enumerate(metrics_top):
-    add_metric_box(slide, Inches(0.4 + i * 3.15), Inches(1.4),
-                   Inches(2.9), Inches(1.3), label, val,
-                   val_color=GREEN if i == 0 else ORANGE)
+for i, (val, label, vc, bg) in enumerate(top_m):
+    metric_card(slide, Inches(0.4 + i * 3.15), Inches(1.38),
+                Inches(2.9), Inches(1.25), val, label, val_color=vc, bg=bg)
 
-# CLS collapse diagnostics — second row
-add_textbox(slide, "CLS Collapse Diagnostics  (collapsed = bad):",
-            Inches(0.4), Inches(2.9), Inches(7), Inches(0.35),
-            font_size=16, bold=True, color=HIGHLIGHT)
-cls_metrics = [
-    ("0.376",  "cls_similarity\n(1.0 = fully collapsed)"),
-    ("0.429",  "cls_variance\n(0.0 = fully collapsed)"),
-    ("0.310",  "pred_std\n(0.0 = predicting mean)"),
-    ("0.570",  "pred_var_ratio\n(1.0 = perfect)"),
+# CLS diagnostics
+section_label(slide, "CLS COLLAPSE DIAGNOSTICS  (collapsed = bad)", Inches(0.4), Inches(2.82))
+cls_m = [
+    ("0.376",  "cls_similarity\n(1.0 = fully collapsed)",   GREEN,  BADGE_GREEN),
+    ("0.429",  "cls_variance\n(0.0 = fully collapsed)",      GREEN,  BADGE_GREEN),
+    ("0.310",  "pred_std\n(0.0 = predicting mean)",          GREEN,  BADGE_GREEN),
+    ("0.570",  "pred_var_ratio\n(1.0 = perfect spread)",     ORANGE, BADGE_ORANGE),
 ]
-for i, (val, label) in enumerate(cls_metrics):
-    add_metric_box(slide, Inches(0.4 + i * 3.15), Inches(3.3),
-                   Inches(2.9), Inches(1.3), label, val,
-                   val_color=GREEN if i < 3 else ORANGE)
+for i, (val, label, vc, bg) in enumerate(cls_m):
+    metric_card(slide, Inches(0.4 + i * 3.15), Inches(3.12),
+                Inches(2.9), Inches(1.25), val, label, val_color=vc, bg=bg)
 
-# NaN rate inference
-add_rect(slide, Inches(0.4), Inches(4.8), Inches(7.8), Inches(1.85), ACCENT)
-add_textbox(slide, "NaN Rate Inference from valid_pct Metric",
-            Inches(0.6), Inches(4.9), Inches(7.4), Inches(0.4),
-            font_size=16, bold=True, color=HIGHLIGHT)
+# Two info panels
+card(slide, Inches(0.4), Inches(4.55), Inches(6.1), Inches(2.05),
+     bg=PANEL_BG, border_color=BLUE)
+section_label(slide, "NaN RATE INFERENCE FROM valid_pct", Inches(0.55), Inches(4.62), BLUE)
 add_textbox(slide,
-    "valid_pct = (non-input ∩ non-NaN) / vocab_size = 42%\n"
-    "input = 50% of valid   →   non-input non-NaN ≈ 50% of valid\n"
-    "→  valid (non-NaN) ≈ 84% of 49,156   →   NaN rate ≈ 16%\n"
-    "→  ~41k of 49k probes are measured per sample on average",
-    Inches(0.6), Inches(5.35), Inches(7.4), Inches(1.2),
-    font_size=13, color=LIGHT_GRAY)
+    "valid_pct = (non-input ∩ non-NaN) / vocab = 42%\n"
+    "input = 50% of valid  →  non-input non-NaN = 50% of valid\n"
+    "→  valid (non-NaN) = 84% of 49,156\n"
+    "→  NaN rate ≈ 16%  (~41k of 49k probes measured per sample)",
+    Inches(0.55), Inches(4.98), Inches(5.7), Inches(1.5),
+    font_size=13, color=TEXT_BODY)
 
-# Training health
-add_rect(slide, Inches(8.4), Inches(4.8), Inches(4.5), Inches(1.85), ACCENT)
-add_textbox(slide, "Training Health",
-            Inches(8.6), Inches(4.9), Inches(4.1), Inches(0.4),
-            font_size=16, bold=True, color=HIGHLIGHT)
-for i, (label, val, col) in enumerate([
-    ("cpg_scale (init=0.1)", "3.68  ✓ growing", GREEN),
-    ("grad_norm",            "0.0018  (converging)", HIGHLIGHT2),
-    ("train/pcc",            "0.970  (no overfit)", GREEN),
-    ("LR at epoch 99",       "3.82e-4  (cosine decay)", LIGHT_GRAY),
-]):
-    y = Inches(5.35 + i * 0.3)
-    add_textbox(slide, label, Inches(8.6), y, Inches(2.2), Inches(0.28),
-                font_size=12, color=SUBTITLE_GRAY)
-    add_textbox(slide, val,   Inches(10.9), y, Inches(1.8), Inches(0.28),
-                font_size=12, color=col)
+card(slide, Inches(6.7), Inches(4.55), Inches(6.25), Inches(2.05),
+     bg=PANEL_BG, border_color=DIVIDER)
+section_label(slide, "TRAINING HEALTH", Inches(6.85), Inches(4.62), BLUE)
+health = [
+    ("cpg_scale", "3.68  ✓  (init=0.1 → growing healthily)", GREEN),
+    ("grad_norm",  "0.0018  (stable convergence)",             BLUE),
+    ("train/pcc",  "0.970  (no overfitting)",                  GREEN),
+    ("LR @ ep 99", "3.82e-4  (cosine decay on track)",         TEXT_BODY),
+]
+for i, (k, v, fc) in enumerate(health):
+    y = Inches(4.98 + i * 0.38)
+    add_textbox(slide, k, Inches(6.85), y, Inches(1.6), Inches(0.35),
+                font_size=12, bold=True, color=TEXT_LIGHT)
+    add_textbox(slide, v, Inches(8.5), y, Inches(4.35), Inches(0.35),
+                font_size=12, color=fc)
 
-# Interpretation
-add_rect(slide, Inches(0.4), Inches(6.8), Inches(12.5), Inches(0.5), ACCENT2)
+# Interpretation bar
+card(slide, Inches(0.4), Inches(6.75), Inches(12.55), Inches(0.5),
+     bg=BADGE_GREEN, border_color=GREEN)
 add_textbox(slide,
-    "✓ No CLS collapse   ✓ Reconstruction quality excellent   "
-    "⚠ pred_var_ratio=0.57 — slight underdispersion (expected with pure reconstruction)",
-    Inches(0.6), Inches(6.87), Inches(12.1), Inches(0.38),
-    font_size=14, color=HIGHLIGHT2)
+    "✓ No CLS collapse   ✓ Reconstruction excellent (PCC 0.971)   "
+    "⚠ pred_var_ratio = 0.57 — slight underdispersion (normal for pure reconstruction pretraining)",
+    Inches(0.55), Inches(6.82), Inches(12.2), Inches(0.38),
+    font_size=13, bold=True, color=GREEN_DARK)
 
 
 # =============================================================================
-# SLIDE 11 — PLACEHOLDER: Investigation Results — NaN Statistics
+# SLIDE 11 — PLACEHOLDER: NaN Statistics
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Data Investigation Results — NaN Statistics  [PENDING]", Inches(8))
-
-add_textbox(slide, "Run on cluster:  sbatch scripts/utils/investigate_data.sh",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+set_bg(slide)
+slide_header(slide, "Data Investigation Results — NaN Statistics  [PENDING]",
+             "Run on cluster:  sbatch scripts/utils/investigate_data.sh")
 
 add_textbox(slide, "⏳  Results pending — run investigation script and fill in below",
-            Inches(0.4), Inches(1.45), Inches(12.5), Inches(0.45),
+            Inches(0.4), Inches(1.42), Inches(12.55), Inches(0.42),
             font_size=16, bold=True, color=ORANGE)
 
-# Pretrain placeholders
-add_panel(slide, Inches(0.4), Inches(2.05), Inches(6.1), Inches(4.3),
-          "PRETRAIN  (169k × 49k)", HIGHLIGHT)
+card(slide, Inches(0.4), Inches(2.0), Inches(6.1), Inches(4.55),
+     bg=PANEL_BG, border_color=BLUE)
+section_label(slide, "PRETRAIN  (169k × 49k)", Inches(0.55), Inches(2.08), BLUE)
 for label, yoff in [
-    ("Total NaN count:             [ TBD ]", 0.75),
-    ("NaN %:                       [ TBD ]", 1.15),
-    ("Samples with ≥1% NaN:       [ TBD ]", 1.55),
-    ("Samples with ≥10% NaN:      [ TBD ]", 1.95),
-    ("Fully missing samples:       [ TBD ]", 2.35),
-    ("CpGs with ≥50% NaN:         [ TBD ]", 2.75),
-    ("Fully missing CpGs:          [ TBD ]", 3.15),
+    ("Total NaN count:                [ TBD ]", 0.55),
+    ("NaN %:                          [ TBD ]", 1.0),
+    ("Samples with ≥1% NaN:          [ TBD ]", 1.45),
+    ("Samples with ≥10% NaN:         [ TBD ]", 1.9),
+    ("Fully missing samples:          [ TBD ]", 2.35),
+    ("CpGs with ≥50% NaN:            [ TBD ]", 2.8),
+    ("Fully missing CpGs:             [ TBD ]", 3.25),
 ]:
-    add_textbox(slide, label, Inches(0.65), Inches(yoff + 2.05),
-                Inches(5.6), Inches(0.38), font_size=14, color=LIGHT_GRAY)
+    add_textbox(slide, label, Inches(0.6), Inches(yoff + 2.0),
+                Inches(5.6), Inches(0.4), font_size=14, color=TEXT_BODY)
 
-# Finetune placeholders
-add_panel(slide, Inches(7.0), Inches(2.05), Inches(5.9), Inches(4.3),
-          "FINE-TUNE  (11.5k × 49k)", GREEN)
+card(slide, Inches(7.0), Inches(2.0), Inches(5.9), Inches(4.55),
+     bg=PANEL_BG2, border_color=GREEN)
+section_label(slide, "FINE-TUNE  (11.5k × 49k)", Inches(7.15), Inches(2.08), GREEN)
 for label, yoff in [
-    ("Total NaN count:         [ TBD ]", 0.75),
-    ("NaN %:                   [ TBD ]", 1.15),
-    ("Samples with ≥1% NaN:   [ TBD ]", 1.55),
-    ("Samples with ≥10% NaN:  [ TBD ]", 1.95),
-    ("Train split NaN %:       [ TBD ]", 2.35),
-    ("Valid split NaN %:       [ TBD ]", 2.75),
-    ("Test  split NaN %:       [ TBD ]", 3.15),
+    ("Total NaN count:            [ TBD ]", 0.55),
+    ("NaN %:                      [ TBD ]", 1.0),
+    ("Samples with ≥1% NaN:      [ TBD ]", 1.45),
+    ("Samples with ≥10% NaN:     [ TBD ]", 1.9),
+    ("Train split NaN %:          [ TBD ]", 2.35),
+    ("Valid split NaN %:          [ TBD ]", 2.8),
+    ("Test  split NaN %:          [ TBD ]", 3.25),
 ]:
-    add_textbox(slide, label, Inches(7.25), Inches(yoff + 2.05),
-                Inches(5.4), Inches(0.38), font_size=14, color=LIGHT_GRAY)
+    add_textbox(slide, label, Inches(7.2), Inches(yoff + 2.0),
+                Inches(5.4), Inches(0.4), font_size=14, color=TEXT_BODY)
 
-add_rect(slide, Inches(0.4), Inches(6.5), Inches(12.5), Inches(0.75), ACCENT2)
+card(slide, Inches(0.4), Inches(6.68), Inches(12.55), Inches(0.55),
+     bg=BADGE_BLUE, border_color=BLUE)
 add_textbox(slide,
-    "Expected from valid_pct≈42%:  NaN rate ≈ 16% in pretrain corpus  |  "
-    "Fine-tune NaN rate may differ (different sample sources)",
-    Inches(0.6), Inches(6.6), Inches(12), Inches(0.5),
-    font_size=14, color=SUBTITLE_GRAY, italic=True)
+    "Expected from valid_pct ≈ 42%:  NaN rate ≈ 16% in pretrain  ·  "
+    "Fine-tune NaN rate may differ (different sample sources / array types)",
+    Inches(0.55), Inches(6.75), Inches(12.2), Inches(0.4),
+    font_size=13, italic=True, color=BLUE_DARK)
 
 
 # =============================================================================
 # SLIDE 12 — PLACEHOLDER: Beta Distribution
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Data Investigation Results — Beta Distribution  [PENDING]", Inches(8))
-
-add_textbox(slide, "Run on cluster:  sbatch scripts/utils/investigate_data.sh",
-            Inches(0.5), Inches(0.95), Inches(12), Inches(0.35),
-            font_size=14, color=CODE_TEXT, italic=True)
+set_bg(slide)
+slide_header(slide, "Data Investigation Results — Beta Distribution  [PENDING]",
+             "Run on cluster:  sbatch scripts/utils/investigate_data.sh")
 
 add_textbox(slide, "⏳  Results pending — paste percentile output from investigation script",
-            Inches(0.4), Inches(1.45), Inches(12.5), Inches(0.45),
+            Inches(0.4), Inches(1.42), Inches(12.55), Inches(0.42),
             font_size=16, bold=True, color=ORANGE)
 
-# Pretrain distribution
-add_panel(slide, Inches(0.4), Inches(2.05), Inches(6.1), Inches(4.3),
-          "PRETRAIN β-value Distribution", HIGHLIGHT)
-percs = ["0%", "1%", "5%", "25%", "50%", "75%", "95%", "99%", "100%"]
+card(slide, Inches(0.4), Inches(2.0), Inches(6.1), Inches(4.55),
+     bg=PANEL_BG, border_color=BLUE)
+section_label(slide, "PRETRAIN β-VALUE DISTRIBUTION", Inches(0.55), Inches(2.08), BLUE)
+percs = ["0% (min)", "1%", "5%", "25%", "50% (median)", "75%", "95%", "99%", "100% (max)"]
 for i, p in enumerate(percs):
-    y = Inches(2.8 + i * 0.37)
-    add_textbox(slide, f"  {p:>5s}:", Inches(0.65), y, Inches(1.2), Inches(0.35),
-                font_size=13, color=SUBTITLE_GRAY)
-    add_textbox(slide, "[ TBD ]", Inches(1.9), y, Inches(2.0), Inches(0.35),
-                font_size=13, color=LIGHT_GRAY)
+    y = Inches(2.58 + i * 0.38)
+    add_textbox(slide, p, Inches(0.6), y, Inches(2.2), Inches(0.35),
+                font_size=13, color=TEXT_LIGHT)
+    add_textbox(slide, "[ TBD ]", Inches(2.85), y, Inches(1.8), Inches(0.35),
+                font_size=13, bold=True, color=TEXT_BODY)
 
-# Finetune distribution
-add_panel(slide, Inches(7.0), Inches(2.05), Inches(5.9), Inches(4.3),
-          "FINE-TUNE β-value Distribution", GREEN)
+card(slide, Inches(7.0), Inches(2.0), Inches(5.9), Inches(4.55),
+     bg=PANEL_BG2, border_color=GREEN)
+section_label(slide, "FINE-TUNE β-VALUE DISTRIBUTION", Inches(7.15), Inches(2.08), GREEN)
 for i, p in enumerate(percs):
-    y = Inches(2.8 + i * 0.37)
-    add_textbox(slide, f"  {p:>5s}:", Inches(7.25), y, Inches(1.2), Inches(0.35),
-                font_size=13, color=SUBTITLE_GRAY)
-    add_textbox(slide, "[ TBD ]", Inches(8.5), y, Inches(2.0), Inches(0.35),
-                font_size=13, color=LIGHT_GRAY)
+    y = Inches(2.58 + i * 0.38)
+    add_textbox(slide, p, Inches(7.2), y, Inches(2.2), Inches(0.35),
+                font_size=13, color=TEXT_LIGHT)
+    add_textbox(slide, "[ TBD ]", Inches(9.45), y, Inches(1.8), Inches(0.35),
+                font_size=13, bold=True, color=TEXT_BODY)
 
-# Out-of-range check
-add_rect(slide, Inches(0.4), Inches(6.5), Inches(12.5), Inches(0.75), ACCENT2)
-for i, label in enumerate(["Out-of-range (β < 0 or β > 1):", "Duplicate sample IDs:", "Duplicate CpG IDs:"]):
+card(slide, Inches(0.4), Inches(6.68), Inches(12.55), Inches(0.55),
+     bg=BADGE_ORANGE, border_color=ORANGE)
+for i, label in enumerate(["Out-of-range (β<0 or β>1):", "Duplicate sample IDs:", "Duplicate CpG IDs:"]):
     add_textbox(slide, f"{label}  [ TBD ]",
-                Inches(0.6 + i * 4.2), Inches(6.6),
-                Inches(4.0), Inches(0.5),
-                font_size=14, color=LIGHT_GRAY)
+                Inches(0.55 + i * 4.2), Inches(6.75), Inches(4.0), Inches(0.4),
+                font_size=13, color=ORANGE_DARK)
 
 
 # =============================================================================
 # SLIDE 13 — Summary
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
-set_bg(slide, DARK_BG)
-slide_header(slide, "Summary", Inches(2.5))
+set_bg(slide)
+slide_header(slide, "Summary",
+             "The full NaN handling chain is correct in both pretrain and fine-tune LLaMA runs")
 
-# Left: pipeline summary
-add_panel(slide, Inches(0.4), Inches(1.1), Inches(5.9), Inches(5.7),
-          "Pipeline — What Each File Does", HIGHLIGHT)
+card(slide, Inches(0.4), Inches(1.38), Inches(5.9), Inches(5.75),
+     bg=PANEL_BG, border_color=BLUE)
+section_label(slide, "PIPELINE — WHAT EACH FILE DOES", Inches(0.55), Inches(1.48), BLUE)
 items = [
-    ("data_module.py — MethylationDataset",    "Reads β, computes valid_mask = isfinite(β)"),
-    ("data_module.py — WCEDCollator (2a)",      "Replaces NaN→0 in targets, stores valid_mask"),
-    ("data_module.py — WCEDCollator (2b)",      "Input views: only sample from valid positions"),
-    ("wced_llama.py — WCEDLlamaModule",         "recon_mask = ~input_mask & valid_mask"),
+    ("Step 1  ·  MethylationDataset",    "Reads β  ·  computes valid_mask = isfinite(β)  ·  NaN preserved", BLUE),
+    ("Step 2a  ·  WCEDCollator",         "NaN → 0 in all_betas  ·  valid_mask stored in batch dict",       ORANGE),
+    ("Step 2b  ·  WCEDCollator",         "Input views: only sample from valid_indices  ·  NaN never tokenised", PURPLE),
+    ("Step 3  ·  WCEDLlamaModule",       "recon_mask = ~input_mask & valid_mask  ·  honest denominator",    GREEN),
 ]
-for i, (title, desc) in enumerate(items):
-    y = Inches(1.8 + i * 1.15)
-    add_rect(slide, Inches(0.55), y, Inches(0.06), Inches(0.85), HIGHLIGHT)
-    add_textbox(slide, title, Inches(0.75), y + Inches(0.05),
-                Inches(5.2), Inches(0.38), font_size=13, bold=True, color=WHITE)
-    add_textbox(slide, desc, Inches(0.75), y + Inches(0.42),
-                Inches(5.2), Inches(0.38), font_size=12, color=LIGHT_GRAY)
+for i, (title, desc, color) in enumerate(items):
+    y = Inches(1.9 + i * 1.18)
+    add_rect(slide, Inches(0.55), y, Inches(0.06), Inches(1.0), color)
+    add_textbox(slide, title, Inches(0.75), y + Inches(0.06),
+                Inches(5.2), Inches(0.38), font_size=13, bold=True, color=color)
+    add_textbox(slide, desc, Inches(0.75), y + Inches(0.48),
+                Inches(5.2), Inches(0.45), font_size=12, color=TEXT_BODY)
 
-# Right: key conclusions
-add_panel(slide, Inches(7.0), Inches(1.1), Inches(5.9), Inches(2.6),
-          "Your LLaMA Runs — Status", GREEN)
-for i, (text, col) in enumerate([
-    ("✓ Pretrain run 44450919: correct NaN handling", GREEN),
-    ("✓ Fine-tune 44574410: recon_weight=0.0, NaN irrelevant", GREEN),
-    ("✓ wced_llama.py already had the fix from the start", GREEN),
-    ("✓ Bug exists only in old SCBert wced_module.py (not your run)", HIGHLIGHT2),
+card(slide, Inches(6.75), Inches(1.38), Inches(6.2), Inches(2.7),
+     bg=BADGE_GREEN, border_color=GREEN)
+section_label(slide, "YOUR LLAMA RUNS — STATUS", Inches(6.9), Inches(1.48), GREEN_DARK)
+for i, text in enumerate([
+    "✓  Pretrain 44450919: correct NaN handling",
+    "✓  Fine-tune 44574410: recon_weight=0.0 → NaN irrelevant",
+    "✓  wced_llama.py had the fix from the very start",
+    "✓  Bug exists only in old SCBert code (not your runs)",
 ]):
-    add_textbox(slide, text, Inches(7.2), Inches(1.75 + i * 0.48),
-                Inches(5.5), Inches(0.42), font_size=13, color=col)
+    add_textbox(slide, text, Inches(6.9), Inches(1.9 + i * 0.48),
+                Inches(5.8), Inches(0.42), font_size=13, color=GREEN_DARK)
 
-add_panel(slide, Inches(7.0), Inches(3.85), Inches(5.9), Inches(3.0),
-          "Pretrain Quality Check (Epoch 99)", ORANGE)
-for i, (text, col) in enumerate([
-    ("PCC = 0.971  — excellent reconstruction", GREEN),
-    ("MAE = 0.043  — 4.3% error on [0,1]",      GREEN),
-    ("cls_similarity = 0.376  — no CLS collapse", GREEN),
-    ("cls_variance = 0.429    — healthy diversity", GREEN),
-    ("pred_var_ratio = 0.570  — slight underdispersion", ORANGE),
-    ("valid_pct ≈ 42%  →  NaN rate ≈ 16%", HIGHLIGHT2),
-]):
-    add_textbox(slide, text, Inches(7.2), Inches(4.5 + i * 0.38),
-                Inches(5.5), Inches(0.35), font_size=13, color=col)
+card(slide, Inches(6.75), Inches(4.22), Inches(6.2), Inches(2.9),
+     bg=BADGE_ORANGE, border_color=ORANGE)
+section_label(slide, "PRETRAIN QUALITY  (EPOCH 99)", Inches(6.9), Inches(4.32), ORANGE_DARK)
+checks = [
+    ("PCC = 0.971",          "excellent reconstruction",      GREEN),
+    ("MAE = 0.043",          "4.3% error on [0,1]",           GREEN),
+    ("cls_similarity = 0.376", "no CLS collapse",             GREEN),
+    ("cls_variance = 0.429",  "healthy representation diversity", GREEN),
+    ("pred_var_ratio = 0.570", "slight underdispersion — expected", ORANGE),
+    ("valid_pct ≈ 42%",      "NaN rate ≈ 16% in pretrain corpus", BLUE),
+]
+for i, (k, v, fc) in enumerate(checks):
+    y = Inches(4.72 + i * 0.38)
+    add_textbox(slide, k, Inches(6.9), y, Inches(2.4), Inches(0.35),
+                font_size=12, bold=True, color=fc)
+    add_textbox(slide, v, Inches(9.35), y, Inches(3.45), Inches(0.35),
+                font_size=12, color=TEXT_BODY)
 
-add_rect(slide, Inches(0.4), Inches(6.95), Inches(12.5), Inches(0.38), ACCENT2)
+card(slide, Inches(0.4), Inches(7.2), Inches(12.55), Inches(0.22), bg=PANEL_BG)
 add_textbox(slide,
-    "Next step: paste investigate_data.sh results into slides 11–12  |  "
+    "Next: paste investigate_data.sh results into slides 11–12  ·  "
     "Monitor finetune val/r2 to assess if reconstruction pretraining transferred to age prediction",
-    Inches(0.6), Inches(7.0), Inches(12.1), Inches(0.3),
-    font_size=12, color=SUBTITLE_GRAY, italic=True)
+    Inches(0.55), Inches(7.22), Inches(12.2), Inches(0.2),
+    font_size=12, color=TEXT_LIGHT, italic=True)
 
 
 # =============================================================================
