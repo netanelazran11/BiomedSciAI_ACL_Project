@@ -362,7 +362,8 @@ def print_interpretation(results):
         dup_ok = r["dup_samples"] == 0 and r["dup_cpg"] == 0
         miss_ok = r["full_missing_samples"] == 0 and r["full_missing_cpgs"] == 0
         print(f"\n  [{r['dataset']}]")
-        print(f"    NaN rate       : {'✅ Low (<1%)' if nan_ok else f'⚠️  High ({r[\"nan_pct\"]:.2f}%) — model must mask or impute'}")
+        nan_msg = "✅ Low (<1%)" if nan_ok else f'⚠️  High ({r["nan_pct"]:.2f}%) — model must mask or impute'
+        print(f"    NaN rate       : {nan_msg}")
         print(f"    Duplicates     : {'✅ None' if dup_ok else '⚠️  Found — deduplicate before training'}")
         print(f"    Fully missing  : {'✅ None' if miss_ok else '⚠️  Found — filter before training'}")
         print(f"    Label columns  : {r['label_cols']}")
