@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=0:30:00
+#SBATCH --mem=128G
+#SBATCH --time=1:00:00
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-smoke/investigate_data_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-smoke/investigate_data_%j.err
 
@@ -16,7 +16,7 @@ cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 
 echo "============================================================"
-echo " Dataset Investigation — Methylation h5ad"
+echo " Dataset Investigation — Pretrain 169k×49k + Finetune 11.5k×49k"
 echo " Time: $(date)"
 echo "============================================================"
 
