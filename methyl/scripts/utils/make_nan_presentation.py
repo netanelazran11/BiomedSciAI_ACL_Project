@@ -312,9 +312,9 @@ table_row(slide,
 add_rect(slide, Inches(0.5), Inches(5.18), Inches(12.4), Inches(0.02), DIVIDER)
 
 rows = [
-    ("450k-array sample", "~19,600", "~29,556", "~60%", RED,   "Most legacy EWAS"),
-    ("EPIC-array sample",  "~40,000", "~9,156",  "~19%", ORANGE,"Modern arrays"),
-    ("27k-array sample",   "~27,000", "~22,156", "~45%", ORANGE,"Older datasets"),
+    ("450k-array sample", "~19,600", "~29,556", "~60%", RED,   "Fine-tune dataset (confirmed)"),
+    ("EPIC-array sample",  "~40,000", "~9,156",  "~19%", ORANGE,"Most of pretrain corpus"),
+    ("27k-array sample",   "~27,000", "~22,156", "~45%", ORANGE,"Some of pretrain corpus"),
 ]
 for i, (samp, valid, nan, rate, rc, tip) in enumerate(rows):
     y = Inches(5.22 + i * 0.58)
@@ -584,9 +584,9 @@ bar_h    = Inches(0.72)
 bar_total_w = Inches(12.2)
 
 segments = [
-    ("NaN positions\n~8k  (16%)",    0.16, BADGE_RED,    RED),
-    ("Input view\n~20.5k  (42%)",    0.42, BADGE_ORANGE, ORANGE),
-    ("Held-out (recon target)\n~20.5k  (42%)", 0.42, BADGE_GREEN, GREEN),
+    ("NaN positions\n~4.3k  (8.7%)",   0.087, BADGE_RED,    RED),
+    ("Input view\n~22.5k  (45.7%)",    0.457, BADGE_ORANGE, ORANGE),
+    ("Held-out (recon target)\n~22.5k  (45.7%)", 0.456, BADGE_GREEN, GREEN),
 ]
 x = bar_left
 for label, frac, bg, fg in segments:
@@ -606,12 +606,12 @@ section_label(slide, "INPUT RATIO FORMULA", Inches(0.4), Inches(2.66))
 card(slide, Inches(0.4), Inches(2.96), Inches(7.2), Inches(1.5),
      bg=PANEL_BG, border_color=BLUE)
 add_textbox(slide,
-    "valid_indices  =  positions where isfinite(β)  →  ~41k of 49k",
+    "valid_indices  =  positions where isfinite(β)  →  ~44.9k of 49k  (NaN rate = 8.7%)",
     Inches(0.55), Inches(3.02), Inches(6.9), Inches(0.4),
     font_size=14, color=TEXT_BODY)
 add_textbox(slide,
     "n_input  =  int( len(valid_indices)  ×  input_ratio )\n"
-    "         =  int( 41,000  ×  0.5 )  =  20,500",
+    "         =  int( 44,900  ×  0.5 )  =  22,450",
     Inches(0.55), Inches(3.42), Inches(6.9), Inches(0.55),
     font_size=14, bold=True, color=BLUE)
 add_textbox(slide,
@@ -878,10 +878,10 @@ card(slide, Inches(0.4), Inches(4.55), Inches(6.1), Inches(2.05),
      bg=PANEL_BG, border_color=BLUE)
 section_label(slide, "NaN RATE INFERENCE FROM valid_pct", Inches(0.55), Inches(4.62), BLUE)
 add_textbox(slide,
-    "valid_pct = (non-input ∩ non-NaN) / vocab = 42%\n"
-    "input = 50% of valid  →  non-input non-NaN = 50% of valid\n"
-    "→  valid (non-NaN) = 84% of 49,156\n"
-    "→  NaN rate ≈ 16%  (~41k of 49k probes measured per sample)",
+    "Investigation confirms:  NaN rate = 8.69% in pretrain\n"
+    "→  ~44.9k of 49k probes measured per sample on average\n"
+    "valid_pct ≈ 42% = (0.5 × 44.9k) / 49.15k  ✓ consistent\n"
+    "Pretrain corpus is dominated by EPIC-array samples",
     Inches(0.55), Inches(4.98), Inches(5.7), Inches(1.5),
     font_size=13, color=TEXT_BODY)
 
@@ -912,95 +912,154 @@ add_textbox(slide,
 
 
 # =============================================================================
-# SLIDE 11 — PLACEHOLDER: NaN Statistics
+# SLIDE 11 — Investigation Results — NaN Statistics
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
 set_bg(slide)
-slide_header(slide, "Data Investigation Results — NaN Statistics  [PENDING]",
-             "Run on cluster:  sbatch scripts/utils/investigate_data.sh")
+slide_header(slide, "Data Investigation Results — NaN Statistics",
+             "Job 44584079  ·  Mon Apr 27 10:20–10:28 IDT 2026")
 
-add_textbox(slide, "⏳  Results pending — run investigation script and fill in below",
-            Inches(0.4), Inches(1.42), Inches(12.55), Inches(0.42),
-            font_size=16, bold=True, color=ORANGE)
-
-card(slide, Inches(0.4), Inches(2.0), Inches(6.1), Inches(4.55),
+# Pretrain card
+card(slide, Inches(0.4), Inches(1.38), Inches(6.1), Inches(5.4),
      bg=PANEL_BG, border_color=BLUE)
-section_label(slide, "PRETRAIN  (169k × 49k)", Inches(0.55), Inches(2.08), BLUE)
-for label, yoff in [
-    ("Total NaN count:                [ TBD ]", 0.55),
-    ("NaN %:                          [ TBD ]", 1.0),
-    ("Samples with ≥1% NaN:          [ TBD ]", 1.45),
-    ("Samples with ≥10% NaN:         [ TBD ]", 1.9),
-    ("Fully missing samples:          [ TBD ]", 2.35),
-    ("CpGs with ≥50% NaN:            [ TBD ]", 2.8),
-    ("Fully missing CpGs:             [ TBD ]", 3.25),
-]:
-    add_textbox(slide, label, Inches(0.6), Inches(yoff + 2.0),
-                Inches(5.6), Inches(0.4), font_size=14, color=TEXT_BODY)
+section_label(slide, "PRETRAIN  (169,120 × 49,156)", Inches(0.55), Inches(1.48), BLUE)
+pre_rows = [
+    ("Total β-values",        "8,313,262,720",   TEXT_BODY),
+    ("NaN count",             "722,036,387",      RED),
+    ("NaN %",                 "8.69%",            RED),
+    ("Samples with ≥1% NaN",  "91,652  (54.2%)", ORANGE),
+    ("Samples with ≥10% NaN", "35,329  (20.9%)", ORANGE),
+    ("Samples with ≥50% NaN", "16,860  (10.0%)", RED),
+    ("CpGs with ≥10% NaN",    "24,928  (50.7%)", ORANGE),
+    ("Fully missing samples",  "0  ✓",            GREEN),
+    ("Fully missing CpGs",     "0  ✓",            GREEN),
+    ("Duplicate samples",      "0  ✓",            GREEN),
+    ("β out-of-range [0,1]",   "248,776  ⚠",      ORANGE),
+]
+for i, (k, v, vc) in enumerate(pre_rows):
+    y = Inches(1.92 + i * 0.41)
+    add_textbox(slide, k, Inches(0.6), y, Inches(3.2), Inches(0.38),
+                font_size=13, color=TEXT_LIGHT)
+    add_textbox(slide, v, Inches(3.85), y, Inches(2.5), Inches(0.38),
+                font_size=13, bold=True, color=vc)
 
-card(slide, Inches(7.0), Inches(2.0), Inches(5.9), Inches(4.55),
+# Fine-tune card
+card(slide, Inches(6.75), Inches(1.38), Inches(6.2), Inches(5.4),
      bg=PANEL_BG2, border_color=GREEN)
-section_label(slide, "FINE-TUNE  (11.5k × 49k)", Inches(7.15), Inches(2.08), GREEN)
-for label, yoff in [
-    ("Total NaN count:            [ TBD ]", 0.55),
-    ("NaN %:                      [ TBD ]", 1.0),
-    ("Samples with ≥1% NaN:      [ TBD ]", 1.45),
-    ("Samples with ≥10% NaN:     [ TBD ]", 1.9),
-    ("Train split NaN %:          [ TBD ]", 2.35),
-    ("Valid split NaN %:          [ TBD ]", 2.8),
-    ("Test  split NaN %:          [ TBD ]", 3.25),
-]:
-    add_textbox(slide, label, Inches(7.2), Inches(yoff + 2.0),
-                Inches(5.4), Inches(0.4), font_size=14, color=TEXT_BODY)
+section_label(slide, "FINE-TUNE  (11,453 × 49,156)", Inches(6.9), Inches(1.48), GREEN)
+ft_rows = [
+    ("Total β-values",          "562,983,668",     TEXT_BODY),
+    ("NaN count",               "338,413,244",     RED),
+    ("NaN %",                   "60.11%",          RED),
+    ("Samples with ≥50% NaN",   "11,453  (100%)",  RED),
+    ("CpGs with 100% NaN",      "29,548  (60.1%)", RED),
+    ("CpGs with 0 NaN",         "19,608  (39.9%)", GREEN),
+    ("Train NaN %",             "60.11%",          ORANGE),
+    ("Valid NaN %",             "60.11%",          ORANGE),
+    ("Test  NaN %",             "60.11%",          ORANGE),
+    ("Duplicate sample IDs",    "5,992  ⚠",        RED),
+    ("β out-of-range [0,1]",    "0  ✓",            GREEN),
+]
+for i, (k, v, vc) in enumerate(ft_rows):
+    y = Inches(1.92 + i * 0.41)
+    add_textbox(slide, k, Inches(6.9), y, Inches(3.3), Inches(0.38),
+                font_size=13, color=TEXT_LIGHT)
+    add_textbox(slide, v, Inches(10.25), y, Inches(2.5), Inches(0.38),
+                font_size=13, bold=True, color=vc)
 
-card(slide, Inches(0.4), Inches(6.68), Inches(12.55), Inches(0.55),
+# Key insight
+card(slide, Inches(0.4), Inches(6.92), Inches(12.55), Inches(0.42),
      bg=BADGE_BLUE, border_color=BLUE)
 add_textbox(slide,
-    "Expected from valid_pct ≈ 42%:  NaN rate ≈ 16% in pretrain  ·  "
-    "Fine-tune NaN rate may differ (different sample sources / array types)",
-    Inches(0.55), Inches(6.75), Inches(12.2), Inches(0.4),
-    font_size=13, italic=True, color=BLUE_DARK)
+    "Key insight:  Fine-tune = pure 450k-array dataset  "
+    "(29,548 CpGs are 100% NaN across ALL samples → single array type)  ·  "
+    "Pretrain NaN = 8.69% → mostly EPIC-array samples",
+    Inches(0.55), Inches(6.97), Inches(12.2), Inches(0.32),
+    font_size=12, bold=True, color=BLUE_DARK)
 
 
 # =============================================================================
-# SLIDE 12 — PLACEHOLDER: Beta Distribution
+# SLIDE 12 — Investigation Results — Beta Distribution
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
 set_bg(slide)
-slide_header(slide, "Data Investigation Results — Beta Distribution  [PENDING]",
-             "Run on cluster:  sbatch scripts/utils/investigate_data.sh")
+slide_header(slide, "Data Investigation Results — β-Value Distribution",
+             "Job 44584079  ·  Valid values only (NaN excluded from all statistics)")
 
-add_textbox(slide, "⏳  Results pending — paste percentile output from investigation script",
-            Inches(0.4), Inches(1.42), Inches(12.55), Inches(0.42),
-            font_size=16, bold=True, color=ORANGE)
-
-card(slide, Inches(0.4), Inches(2.0), Inches(6.1), Inches(4.55),
+# Pretrain distribution
+card(slide, Inches(0.4), Inches(1.38), Inches(5.5), Inches(5.6),
      bg=PANEL_BG, border_color=BLUE)
-section_label(slide, "PRETRAIN β-VALUE DISTRIBUTION", Inches(0.55), Inches(2.08), BLUE)
-percs = ["0% (min)", "1%", "5%", "25%", "50% (median)", "75%", "95%", "99%", "100% (max)"]
-for i, p in enumerate(percs):
-    y = Inches(2.58 + i * 0.38)
-    add_textbox(slide, p, Inches(0.6), y, Inches(2.2), Inches(0.35),
+section_label(slide, "PRETRAIN  β-VALUE DISTRIBUTION", Inches(0.55), Inches(1.48), BLUE)
+add_textbox(slide, "7,591,226,333 valid values sampled",
+            Inches(0.55), Inches(1.78), Inches(5.1), Inches(0.3),
+            font_size=12, italic=True, color=TEXT_LIGHT)
+pre_percs = [
+    ("0%   (min)",    "-0.3389", RED),
+    ("1%",            " 0.0100", TEXT_BODY),
+    ("5%",            " 0.0236", TEXT_BODY),
+    ("25%",           " 0.0700", TEXT_BODY),
+    ("50%  (median)", " 0.2860", BLUE),
+    ("75%",           " 0.6679", TEXT_BODY),
+    ("95%",           " 0.9134", TEXT_BODY),
+    ("99%",           " 0.9620", TEXT_BODY),
+    ("100% (max)",    " 1.1030", ORANGE),
+]
+for i, (p, v, vc) in enumerate(pre_percs):
+    y = Inches(2.12 + i * 0.52)
+    add_textbox(slide, p, Inches(0.6), y, Inches(2.0), Inches(0.4),
                 font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, "[ TBD ]", Inches(2.85), y, Inches(1.8), Inches(0.35),
-                font_size=13, bold=True, color=TEXT_BODY)
+    add_textbox(slide, v, Inches(2.65), y, Inches(1.5), Inches(0.4),
+                font_size=14, bold=True, color=vc)
 
-card(slide, Inches(7.0), Inches(2.0), Inches(5.9), Inches(4.55),
-     bg=PANEL_BG2, border_color=GREEN)
-section_label(slide, "FINE-TUNE β-VALUE DISTRIBUTION", Inches(7.15), Inches(2.08), GREEN)
-for i, p in enumerate(percs):
-    y = Inches(2.58 + i * 0.38)
-    add_textbox(slide, p, Inches(7.2), y, Inches(2.2), Inches(0.35),
-                font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, "[ TBD ]", Inches(9.45), y, Inches(1.8), Inches(0.35),
-                font_size=13, bold=True, color=TEXT_BODY)
-
-card(slide, Inches(0.4), Inches(6.68), Inches(12.55), Inches(0.55),
+# Pretrain: out-of-range highlight
+card(slide, Inches(0.4), Inches(6.88), Inches(5.5), Inches(0.42),
      bg=BADGE_ORANGE, border_color=ORANGE)
-for i, label in enumerate(["Out-of-range (β<0 or β>1):", "Duplicate sample IDs:", "Duplicate CpG IDs:"]):
-    add_textbox(slide, f"{label}  [ TBD ]",
-                Inches(0.55 + i * 4.2), Inches(6.75), Inches(4.0), Inches(0.4),
-                font_size=13, color=ORANGE_DARK)
+add_textbox(slide, "Out-of-range β < 0 or β > 1:  248,776 values  ⚠  (raw Illumina noise — not a bug)",
+            Inches(0.55), Inches(6.93), Inches(5.2), Inches(0.32),
+            font_size=12, color=ORANGE_DARK)
+
+# Fine-tune distribution
+card(slide, Inches(6.2), Inches(1.38), Inches(5.5), Inches(5.6),
+     bg=PANEL_BG2, border_color=GREEN)
+section_label(slide, "FINE-TUNE  β-VALUE DISTRIBUTION", Inches(6.35), Inches(1.48), GREEN)
+add_textbox(slide, "224,570,424 valid values  (39.9% of total slots)",
+            Inches(6.35), Inches(1.78), Inches(5.1), Inches(0.3),
+            font_size=12, italic=True, color=TEXT_LIGHT)
+ft_percs = [
+    ("0%   (min)",    " 0.0000", TEXT_BODY),
+    ("1%",            " 0.0086", TEXT_BODY),
+    ("5%",            " 0.0188", TEXT_BODY),
+    ("25%",           " 0.0400", TEXT_BODY),
+    ("50%  (median)", " 0.0825", BLUE),
+    ("75%",           " 0.4881", TEXT_BODY),
+    ("95%",           " 0.9050", TEXT_BODY),
+    ("99%",           " 0.9498", TEXT_BODY),
+    ("100% (max)",    " 1.0000", GREEN),
+]
+for i, (p, v, vc) in enumerate(ft_percs):
+    y = Inches(2.12 + i * 0.52)
+    add_textbox(slide, p, Inches(6.35), y, Inches(2.0), Inches(0.4),
+                font_size=13, color=TEXT_LIGHT)
+    add_textbox(slide, v, Inches(8.4), y, Inches(1.5), Inches(0.4),
+                font_size=14, bold=True, color=vc)
+
+card(slide, Inches(6.2), Inches(6.88), Inches(5.5), Inches(0.42),
+     bg=BADGE_GREEN, border_color=GREEN)
+add_textbox(slide, "Out-of-range β:  0  ✓  (fine-tune values are perfectly in [0, 1])",
+            Inches(6.35), Inches(6.93), Inches(5.2), Inches(0.32),
+            font_size=12, color=GREEN_DARK)
+
+# Distribution insight panel
+card(slide, Inches(0.4), Inches(1.38), Inches(0.0), Inches(0.0),  # spacer
+     bg=BG, border_color=None)
+card(slide, Inches(11.75), Inches(1.38), Inches(1.2), Inches(5.6),
+     bg=PANEL_BG, border_color=DIVIDER)
+section_label(slide, "KEY", Inches(11.8), Inches(1.48), TEXT_LIGHT)
+add_textbox(slide,
+    "Pretrain\nmedian\n0.286\n\nFine-tune\nmedian\n0.083\n\nDifferent\ndistributions!\n\n"
+    "Pretrain:\nmore hemi-\nmethylated\nsites\n\nFine-tune:\nmore un-\nmethylated",
+    Inches(11.8), Inches(1.78), Inches(1.1), Inches(5.1),
+    font_size=11, color=TEXT_BODY)
 
 
 # =============================================================================
