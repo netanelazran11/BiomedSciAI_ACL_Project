@@ -1006,7 +1006,7 @@ for i, (label, val, vc, bg_c) in enumerate([
     ("Pretrain NaN %",          "8.69%",        BLUE,   BADGE_BLUE),
     ("Fine-tune NaN %",         "60.11%",       RED,    BADGE_RED),
     ("Fine-tune fully-missing\nCpGs (100% NaN)","29,548 / 49,156", RED,   BADGE_RED),
-    ("Fine-tune duplicate\nsample IDs",         "5,992  ⚠",        ORANGE, BADGE_ORANGE),
+    ("Fine-tune splits\ntrain / val / test",    "5,461 / 1,366 / 4,626", BLUE, BADGE_BLUE),
 ]):
     lx = Inches(0.4 + i * 3.22)
     card(slide, lx, Inches(4.48), Inches(3.05), Inches(1.18), bg=bg_c, border_color=None)
