@@ -194,22 +194,34 @@ class MethylationAgeRegressorWCED(pl.LightningModule):
 
         # Reconstruction regularizer — keeps CLS globally informative
         recon_loss = torch.tensor(0.0, device=cls_embedding.device)
-        if self.decoder is not None and "all_betas" in batch:
-            predicted_betas = self.decoder(cls_embedding)       # [batch, vocab_size]
-            all_betas = batch["all_betas"]                      # [batch, vocab_size]
-            input_mask = batch.get("input_mask")                # [batch, vocab_size] bool
+        if self.decoder is not None:
+            predicted_betas = self.decoder(cls_embedding)   # [batch, vocab_size]
 
-            recon_per_cpg = self.recon_loss_fn(predicted_betas, all_betas)
-
-            if input_mask is not None:
-                # Loss only on CpGs NOT in input (same as WCED pretraining)
-                non_input = ~input_mask
-                recon_loss = (
-                    (recon_per_cpg * non_input.float()).sum()
-                    / non_input.float().sum().clamp(min=1)
+            if "labels" in batch:
+                # BMFM-style: -100 at input/unmeasured positions; real β at held-out.
+                # No valid_mask or input_mask needed.
+                labels_t = batch["labels"]
+                recon_mask = (labels_t != -100.0)
+                target_betas = labels_t.clamp(min=0.0)
+            elif "all_betas" in batch:
+                # Original format: reconstruct from all_betas + input_mask + valid_mask.
+                target_betas = batch["all_betas"]
+                input_mask = batch.get("input_mask")
+                valid_mask = batch.get("valid_mask")
+                non_input = ~input_mask if input_mask is not None else torch.ones_like(
+                    target_betas, dtype=torch.bool
                 )
+                recon_mask = non_input & valid_mask if valid_mask is not None else non_input
             else:
-                recon_loss = recon_per_cpg.mean()
+                recon_mask = None
+                target_betas = None
+
+            if recon_mask is not None and recon_mask.any():
+                recon_per_cpg = self.recon_loss_fn(predicted_betas, target_betas)
+                recon_loss = (
+                    (recon_per_cpg * recon_mask.float()).sum()
+                    / recon_mask.float().sum().clamp(min=1)
+                )
 
         total_loss = age_loss + self.recon_weight * recon_loss
 
@@ -407,6 +419,7 @@ def main(cfg: DictConfig):
     # input_ratio = 0.5 (matches WCED pretraining: 50% of vocab per view)
     # -------------------------------------------------------------------------
     subset_k = cfg.data_module.get('subset_k', 8000)
+    bmfm_style = cfg.data_module.get('bmfm_style', False)
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -422,8 +435,9 @@ def main(cfg: DictConfig):
         subset_k=subset_k,
         fixed_subset=cfg.data_module.get('fixed_subset', False),
         fixed_subset_seed=cfg.data_module.get('fixed_subset_seed', 42),
-        use_wced_collator=True,     # Use WCEDCollator → provides all_betas + input_mask
-        wced_input_ratio=0.5,       # Match WCED pretraining: 50% of vocab per view
+        use_wced_collator=True,
+        wced_input_ratio=0.5,
+        bmfm_style=bmfm_style,      # True → BMFMWCEDCollator + -100 labels; False → WCEDCollator
     )
     data_module.setup()
 

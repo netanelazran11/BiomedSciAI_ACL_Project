@@ -164,6 +164,7 @@ class MethylationDataset(Dataset):
         split_column: str = "split",
         normalize_age: bool = True,
         min_age: Optional[float] = None,
+        bmfm_style: bool = False,
     ):
         """
         Args:
@@ -172,6 +173,10 @@ class MethylationDataset(Dataset):
             age_column: Column name for age in obs
             split_column: Column name for split in obs
             normalize_age: Whether to normalize age values
+            bmfm_style: If True, returns only measured CpGs in data and places
+                the full beta vector in metadata for BMFM-style label construction.
+                Requires BMFMWCEDCollator. If False (default), returns the full
+                49k array (NaN preserved) for WCEDCollator / MethylationCollator.
         """
         self.h5ad_path = h5ad_path
         self.split = split
@@ -179,6 +184,7 @@ class MethylationDataset(Dataset):
         self.split_column = split_column
         self.normalize_age = normalize_age
         self.min_age = min_age
+        self.bmfm_style = bmfm_style
 
         # Load data (with h5py fallback for old-format h5ad files)
         self.adata = _read_h5ad_robust(h5ad_path)
@@ -266,34 +272,52 @@ class MethylationDataset(Dataset):
         Get a sample as a MultiFieldInstance.
 
         Returns:
-            MultiFieldInstance with beta_values (continuous) and optional valid_mask
+            When bmfm_style=False (default): full 49k array (NaN preserved) +
+            valid_mask in data — expected by WCEDCollator / MethylationCollator.
+
+            When bmfm_style=True: only measured CpGs in data (variable length,
+            no NaN ever enters the sequence); full beta array in metadata so
+            BMFMWCEDCollator can build -100 labels for unmeasured and input
+            positions without propagating valid_mask through the forward pass.
         """
-        # Get beta values
         beta_values = self.adata.X[idx]
         if hasattr(beta_values, 'toarray'):
             beta_values = beta_values.toarray().flatten()
         beta_values = beta_values.astype(np.float32)
         valid_mask = np.isfinite(beta_values)
 
-        # Get age (normalized if requested)
         age = self.ages[idx]
         if self.normalize_age:
             age = (age - self.age_mean) / self.age_std
 
-        # Create MultiFieldInstance with data and metadata
-        # Labels go in metadata, not data (data is for model inputs)
-        mfi = MultiFieldInstance(
+        if self.bmfm_style:
+            # Only measured CpGs enter the sequence; NaN positions are absent,
+            # not replaced with a placeholder. The collator uses full_betas to
+            # build the -100 label tensor for reconstruction supervision.
+            measured_idx = np.where(valid_mask)[0]
+            return MultiFieldInstance(
+                data={
+                    "cpg_sites": [self.cpg_sites[j] for j in measured_idx],
+                    "beta_values": beta_values[measured_idx].tolist(),
+                },
+                metadata={
+                    "labels": float(age),
+                    "cell_name": str(idx),
+                    "full_betas": beta_values,  # NaN for unmeasured; label construction only
+                },
+            )
+
+        # Original format: WCEDCollator / MethylationCollator read the full array
+        return MultiFieldInstance(
             data={
-                "beta_values": beta_values.tolist(),  # Continuous values
+                "beta_values": beta_values.tolist(),
                 "valid_mask": valid_mask.tolist(),
             },
             metadata={
                 "labels": float(age),
-                "cell_name": str(idx),  # Sample identifier
-            }
+                "cell_name": str(idx),
+            },
         )
-
-        return mfi
 
 
 class MethylationDataModule(pl.LightningDataModule):
@@ -337,6 +361,7 @@ class MethylationDataModule(pl.LightningDataModule):
         use_wced_collator: bool = False,  # Use WCEDCollator (provides all_betas + input_mask)
         wced_input_ratio: float = 0.5,    # Fraction of vocab per view (matches pretraining)
         min_age: Optional[float] = None,  # Exclude samples below this age from age loss (e.g. 1.0 removes placenta/sperm)
+        bmfm_style: bool = False,         # Use BMFM-style dataset + BMFMWCEDCollator
     ):
         """
         Args:
@@ -394,6 +419,7 @@ class MethylationDataModule(pl.LightningDataModule):
         self.use_wced_collator = use_wced_collator
         self.wced_input_ratio = wced_input_ratio
         self.min_age = min_age
+        self.bmfm_style = bmfm_style
 
         # Will be set during setup
         self.train_dataset = None
@@ -415,6 +441,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
+                bmfm_style=self.bmfm_style,
             )
             self.val_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
@@ -423,6 +450,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
+                bmfm_style=self.bmfm_style,
             )
             # Share normalization stats from training
             self.val_dataset.age_mean = self.train_dataset.age_mean
@@ -436,42 +464,48 @@ class MethylationDataModule(pl.LightningDataModule):
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
+                bmfm_style=self.bmfm_style,
             )
             if self.train_dataset is not None:
                 self.test_dataset.age_mean = self.train_dataset.age_mean
                 self.test_dataset.age_std = self.train_dataset.age_std
 
+        # Resolve CpG site list for collator
+        cpg_sites = None
+        for ds in (self.train_dataset, self.val_dataset, self.test_dataset):
+            if ds is not None:
+                cpg_sites = ds.cpg_sites
+                break
+
         # Create collator
         if self.use_wced_collator:
-            # WCED-correct fine-tuning: provides all_betas + input_mask + age
-            cpg_sites = None
-            if self.train_dataset is not None:
-                cpg_sites = self.train_dataset.cpg_sites
-            elif self.val_dataset is not None:
-                cpg_sites = self.val_dataset.cpg_sites
-            elif self.test_dataset is not None:
-                cpg_sites = self.test_dataset.cpg_sites
             if cpg_sites is None:
-                raise ValueError("No CpG site list available for WCEDCollator.")
-            self.collator = WCEDCollator(
-                tokenizer=self.tokenizer,
-                cpg_sites=cpg_sites,
-                vocab_size=self.subset_k,
-                input_ratio=self.wced_input_ratio,
-                contrastive=False,
-                fixed_subset_seed=self.fixed_subset_seed,
-            )
+                raise ValueError("No CpG site list available for WCED collator.")
+
+            if self.bmfm_style:
+                # BMFM-style: NaN excluded from input; -100 labels for loss masking.
+                # Requires MethylationDataset(bmfm_style=True).
+                self.collator = BMFMWCEDCollator(
+                    tokenizer=self.tokenizer,
+                    cpg_sites=cpg_sites,
+                    vocab_size=self.subset_k,
+                    input_ratio=self.wced_input_ratio,
+                    contrastive=False,
+                    fixed_subset_seed=self.fixed_subset_seed,
+                )
+            else:
+                # Original format: all_betas + input_mask + valid_mask tensors.
+                self.collator = WCEDCollator(
+                    tokenizer=self.tokenizer,
+                    cpg_sites=cpg_sites,
+                    vocab_size=self.subset_k,
+                    input_ratio=self.wced_input_ratio,
+                    contrastive=False,
+                    fixed_subset_seed=self.fixed_subset_seed,
+                )
             return
 
         if self.use_subset_collator:
-            cpg_sites = None
-            if self.train_dataset is not None:
-                cpg_sites = self.train_dataset.cpg_sites
-            elif self.val_dataset is not None:
-                cpg_sites = self.val_dataset.cpg_sites
-            elif self.test_dataset is not None:
-                cpg_sites = self.test_dataset.cpg_sites
-
             if cpg_sites is None:
                 raise ValueError("No CpG site list available for collator.")
 
@@ -897,5 +931,222 @@ class WCEDCollator:
             result["beta_values_v2"] = beta_values_v2
             result["attention_mask_v2"] = attention_mask_v2
             result["input_mask_v2"] = input_mask_v2
+
+        return result
+
+
+class BMFMWCEDCollator:
+    """
+    BMFM-style WCED collator implementing the correct input/label separation.
+
+    Design principles (per BMFM-RNA framework):
+      1. NaN positions are excluded from the encoder input sequence at the outset.
+         Only measured CpG–beta pairs enter the per-sample sequence representation.
+      2. Loss masking is expressed via -100 labels — no valid_mask tensor flows
+         through the forward pass. Three categories handled:
+           - Visible measured CpGs  → label = -100   (encoder already sees these)
+           - Held-out measured CpGs → label = real β  (reconstruction target)
+           - Never-measured CpGs    → label = -100   (NaN in h5ad; excluded)
+
+    Requires MethylationDataset(bmfm_style=True), which returns:
+      data     = {"cpg_sites": [...], "beta_values": [...]}  # only measured CpGs
+      metadata = {"labels": age, "full_betas": np.array}    # full array, NaN for unmeasured
+
+    Batch keys returned:
+      cpg_ids:        [B, max_input_len]   — input CpG token IDs (padded)
+      beta_values:    [B, max_input_len]   — input β-values (padded)
+      attention_mask: [B, max_input_len]   — 1=real token, 0=padding
+      labels:         [B, vocab_size]      — real β at held-out positions, -100 elsewhere
+      age:            [B]                  — normalized age (NaN if unavailable)
+      (contrastive mode also adds cpg_ids_v2, beta_values_v2, attention_mask_v2, labels_v2)
+    """
+
+    def __init__(
+        self,
+        tokenizer: MultiFieldTokenizer,
+        cpg_sites: List[str],
+        vocab_size: int = 8000,
+        input_ratio: float = 0.5,
+        contrastive: bool = False,
+        cls_beta: float = -2.0,
+        pad_beta: float = -3.0,
+        fixed_subset_seed: int = 42,
+    ):
+        self.tokenizer = tokenizer
+        self.cpg_sites = cpg_sites
+        self.vocab_size = vocab_size
+        self.input_ratio = input_ratio
+        self.contrastive = contrastive
+        self.cls_beta = cls_beta
+        self.pad_beta = pad_beta
+        self._call_count = 0
+
+        # Tokenizer internals
+        self.cpg_tokenizer = tokenizer.tokenizers["cpg_sites"]
+        self.vocab_dict = self.cpg_tokenizer.get_vocab()
+        self.cls_id = self.cpg_tokenizer.cls_token_id
+        self.pad_id = self.cpg_tokenizer.pad_token_id
+        self.unk_id = self.cpg_tokenizer.unk_token_id
+
+        # Select fixed working vocabulary (same subset of CpGs for all samples)
+        n_cpgs = len(cpg_sites)
+        if vocab_size <= 0 or n_cpgs <= vocab_size:
+            self.vocab_cpg_indices = np.arange(n_cpgs)
+        else:
+            rng = np.random.default_rng(fixed_subset_seed)
+            self.vocab_cpg_indices = np.sort(
+                rng.choice(n_cpgs, size=vocab_size, replace=False)
+            )
+
+        self.actual_vocab_size = len(self.vocab_cpg_indices)
+
+        # Pre-compute token IDs for each vocab CpG (avoids per-sample dict lookup)
+        self.vocab_token_ids = np.array(
+            [self.vocab_dict.get(cpg_sites[j], self.unk_id) for j in self.vocab_cpg_indices],
+            dtype=np.int64,
+        )
+
+        # Max input length: input_ratio fraction of vocab + 1 CLS + 1 buffer
+        self.max_input_len = int(self.actual_vocab_size * input_ratio) + 2
+
+        logger.info(
+            f"BMFMWCEDCollator: vocab={self.actual_vocab_size}, "
+            f"input_ratio={input_ratio}, max_input_len={self.max_input_len}, "
+            f"contrastive={contrastive}"
+        )
+
+    def _build_view(
+        self,
+        vocab_betas_clean: np.ndarray,
+        input_indices: np.ndarray,
+    ) -> tuple:
+        """
+        Build encoder input tensors for one partial view.
+
+        Only the sampled input_indices CpGs enter the sequence.
+        PAD positions are excluded from attention via attention_mask.
+        """
+        n = len(input_indices)
+        length = n + 1  # CLS + measured input CpGs
+
+        cpg_ids_t = torch.full((self.max_input_len,), self.pad_id, dtype=torch.long)
+        beta_vals_t = torch.full((self.max_input_len,), self.pad_beta, dtype=torch.float32)
+        attn_t = torch.zeros(self.max_input_len, dtype=torch.long)
+
+        cpg_ids_t[0] = self.cls_id
+        beta_vals_t[0] = self.cls_beta
+        attn_t[0] = 1
+
+        if n > 0:
+            cpg_ids_t[1:length] = torch.from_numpy(
+                self.vocab_token_ids[input_indices].astype(np.int64)
+            )
+            beta_vals_t[1:length] = torch.from_numpy(
+                vocab_betas_clean[input_indices].astype(np.float32)
+            )
+            attn_t[1:length] = 1
+
+        return cpg_ids_t, beta_vals_t, attn_t
+
+    def _build_labels(
+        self,
+        vocab_betas: np.ndarray,
+        vocab_valid: np.ndarray,
+        input_indices: np.ndarray,
+    ) -> torch.Tensor:
+        """
+        Build WCED reconstruction label tensor of shape (vocab_size,).
+
+        Positions get -100 (ignored by MSE loss) if they are:
+          - In the encoder input (model already sees them; predicting them is trivial)
+          - Unmeasured in this sample (NaN in original h5ad)
+
+        Positions get the real β-value if they are measured AND held-out (not in input).
+        These are the only positions that contribute to the reconstruction loss.
+        """
+        labels = torch.full((self.actual_vocab_size,), -100.0, dtype=torch.float32)
+
+        # held-out = measured positions that were not selected as input
+        valid_indices = np.where(vocab_valid)[0]
+        held_out = np.setdiff1d(valid_indices, input_indices)
+
+        if len(held_out) > 0:
+            labels[held_out] = torch.from_numpy(vocab_betas[held_out].astype(np.float32))
+
+        return labels
+
+    def __call__(self, examples: List[MultiFieldInstance]) -> Dict[str, torch.Tensor]:
+        batch_size = len(examples)
+
+        cpg_ids_batch = torch.full((batch_size, self.max_input_len), self.pad_id, dtype=torch.long)
+        beta_vals_batch = torch.full((batch_size, self.max_input_len), self.pad_beta, dtype=torch.float32)
+        attn_batch = torch.zeros((batch_size, self.max_input_len), dtype=torch.long)
+        labels_batch = torch.full((batch_size, self.actual_vocab_size), -100.0, dtype=torch.float32)
+
+        if self.contrastive:
+            cpg_ids_v2 = torch.full((batch_size, self.max_input_len), self.pad_id, dtype=torch.long)
+            beta_vals_v2 = torch.full((batch_size, self.max_input_len), self.pad_beta, dtype=torch.float32)
+            attn_v2 = torch.zeros((batch_size, self.max_input_len), dtype=torch.long)
+            labels_v2 = torch.full((batch_size, self.actual_vocab_size), -100.0, dtype=torch.float32)
+
+        seed = (torch.initial_seed() + self._call_count) % (2**32)
+        self._call_count += 1
+        rng = np.random.default_rng(seed)
+
+        ages = []
+        for i, ex in enumerate(examples):
+            ages.append(float(ex.metadata.get("labels", float("nan"))))
+
+            # Full beta vector from metadata: NaN for unmeasured positions
+            full_betas = np.asarray(ex.metadata["full_betas"], dtype=np.float32)
+
+            # Restrict to the working vocabulary
+            vocab_betas = full_betas[self.vocab_cpg_indices]      # (vocab_size,)
+            vocab_valid = np.isfinite(vocab_betas)                 # True = measured
+            vocab_betas_clean = np.where(vocab_valid, vocab_betas, 0.0)  # NaN→0 for encoder only
+
+            valid_indices = np.where(vocab_valid)[0]
+            if len(valid_indices) == 0:
+                # Edge case: no measured CpGs in vocab for this sample
+                continue
+
+            n_input = min(
+                max(1, int(len(valid_indices) * self.input_ratio)),
+                len(valid_indices),
+            )
+
+            # View 1: random subset of measured vocab CpGs as encoder input
+            input_idx_v1 = rng.choice(valid_indices, size=n_input, replace=False)
+
+            ids_t, vals_t, attn_t = self._build_view(vocab_betas_clean, input_idx_v1)
+            cpg_ids_batch[i] = ids_t
+            beta_vals_batch[i] = vals_t
+            attn_batch[i] = attn_t
+            labels_batch[i] = self._build_labels(vocab_betas, vocab_valid, input_idx_v1)
+
+            if self.contrastive:
+                # View 2: independent random subset (overlap with view 1 is acceptable)
+                input_idx_v2 = rng.choice(valid_indices, size=n_input, replace=False)
+                ids_t2, vals_t2, attn_t2 = self._build_view(vocab_betas_clean, input_idx_v2)
+                cpg_ids_v2[i] = ids_t2
+                beta_vals_v2[i] = vals_t2
+                attn_v2[i] = attn_t2
+                labels_v2[i] = self._build_labels(vocab_betas, vocab_valid, input_idx_v2)
+
+        age_tensor = torch.tensor(ages, dtype=torch.float32)
+
+        result = {
+            "cpg_ids": cpg_ids_batch,
+            "beta_values": beta_vals_batch,
+            "attention_mask": attn_batch,
+            "labels": labels_batch,   # -100 = ignore; real β at held-out measured positions
+            "age": age_tensor,
+        }
+
+        if self.contrastive:
+            result["cpg_ids_v2"] = cpg_ids_v2
+            result["beta_values_v2"] = beta_vals_v2
+            result["attention_mask_v2"] = attn_v2
+            result["labels_v2"] = labels_v2
 
         return result

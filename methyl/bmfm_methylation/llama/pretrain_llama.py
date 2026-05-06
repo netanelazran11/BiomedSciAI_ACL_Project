@@ -56,7 +56,7 @@ from bmfm_methylation.shared.tokenizer import (
     extract_cpg_sites_from_h5ad,
     create_methylation_multifield_tokenizer,
 )
-from bmfm_methylation.shared.data_module import MethylationDataModule, WCEDCollator
+from bmfm_methylation.shared.data_module import MethylationDataModule, WCEDCollator, BMFMWCEDCollator
 
 from .model import MethylLlamaConfig, MethylLlamaModel, init_cpg_embeddings_from_dna
 from .wced_llama import WCEDLlamaModule
@@ -190,6 +190,7 @@ def main(cfg: DictConfig):
     subset_k          = dm_cfg.get("subset_k", 8000)
     fixed_subset      = dm_cfg.get("fixed_subset", True)
     fixed_subset_seed = dm_cfg.get("fixed_subset_seed", 42)
+    bmfm_style        = dm_cfg.get("bmfm_style", False)
 
     # wced_vocab_size: how many CpGs the decoder outputs per batch
     # = subset_k (the random subset selected per training step from all available CpGs)
@@ -217,6 +218,7 @@ def main(cfg: DictConfig):
         subset_k=subset_k,
         fixed_subset=fixed_subset,
         fixed_subset_seed=fixed_subset_seed,
+        bmfm_style=bmfm_style,
     )
 
     # WCED settings
@@ -239,21 +241,31 @@ def main(cfg: DictConfig):
                     cpg_sites = ds.cpg_sites
                     break
             if cpg_sites is None:
-                raise ValueError("No CpG site list found for WCEDCollator")
+                raise ValueError("No CpG site list found for WCED collator")
 
-            wced_collator = WCEDCollator(
-                tokenizer=data_module.tokenizer,
-                cpg_sites=cpg_sites,
-                vocab_size=wced_vocab_size,
-                input_ratio=wced_input_ratio,
-                fixed_subset_seed=fixed_subset_seed,
-                contrastive=wced_contrastive,
-            )
+            if bmfm_style:
+                # BMFM-style: NaN excluded from input; -100 labels for loss masking.
+                # Requires data_module datasets created with bmfm_style=True so that
+                # MFIs carry full_betas in metadata for label construction.
+                wced_collator = BMFMWCEDCollator(
+                    tokenizer=data_module.tokenizer,
+                    cpg_sites=cpg_sites,
+                    vocab_size=wced_vocab_size,
+                    input_ratio=wced_input_ratio,
+                    contrastive=wced_contrastive,
+                    fixed_subset_seed=fixed_subset_seed,
+                )
+            else:
+                wced_collator = WCEDCollator(
+                    tokenizer=data_module.tokenizer,
+                    cpg_sites=cpg_sites,
+                    vocab_size=wced_vocab_size,
+                    input_ratio=wced_input_ratio,
+                    fixed_subset_seed=fixed_subset_seed,
+                    contrastive=wced_contrastive,
+                )
 
-            def _collate_wced(examples):
-                return wced_collator(examples)
-
-            data_module.collator = _collate_wced
+            data_module.collator = lambda examples: wced_collator(examples)
 
         else:
             # MLM: wrap batch to match WCEDLlamaModule / MLMTrainingModule interface

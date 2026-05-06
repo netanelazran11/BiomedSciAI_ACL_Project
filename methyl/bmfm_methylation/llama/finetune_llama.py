@@ -73,7 +73,7 @@ from bmfm_methylation.shared.tokenizer import (
     extract_cpg_sites_from_h5ad,
     create_methylation_multifield_tokenizer,
 )
-from bmfm_methylation.shared.data_module import MethylationDataModule, WCEDCollator
+from bmfm_methylation.shared.data_module import MethylationDataModule, WCEDCollator, BMFMWCEDCollator
 
 from .model import MethylLlamaModel, MethylLlamaConfig
 from .wced_llama import WCEDLlamaModule, WCEDDecoder
@@ -223,19 +223,29 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         else:
             age_loss = torch.tensor(0.0, device=cls.device)
 
-        # Reconstruction regularizer (optional, only if decoder + all_betas available)
-        # Only reconstruct non-input AND non-NaN positions (valid_mask excludes NaN)
+        # Reconstruction regularizer (optional, only if decoder present)
         recon_loss = torch.tensor(0.0, device=cls.device)
-        if self.decoder is not None and all_betas is not None and input_mask is not None:
-            with torch.set_grad_enabled(self.recon_weight > 0 and self.training):
-                predicted_betas = self.decoder(cls)  # [B, vocab_size]
-                non_input = ~input_mask
-                valid_mask = batch.get("valid_mask")  # [B, vocab_size] True=non-NaN
-                recon_mask = non_input & valid_mask if valid_mask is not None else non_input
-                n_recon = recon_mask.float().sum().clamp(min=1)
-                if n_recon > 1:
-                    loss_per_cpg = self.recon_loss_fn(predicted_betas, all_betas)
-                    recon_loss = (loss_per_cpg * recon_mask.float()).sum() / n_recon
+        if self.decoder is not None:
+            if "labels" in batch:
+                # BMFM-style: labels tensor, -100 = ignore
+                labels_t     = batch["labels"]
+                recon_mask   = labels_t != -100.0
+                target_betas = labels_t.clamp(min=0.0)
+            elif all_betas is not None and input_mask is not None:
+                # Legacy format: all_betas + input_mask + optional valid_mask
+                valid_mask   = batch.get("valid_mask")
+                non_input    = ~input_mask
+                recon_mask   = non_input & valid_mask if valid_mask is not None else non_input
+                target_betas = all_betas
+            else:
+                recon_mask   = None
+                target_betas = None
+
+            if recon_mask is not None and recon_mask.any():
+                with torch.set_grad_enabled(self.recon_weight > 0 and self.training):
+                    predicted_betas = self.decoder(cls)  # [B, vocab_size]
+                    loss_per_cpg    = self.recon_loss_fn(predicted_betas, target_betas)
+                    recon_loss      = (loss_per_cpg * recon_mask.float()).sum() / recon_mask.float().sum().clamp(min=1)
 
         loss = age_loss + self.recon_weight * recon_loss
 
@@ -450,12 +460,13 @@ def main(cfg: DictConfig):
 
     # Data settings
     dm_cfg = cfg.get("data_module", {})
-    subset_k         = dm_cfg.get("subset_k", 8000)
+    subset_k          = dm_cfg.get("subset_k", 8000)
     fixed_subset_seed = dm_cfg.get("fixed_subset_seed", 42)
     wced_input_ratio  = cfg.get("wced_input_ratio", 0.5)
     vocab_size        = subset_k
+    bmfm_style        = dm_cfg.get("bmfm_style", False)
 
-    # Data module (uses WCEDCollator)
+    # Data module
     data_module = MethylationDataModule(
         tokenizer=tokenizer,
         fields=fields,
@@ -471,6 +482,7 @@ def main(cfg: DictConfig):
         subset_k=subset_k,
         fixed_subset=True,
         fixed_subset_seed=fixed_subset_seed,
+        bmfm_style=bmfm_style,
     )
 
     def _wrap_collator():
@@ -480,16 +492,25 @@ def main(cfg: DictConfig):
                 cpg_sites = ds.cpg_sites
                 break
         if cpg_sites is None:
-            raise ValueError("No CpG site list found for WCEDCollator")
+            raise ValueError("No CpG site list found for collator")
 
-        wced_collator = WCEDCollator(
-            tokenizer=data_module.tokenizer,
-            cpg_sites=cpg_sites,
-            vocab_size=vocab_size,
-            input_ratio=wced_input_ratio,
-            fixed_subset_seed=fixed_subset_seed,
-            contrastive=False,   # No contrastive in fine-tuning
-        )
+        if bmfm_style:
+            wced_collator = BMFMWCEDCollator(
+                tokenizer=data_module.tokenizer,
+                cpg_sites=cpg_sites,
+                vocab_size=vocab_size,
+                input_ratio=wced_input_ratio,
+                fixed_subset_seed=fixed_subset_seed,
+            )
+        else:
+            wced_collator = WCEDCollator(
+                tokenizer=data_module.tokenizer,
+                cpg_sites=cpg_sites,
+                vocab_size=vocab_size,
+                input_ratio=wced_input_ratio,
+                fixed_subset_seed=fixed_subset_seed,
+                contrastive=False,
+            )
         data_module.collator = wced_collator
 
     orig_setup = data_module.setup
