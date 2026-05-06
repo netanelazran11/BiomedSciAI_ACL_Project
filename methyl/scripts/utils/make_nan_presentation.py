@@ -9,6 +9,13 @@ Usage:
     # → NaN_Handling_MethylLlama.pptx
 """
 
+import io
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import numpy as np
+
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -115,6 +122,16 @@ def section_label(slide, text, left, top, color=BLUE):
     """Small ALL-CAPS section label."""
     add_textbox(slide, text, left, top, Inches(6), Inches(0.3),
                 font_size=11, bold=True, color=color)
+
+
+def fig_to_slide(slide, fig, left, top, width, height):
+    """Embed a matplotlib figure into a slide."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                facecolor="white", edgecolor="none")
+    buf.seek(0)
+    slide.shapes.add_picture(buf, left, top, width, height)
+    plt.close(fig)
 
 
 def arrow_right(slide, left, top, width=Inches(0.5), height=Inches(0.4)):
@@ -912,154 +929,195 @@ add_textbox(slide,
 
 
 # =============================================================================
-# SLIDE 11 — Investigation Results — NaN Statistics
+# SLIDE 11 — Investigation Results — NaN Statistics (charts)
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
 set_bg(slide)
 slide_header(slide, "Data Investigation Results — NaN Statistics",
              "Job 44584079  ·  Mon Apr 27 10:20–10:28 IDT 2026")
 
-# Pretrain card
-card(slide, Inches(0.4), Inches(1.38), Inches(6.1), Inches(5.4),
-     bg=PANEL_BG, border_color=BLUE)
-section_label(slide, "PRETRAIN  (169,120 × 49,156)", Inches(0.55), Inches(1.48), BLUE)
-pre_rows = [
-    ("Total β-values",        "8,313,262,720",   TEXT_BODY),
-    ("NaN count",             "722,036,387",      RED),
-    ("NaN %",                 "8.69%",            RED),
-    ("Samples with ≥1% NaN",  "91,652  (54.2%)", ORANGE),
-    ("Samples with ≥10% NaN", "35,329  (20.9%)", ORANGE),
-    ("Samples with ≥50% NaN", "16,860  (10.0%)", RED),
-    ("CpGs with ≥10% NaN",    "24,928  (50.7%)", ORANGE),
-    ("Fully missing samples",  "0  ✓",            GREEN),
-    ("Fully missing CpGs",     "0  ✓",            GREEN),
-    ("Duplicate samples",      "0  ✓",            GREEN),
-    ("β out-of-range [0,1]",   "248,776  ⚠",      ORANGE),
-]
-for i, (k, v, vc) in enumerate(pre_rows):
-    y = Inches(1.92 + i * 0.41)
-    add_textbox(slide, k, Inches(0.6), y, Inches(3.2), Inches(0.38),
-                font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, v, Inches(3.85), y, Inches(2.5), Inches(0.38),
-                font_size=13, bold=True, color=vc)
+# ── Chart A: NaN % comparison bar ───────────────────────────────────────────
+fig, ax = plt.subplots(figsize=(3.8, 2.6))
+fig.patch.set_facecolor("white")
+datasets = ["Pretrain\n(169k samples)", "Fine-tune\n(11.5k samples)"]
+nan_pcts = [8.69, 60.11]
+colors_bar = ["#007AC2", "#C03030"]
+bars = ax.bar(datasets, nan_pcts, color=colors_bar, width=0.5, edgecolor="white", linewidth=1.5)
+for bar, pct in zip(bars, nan_pcts):
+    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1.5,
+            f"{pct}%", ha="center", va="bottom", fontsize=14, fontweight="bold",
+            color=bar.get_facecolor())
+ax.set_ylabel("NaN %", fontsize=11, color="#3A4A5C")
+ax.set_ylim(0, 75)
+ax.set_title("Overall NaN Rate", fontsize=13, fontweight="bold", color="#1A263A", pad=8)
+ax.tick_params(colors="#3A4A5C", labelsize=10)
+ax.spines[["top", "right"]].set_visible(False)
+ax.spines[["left", "bottom"]].set_color("#CCD9E8")
+ax.yaxis.grid(True, color="#EEF2F8", linewidth=0.8)
+ax.set_axisbelow(True)
+fig.tight_layout()
+fig_to_slide(slide, fig, Inches(0.4), Inches(1.42), Inches(4.2), Inches(2.9))
 
-# Fine-tune card
-card(slide, Inches(6.75), Inches(1.38), Inches(6.2), Inches(5.4),
-     bg=PANEL_BG2, border_color=GREEN)
-section_label(slide, "FINE-TUNE  (11,453 × 49,156)", Inches(6.9), Inches(1.48), GREEN)
-ft_rows = [
-    ("Total β-values",          "562,983,668",     TEXT_BODY),
-    ("NaN count",               "338,413,244",     RED),
-    ("NaN %",                   "60.11%",          RED),
-    ("Samples with ≥50% NaN",   "11,453  (100%)",  RED),
-    ("CpGs with 100% NaN",      "29,548  (60.1%)", RED),
-    ("CpGs with 0 NaN",         "19,608  (39.9%)", GREEN),
-    ("Train NaN %",             "60.11%",          ORANGE),
-    ("Valid NaN %",             "60.11%",          ORANGE),
-    ("Test  NaN %",             "60.11%",          ORANGE),
-    ("Duplicate sample IDs",    "5,992  ⚠",        RED),
-    ("β out-of-range [0,1]",    "0  ✓",            GREEN),
-]
-for i, (k, v, vc) in enumerate(ft_rows):
-    y = Inches(1.92 + i * 0.41)
-    add_textbox(slide, k, Inches(6.9), y, Inches(3.3), Inches(0.38),
-                font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, v, Inches(10.25), y, Inches(2.5), Inches(0.38),
-                font_size=13, bold=True, color=vc)
+# ── Chart B: Pretrain — % samples by NaN threshold ──────────────────────────
+fig, ax = plt.subplots(figsize=(4.0, 2.6))
+fig.patch.set_facecolor("white")
+thresholds = ["≥1%", "≥5%", "≥10%", "≥25%", "≥50%"]
+pcts = [54.2, 27.5, 20.9, 11.2, 10.0]
+bar_colors = ["#007AC2"] * 5
+bars2 = ax.barh(thresholds[::-1], pcts[::-1], color=bar_colors, edgecolor="white")
+for bar, pct in zip(bars2, pcts[::-1]):
+    ax.text(pct + 0.5, bar.get_y() + bar.get_height() / 2,
+            f"{pct}%", va="center", fontsize=10, color="#007AC2", fontweight="bold")
+ax.set_xlabel("% of samples", fontsize=10, color="#3A4A5C")
+ax.set_xlim(0, 70)
+ax.set_title("Pretrain: % samples with NaN ≥ threshold", fontsize=11,
+             fontweight="bold", color="#1A263A", pad=6)
+ax.tick_params(colors="#3A4A5C", labelsize=10)
+ax.spines[["top", "right"]].set_visible(False)
+ax.spines[["left", "bottom"]].set_color("#CCD9E8")
+ax.xaxis.grid(True, color="#EEF2F8", linewidth=0.8)
+ax.set_axisbelow(True)
+fig.tight_layout()
+fig_to_slide(slide, fig, Inches(4.75), Inches(1.42), Inches(4.3), Inches(2.9))
 
-# Key insight
-card(slide, Inches(0.4), Inches(6.92), Inches(12.55), Inches(0.42),
+# ── Chart C: Fine-tune CpG coverage breakdown ───────────────────────────────
+fig, ax = plt.subplots(figsize=(3.6, 2.6))
+fig.patch.set_facecolor("white")
+labels = ["Valid CpGs\n(0 NaN)\n19,608", "100% NaN CpGs\n(always missing)\n29,548"]
+sizes = [19608, 29548]
+pie_colors = ["#008F6A", "#C03030"]
+wedges, texts, autotexts = ax.pie(
+    sizes, labels=labels, colors=pie_colors,
+    autopct="%1.1f%%", startangle=90,
+    textprops={"fontsize": 9, "color": "#1A263A"},
+    wedgeprops={"edgecolor": "white", "linewidth": 2}
+)
+for at in autotexts:
+    at.set_fontsize(11)
+    at.set_fontweight("bold")
+    at.set_color("white")
+ax.set_title("Fine-tune: CpG Coverage\n(out of 49,156 total)", fontsize=11,
+             fontweight="bold", color="#1A263A", pad=4)
+fig.tight_layout()
+fig_to_slide(slide, fig, Inches(9.2), Inches(1.42), Inches(3.9), Inches(2.9))
+
+# ── Stats boxes below charts ─────────────────────────────────────────────────
+for i, (label, val, vc, bg_c) in enumerate([
+    ("Pretrain NaN %",          "8.69%",        BLUE,   BADGE_BLUE),
+    ("Fine-tune NaN %",         "60.11%",       RED,    BADGE_RED),
+    ("Fine-tune fully-missing\nCpGs (100% NaN)","29,548 / 49,156", RED,   BADGE_RED),
+    ("Fine-tune duplicate\nsample IDs",         "5,992  ⚠",        ORANGE, BADGE_ORANGE),
+]):
+    lx = Inches(0.4 + i * 3.22)
+    card(slide, lx, Inches(4.48), Inches(3.05), Inches(1.18), bg=bg_c, border_color=None)
+    add_textbox(slide, val, lx, Inches(4.54), Inches(3.05), Inches(0.55),
+                font_size=22, bold=True, color=vc, align=PP_ALIGN.CENTER)
+    add_textbox(slide, label, lx, Inches(5.08), Inches(3.05), Inches(0.52),
+                font_size=11, color=TEXT_BODY, align=PP_ALIGN.CENTER)
+
+# Key insight bar
+card(slide, Inches(0.4), Inches(5.82), Inches(12.55), Inches(0.78),
      bg=BADGE_BLUE, border_color=BLUE)
 add_textbox(slide,
-    "Key insight:  Fine-tune = pure 450k-array dataset  "
-    "(29,548 CpGs are 100% NaN across ALL samples → single array type)  ·  "
-    "Pretrain NaN = 8.69% → mostly EPIC-array samples",
-    Inches(0.55), Inches(6.97), Inches(12.2), Inches(0.32),
-    font_size=12, bold=True, color=BLUE_DARK)
+    "Key insight:  Fine-tune = pure 450k-array dataset — same 29,548 CpGs are 100% NaN "
+    "across every single sample.  "
+    "Pretrain = mostly EPIC-array (NaN only 8.69%).  "
+    "The WCEDCollator valid_mask handles both correctly.",
+    Inches(0.55), Inches(5.88), Inches(12.2), Inches(0.65),
+    font_size=13, bold=True, color=BLUE_DARK)
 
 
 # =============================================================================
-# SLIDE 12 — Investigation Results — Beta Distribution
+# SLIDE 12 — Investigation Results — Beta Distribution (charts)
 # =============================================================================
 slide = prs.slides.add_slide(blank_layout)
 set_bg(slide)
 slide_header(slide, "Data Investigation Results — β-Value Distribution",
-             "Job 44584079  ·  Valid values only (NaN excluded from all statistics)")
+             "Valid values only  ·  NaN excluded  ·  Pretrain: 7.6B values  ·  Fine-tune: 225M values")
 
-# Pretrain distribution
-card(slide, Inches(0.4), Inches(1.38), Inches(5.5), Inches(5.6),
-     bg=PANEL_BG, border_color=BLUE)
-section_label(slide, "PRETRAIN  β-VALUE DISTRIBUTION", Inches(0.55), Inches(1.48), BLUE)
-add_textbox(slide, "7,591,226,333 valid values sampled",
-            Inches(0.55), Inches(1.78), Inches(5.1), Inches(0.3),
-            font_size=12, italic=True, color=TEXT_LIGHT)
-pre_percs = [
-    ("0%   (min)",    "-0.3389", RED),
-    ("1%",            " 0.0100", TEXT_BODY),
-    ("5%",            " 0.0236", TEXT_BODY),
-    ("25%",           " 0.0700", TEXT_BODY),
-    ("50%  (median)", " 0.2860", BLUE),
-    ("75%",           " 0.6679", TEXT_BODY),
-    ("95%",           " 0.9134", TEXT_BODY),
-    ("99%",           " 0.9620", TEXT_BODY),
-    ("100% (max)",    " 1.1030", ORANGE),
-]
-for i, (p, v, vc) in enumerate(pre_percs):
-    y = Inches(2.12 + i * 0.52)
-    add_textbox(slide, p, Inches(0.6), y, Inches(2.0), Inches(0.4),
-                font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, v, Inches(2.65), y, Inches(1.5), Inches(0.4),
-                font_size=14, bold=True, color=vc)
+# ── Chart A: Overlaid CDF / percentile curve ─────────────────────────────────
+percs_x  = [0, 1, 5, 25, 50, 75, 95, 99, 100]
+pre_vals = [-0.3389, 0.0100, 0.0236, 0.0700, 0.2860, 0.6679, 0.9134, 0.9620, 1.1030]
+ft_vals  = [ 0.0000, 0.0086, 0.0188, 0.0400, 0.0825, 0.4881, 0.9050, 0.9498, 1.0000]
 
-# Pretrain: out-of-range highlight
-card(slide, Inches(0.4), Inches(6.88), Inches(5.5), Inches(0.42),
+fig, ax = plt.subplots(figsize=(6.2, 4.0))
+fig.patch.set_facecolor("white")
+ax.plot(pre_vals, percs_x, color="#007AC2", linewidth=2.5, marker="o",
+        markersize=6, label="Pretrain (169k samples)")
+ax.plot(ft_vals,  percs_x, color="#008F6A", linewidth=2.5, marker="s",
+        markersize=6, label="Fine-tune (11.5k samples)", linestyle="--")
+ax.axvline(0, color="#888", linewidth=0.8, linestyle=":")
+ax.axvline(1, color="#888", linewidth=0.8, linestyle=":")
+ax.fill_betweenx(percs_x, pre_vals, ft_vals, alpha=0.08, color="#007AC2")
+ax.set_xlabel("β-value", fontsize=12, color="#3A4A5C")
+ax.set_ylabel("Percentile", fontsize=12, color="#3A4A5C")
+ax.set_title("β-Value CDF: Pretrain vs Fine-tune", fontsize=13,
+             fontweight="bold", color="#1A263A", pad=8)
+ax.legend(fontsize=10, framealpha=0.9, loc="upper left")
+ax.tick_params(colors="#3A4A5C", labelsize=10)
+ax.spines[["top", "right"]].set_visible(False)
+ax.spines[["left", "bottom"]].set_color("#CCD9E8")
+ax.grid(True, color="#EEF2F8", linewidth=0.8)
+ax.set_axisbelow(True)
+# median lines
+ax.axhline(50, color="#AAA", linewidth=0.8, linestyle=":")
+ax.annotate("Pretrain median\n0.286", xy=(0.286, 50), xytext=(0.35, 60),
+            fontsize=9, color="#007AC2",
+            arrowprops=dict(arrowstyle="->", color="#007AC2", lw=1))
+ax.annotate("Fine-tune median\n0.083", xy=(0.083, 50), xytext=(0.2, 35),
+            fontsize=9, color="#008F6A",
+            arrowprops=dict(arrowstyle="->", color="#008F6A", lw=1))
+fig.tight_layout()
+fig_to_slide(slide, fig, Inches(0.4), Inches(1.4), Inches(6.8), Inches(4.4))
+
+# ── Chart B: bar chart of key percentiles side by side ───────────────────────
+fig, ax = plt.subplots(figsize=(5.4, 4.0))
+fig.patch.set_facecolor("white")
+perc_labels = ["1%", "5%", "25%", "50%", "75%", "95%", "99%"]
+pre_v = [0.0100, 0.0236, 0.0700, 0.2860, 0.6679, 0.9134, 0.9620]
+ft_v  = [0.0086, 0.0188, 0.0400, 0.0825, 0.4881, 0.9050, 0.9498]
+x = np.arange(len(perc_labels))
+w = 0.38
+b1 = ax.bar(x - w/2, pre_v, w, label="Pretrain", color="#007AC2",
+            edgecolor="white", linewidth=1)
+b2 = ax.bar(x + w/2, ft_v,  w, label="Fine-tune", color="#008F6A",
+            edgecolor="white", linewidth=1)
+ax.set_xticks(x)
+ax.set_xticklabels(perc_labels, fontsize=10, color="#3A4A5C")
+ax.set_ylabel("β-value", fontsize=11, color="#3A4A5C")
+ax.set_title("β-Value Percentiles Compared", fontsize=12,
+             fontweight="bold", color="#1A263A", pad=8)
+ax.legend(fontsize=10, framealpha=0.9)
+ax.tick_params(colors="#3A4A5C", labelsize=10)
+ax.spines[["top", "right"]].set_visible(False)
+ax.spines[["left", "bottom"]].set_color("#CCD9E8")
+ax.yaxis.grid(True, color="#EEF2F8", linewidth=0.8)
+ax.set_axisbelow(True)
+fig.tight_layout()
+fig_to_slide(slide, fig, Inches(7.4), Inches(1.4), Inches(5.6), Inches(4.4))
+
+# ── Key stat boxes ────────────────────────────────────────────────────────────
+for i, (label, val, vc, bg_c) in enumerate([
+    ("Pretrain median β",      "0.286",   BLUE,   BADGE_BLUE),
+    ("Fine-tune median β",     "0.083",   GREEN,  BADGE_GREEN),
+    ("Pretrain out-of-range",  "248,776 ⚠", ORANGE, BADGE_ORANGE),
+    ("Fine-tune out-of-range", "0  ✓",    GREEN,  BADGE_GREEN),
+]):
+    lx = Inches(0.4 + i * 3.22)
+    card(slide, lx, Inches(5.98), Inches(3.05), Inches(0.92), bg=bg_c, border_color=None)
+    add_textbox(slide, val, lx, Inches(6.0), Inches(3.05), Inches(0.48),
+                font_size=20, bold=True, color=vc, align=PP_ALIGN.CENTER)
+    add_textbox(slide, label, lx, Inches(6.48), Inches(3.05), Inches(0.36),
+                font_size=11, color=TEXT_BODY, align=PP_ALIGN.CENTER)
+
+card(slide, Inches(0.4), Inches(7.0), Inches(12.55), Inches(0.38),
      bg=BADGE_ORANGE, border_color=ORANGE)
-add_textbox(slide, "Out-of-range β < 0 or β > 1:  248,776 values  ⚠  (raw Illumina noise — not a bug)",
-            Inches(0.55), Inches(6.93), Inches(5.2), Inches(0.32),
-            font_size=12, color=ORANGE_DARK)
-
-# Fine-tune distribution
-card(slide, Inches(6.2), Inches(1.38), Inches(5.5), Inches(5.6),
-     bg=PANEL_BG2, border_color=GREEN)
-section_label(slide, "FINE-TUNE  β-VALUE DISTRIBUTION", Inches(6.35), Inches(1.48), GREEN)
-add_textbox(slide, "224,570,424 valid values  (39.9% of total slots)",
-            Inches(6.35), Inches(1.78), Inches(5.1), Inches(0.3),
-            font_size=12, italic=True, color=TEXT_LIGHT)
-ft_percs = [
-    ("0%   (min)",    " 0.0000", TEXT_BODY),
-    ("1%",            " 0.0086", TEXT_BODY),
-    ("5%",            " 0.0188", TEXT_BODY),
-    ("25%",           " 0.0400", TEXT_BODY),
-    ("50%  (median)", " 0.0825", BLUE),
-    ("75%",           " 0.4881", TEXT_BODY),
-    ("95%",           " 0.9050", TEXT_BODY),
-    ("99%",           " 0.9498", TEXT_BODY),
-    ("100% (max)",    " 1.0000", GREEN),
-]
-for i, (p, v, vc) in enumerate(ft_percs):
-    y = Inches(2.12 + i * 0.52)
-    add_textbox(slide, p, Inches(6.35), y, Inches(2.0), Inches(0.4),
-                font_size=13, color=TEXT_LIGHT)
-    add_textbox(slide, v, Inches(8.4), y, Inches(1.5), Inches(0.4),
-                font_size=14, bold=True, color=vc)
-
-card(slide, Inches(6.2), Inches(6.88), Inches(5.5), Inches(0.42),
-     bg=BADGE_GREEN, border_color=GREEN)
-add_textbox(slide, "Out-of-range β:  0  ✓  (fine-tune values are perfectly in [0, 1])",
-            Inches(6.35), Inches(6.93), Inches(5.2), Inches(0.32),
-            font_size=12, color=GREEN_DARK)
-
-# Distribution insight panel
-card(slide, Inches(0.4), Inches(1.38), Inches(0.0), Inches(0.0),  # spacer
-     bg=BG, border_color=None)
-card(slide, Inches(11.75), Inches(1.38), Inches(1.2), Inches(5.6),
-     bg=PANEL_BG, border_color=DIVIDER)
-section_label(slide, "KEY", Inches(11.8), Inches(1.48), TEXT_LIGHT)
 add_textbox(slide,
-    "Pretrain\nmedian\n0.286\n\nFine-tune\nmedian\n0.083\n\nDifferent\ndistributions!\n\n"
-    "Pretrain:\nmore hemi-\nmethylated\nsites\n\nFine-tune:\nmore un-\nmethylated",
-    Inches(11.8), Inches(1.78), Inches(1.1), Inches(5.1),
-    font_size=11, color=TEXT_BODY)
+    "Distribution shift:  Pretrain is bimodal (unmethylated 0–0.2  +  methylated 0.6–1.0)  ·  "
+    "Fine-tune is more heavily unmethylated (median 0.083)  ·  "
+    "Pretrain out-of-range due to raw Illumina signal (harmless — model learns from valid range)",
+    Inches(0.55), Inches(7.04), Inches(12.2), Inches(0.3),
+    font_size=12, color=ORANGE_DARK)
 
 
 # =============================================================================
