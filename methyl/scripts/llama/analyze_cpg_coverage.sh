@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=analyze-cpg-coverage
-#SBATCH --partition=short
+#SBATCH --partition=catfish
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
