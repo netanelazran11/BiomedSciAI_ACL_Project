@@ -20,7 +20,7 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs_llama-wced"
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean.h5ad"
 
 # Pretrained small-model checkpoint (h256_l4, epoch 98, val_loss=0.0059, val/pcc=0.971)
 CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"
@@ -29,10 +29,13 @@ CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k
 TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data settings — use ALL 49k CpGs, match pretraining input ratio
+# Data settings — 19,608 clean CpGs (pretrain vocab overlap, zero NaN)
+# SUBSET_K stays 49156 to match pretrain tokenizer vocab size.
+# The h5ad only contains the 19,608 valid CpGs so NaN filtering is a no-op.
+# max_length = 19608 + 1 (CLS token)
 # ─────────────────────────────────────────────────────────────────────────────
 SUBSET_K="${SUBSET_K:-49156}"
-INPUT_RATIO="${INPUT_RATIO:-1.0}"    # ALL valid CpGs as input (19,608 of 49,156 — no info bottleneck)
+INPUT_RATIO="${INPUT_RATIO:-1.0}"    # all 19,608 measured CpGs as input
 
 # Age normalization is computed automatically from the training split by
 # MethylationDataset — no need to hardcode mean/std here.
@@ -103,7 +106,7 @@ python -m bmfm_methylation.llama.finetune_llama \
     "output_directory='${OUTDIR}'" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset_seed=42 \
-    data_module.max_length=$(python3 -c "print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
+    data_module.max_length=19609 \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     wced_input_ratio="${INPUT_RATIO}" \
