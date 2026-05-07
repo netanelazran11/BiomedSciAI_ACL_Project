@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=analyze-21k-h5ad
-#SBATCH --partition=glacier,glacier-k,catfish,catfish-k,salmon,salmon-k
+#SBATCH --partition=glacier
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
