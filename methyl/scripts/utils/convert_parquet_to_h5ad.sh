@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=convert-parquet-h5ad
+#SBATCH --job-name=analyze-21k-h5ad
 #SBATCH --partition=glacier,glacier-k,catfish,catfish-k,salmon,salmon-k
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -14,174 +14,195 @@ set -euo pipefail
 
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 
-# Input: parquet dataset (original 21k data)
-PARQUET_DIR="${PARQUET_DIR:-/sci/labs/benjamin.yakir/netanel.azran/data/altumage_21k_parquet}"
-CPG_MAP="${PARQUET_DIR}/cpg_mapping/probe_ids_type3_21k.csv"
-
-# Reference: existing 49k h5ad (for CpG comparison only)
-H5AD_49K="${H5AD_49K:-/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad}"
-
-# Output: new correct h5ad
-OUT_DIR="${REPO}/outputs/h5ad_21k"
-OUT_H5AD="${OUT_DIR}/finetuning_21k.h5ad"
-
-mkdir -p "${OUT_DIR}"
+H5AD_DIR="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad"
+H5AD_3WAY="${H5AD_DIR}/altumage_21k_3way.h5ad"
+H5AD_COMB="${H5AD_DIR}/altumage_21k_combined.h5ad"
+H5AD_49K="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
+CPG_MAP="${H5AD_DIR}/probe_ids_type3_21k.csv"
 
 cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 
 echo "============================================================"
-echo "PARQUET → H5AD CONVERSION (21k CpGs, zero NaN)"
+echo "ANALYZING EXISTING 21k H5AD FILES"
 echo "============================================================"
 echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
-echo "Parquet dir: ${PARQUET_DIR}"
-echo "CpG map:     ${CPG_MAP}"
-echo "Output:      ${OUT_H5AD}"
 echo "============================================================"
 
 python3 - <<PY
+import h5py
 import numpy as np
 import pandas as pd
-import anndata as ad
-import h5py
 import scipy.sparse
 
-PARQUET_DIR = "${PARQUET_DIR}"
-CPG_MAP     = "${CPG_MAP}"
-H5AD_49K    = "${H5AD_49K}"
-OUT_H5AD    = "${OUT_H5AD}"
+H5AD_3WAY = "${H5AD_3WAY}"
+H5AD_COMB = "${H5AD_COMB}"
+H5AD_49K  = "${H5AD_49K}"
+CPG_MAP   = "${CPG_MAP}"
 
-# ── 1. Load CpG mapping ──────────────────────────────────────────────────────
-cpg_df   = pd.read_csv(CPG_MAP)
-cpg_ids  = cpg_df['illumina_probe_id'].tolist()
-n_cpgs   = len(cpg_ids)
-print(f"CpG sites in parquet mapping: {n_cpgs:,}")
-assert len(set(cpg_ids)) == n_cpgs, "Duplicate CpG IDs in mapping file!"
+def read_h5ad_raw(path):
+    """Read X, obs, var from h5ad via h5py — avoids anndata obs validation bugs."""
+    with h5py.File(path, "r") as f:
+        # var (CpG names)
+        var      = f["var"]
+        idx_key  = var.attrs.get("_index", "_index")
+        if idx_key not in var: idx_key = list(var.keys())[0]
+        cpg_names = np.array(var[idx_key]).astype(str)
 
-# ── 2. Compare with existing 49k h5ad ───────────────────────────────────────
-print(f"\nComparing with existing h5ad: {H5AD_49K}")
+        # obs (sample metadata)
+        obs_grp  = f["obs"]
+        obs_idx_key = obs_grp.attrs.get("_index", "_index")
+        if obs_idx_key not in obs_grp: obs_idx_key = list(obs_grp.keys())[0]
+        obs_index = np.array(obs_grp[obs_idx_key]).astype(str)
+
+        obs_cols = {}
+        for k in obs_grp.keys():
+            if k == obs_idx_key: continue
+            try:
+                v = obs_grp[k]
+                if isinstance(v, h5py.Dataset):
+                    arr = v[()]
+                    if hasattr(arr[0], 'decode'):
+                        arr = np.array([x.decode() for x in arr])
+                    obs_cols[k] = arr
+                elif isinstance(v, h5py.Group) and 'categories' in v:
+                    # categorical
+                    cats = np.array(v['categories'][()]).astype(str)
+                    codes = v['codes'][()]
+                    obs_cols[k] = np.array([cats[c] if c >= 0 else None for c in codes])
+            except Exception:
+                pass
+
+        # X matrix
+        X_grp = f["X"]
+        if isinstance(X_grp, h5py.Dataset):
+            X = X_grp[()].astype(np.float32)
+        else:
+            data    = X_grp["data"][()]
+            indices = X_grp["indices"][()]
+            indptr  = X_grp["indptr"][()]
+            shape   = tuple(X_grp.attrs["shape"])
+            X = scipy.sparse.csr_matrix(
+                (data, indices, indptr), shape=shape
+            ).toarray().astype(np.float32)
+
+    obs = pd.DataFrame(obs_cols, index=obs_index)
+    return X, obs, cpg_names
+
+def analyze(path, label):
+    print(f"\n{'='*60}")
+    print(f"File: {label}")
+    print(f"Path: {path}")
+    print('='*60)
+
+    X, obs, cpg_names = read_h5ad_raw(path)
+    n_cells, n_cpgs = X.shape
+
+    print(f"Shape: {n_cells:,} cells × {n_cpgs:,} CpGs")
+
+    # NaN
+    nan_total = int(np.isnan(X).sum())
+    print(f"NaN values: {nan_total} {'✓ CLEAN' if nan_total == 0 else '⚠ HAS NaN'}")
+
+    # Beta range
+    valid = X[~np.isnan(X)]
+    print(f"Beta range: [{valid.min():.4f}, {valid.max():.4f}]  mean={valid.mean():.4f}")
+
+    # CpG names
+    print(f"\nCpG sites: {n_cpgs:,}  unique: {len(set(cpg_names)):,}")
+    print(f"Sample CpGs: {cpg_names[:3].tolist()} ... {cpg_names[-3:].tolist()}")
+
+    # obs columns
+    print(f"\nobs columns: {list(obs.columns)}")
+    print(f"obs index sample: {list(obs.index[:3])}")
+
+    if 'age' in obs.columns:
+        ages = obs['age'].astype(float)
+        print(f"\nAge: min={ages.min():.0f}  max={ages.max():.0f}  mean={ages.mean():.1f}  NaN={ages.isna().sum()}")
+
+    if 'split' in obs.columns:
+        print(f"\nSplit distribution:\n{obs['split'].value_counts().to_string()}")
+    else:
+        print("\n⚠ No 'split' column found in obs")
+
+    # Sample ID uniqueness
+    n_ids    = len(obs.index)
+    n_unique = len(set(obs.index))
+    print(f"\nSample IDs: {n_ids:,} total, {n_unique:,} unique {'✓' if n_ids == n_unique else '⚠ DUPLICATES'}")
+
+    return X, obs, set(cpg_names)
+
+# ── Analyze both 21k files ──────────────────────────────────────────────────
+X_3way, obs_3way, cpgs_3way = analyze(H5AD_3WAY, "altumage_21k_3way.h5ad")
+X_comb, obs_comb, cpgs_comb = analyze(H5AD_COMB,  "altumage_21k_combined.h5ad")
+
+# ── Compare CpG lists ───────────────────────────────────────────────────────
+print(f"\n{'='*60}")
+print("CpG LIST COMPARISON")
+print('='*60)
+
+# vs parquet CpG map
+try:
+    cpg_df      = pd.read_csv(CPG_MAP)
+    parquet_cpgs = set(cpg_df['illumina_probe_id'].tolist())
+    print(f"Parquet CpG map:     {len(parquet_cpgs):,}")
+    print(f"3way h5ad CpGs:      {len(cpgs_3way):,}")
+    print(f"Combined h5ad CpGs:  {len(cpgs_comb):,}")
+    print(f"3way == Combined:    {cpgs_3way == cpgs_comb}")
+    o = parquet_cpgs & cpgs_3way
+    print(f"Overlap parquet ∩ 3way: {len(o):,}")
+    print(f"Only in parquet:        {len(parquet_cpgs - cpgs_3way):,}")
+    print(f"Only in 3way h5ad:      {len(cpgs_3way - parquet_cpgs):,}")
+except FileNotFoundError:
+    print(f"CpG map not found at {CPG_MAP}")
+
+# vs old 49k h5ad
+print(f"\nvs old 49k h5ad:")
 with h5py.File(H5AD_49K, "r") as f:
     var     = f["var"]
     idx_key = var.attrs.get("_index", "_index")
-    if idx_key not in var:
-        idx_key = list(var.keys())[0]
-    h5ad_cpgs_all = set(np.array(var[idx_key]).astype(str))
+    if idx_key not in var: idx_key = list(var.keys())[0]
+    cpgs_49k = set(np.array(var[idx_key]).astype(str))
 
-parquet_set = set(cpg_ids)
-overlap     = parquet_set & h5ad_cpgs_all
-only_parq   = parquet_set - h5ad_cpgs_all
-only_h5ad   = h5ad_cpgs_all - parquet_set
+print(f"49k h5ad CpGs:         {len(cpgs_49k):,}")
+print(f"21k ∩ 49k:             {len(cpgs_3way & cpgs_49k):,}")
+print(f"In 21k but NOT in 49k: {len(cpgs_3way - cpgs_49k):,}")
+print(f"In 49k but NOT in 21k: {len(cpgs_49k - cpgs_3way):,}  ← these are the NaN-padded columns")
 
-print(f"  Parquet CpGs:            {len(parquet_set):,}")
-print(f"  h5ad CpGs (all 49k):     {len(h5ad_cpgs_all):,}")
-print(f"  Overlap:                 {len(overlap):,}")
-print(f"  Only in parquet:         {len(only_parq):,}  ← CpGs in original data but not in h5ad")
-print(f"  Only in h5ad (not parq): {len(only_h5ad):,}  ← extra columns added to h5ad")
+# ── Cross-split leakage check ───────────────────────────────────────────────
+if 'split' in obs_3way.columns:
+    print(f"\n{'='*60}")
+    print("CROSS-SPLIT LEAKAGE CHECK (3way h5ad)")
+    print('='*60)
+    splits = obs_3way['split'].unique()
+    for s1 in splits:
+        for s2 in splits:
+            if s1 >= s2: continue
+            X1 = X_3way[obs_3way['split'] == s1]
+            X2 = X_3way[obs_3way['split'] == s2]
+            fp1 = set(map(tuple, X1[:, :8].tolist()))
+            fp2 = set(map(tuple, X2[:, :8].tolist()))
+            n_ov = len(fp1 & fp2)
+            print(f"  {s1} ∩ {s2}: {n_ov} identical samples {'⚠ LEAKAGE' if n_ov > 0 else '✓'}")
 
-if only_parq:
-    print(f"\n  Sample CpGs only in parquet (not in h5ad): {list(only_parq)[:10]}")
-if only_h5ad:
-    # Separate NaN-padded from real: how many of the h5ad-only are always NaN
-    print(f"  These are the {len(only_h5ad):,} extra NaN-padded columns in the 49k h5ad")
+print(f"\n{'='*60}")
+print("VERDICT")
+print('='*60)
+issues = []
+if np.isnan(X_3way).sum() > 0: issues.append("3way h5ad has NaN values")
+if np.isnan(X_comb).sum() > 0:  issues.append("combined h5ad has NaN values")
+if len(set(obs_3way.index)) != len(obs_3way): issues.append("duplicate sample IDs in 3way")
+if 'split' not in obs_3way.columns: issues.append("no split column in 3way h5ad")
+if 'age' not in obs_3way.columns:   issues.append("no age column in 3way h5ad")
 
-# ── 3. Load all parquet splits ───────────────────────────────────────────────
-print(f"\nLoading parquet splits from {PARQUET_DIR} ...")
-dfs = {}
-for split in ["train", "valid", "test"]:
-    dfs[split] = pd.read_parquet(f"{PARQUET_DIR}/{split}.parquet")
-    print(f"  {split}: {len(dfs[split]):,} samples")
-
-# ── 4. Build X matrix and obs ────────────────────────────────────────────────
-print("\nBuilding data matrix...")
-rows_X   = []
-rows_obs = []
-uid      = 0
-
-for split in ["train", "valid", "test"]:
-    df = dfs[split]
-    for _, row in df.iterrows():
-        beta = np.array(row["data"], dtype=np.float32)
-        assert len(beta) == n_cpgs, f"Beta length mismatch: {len(beta)} vs {n_cpgs}"
-        assert not np.isnan(beta).any(), f"NaN found in sample {uid}"
-        rows_X.append(beta)
-        rows_obs.append({
-            "cell_id":       f"{split}_{row['id']}",
-            "original_id":   str(row["id"]),
-            "age":           float(row["age"]),
-            "split":         split,
-        })
-        uid += 1
-
-X   = np.stack(rows_X, axis=0)   # [n_samples, n_cpgs]
-obs = pd.DataFrame(rows_obs)
-obs.index = obs["cell_id"]
-obs = obs.drop(columns=["cell_id"])
-
-print(f"  X shape: {X.shape}")
-print(f"  dtype:   {X.dtype}")
-print(f"  NaN:     {np.isnan(X).sum()}")
-print(f"  min:     {X.min():.4f}  max: {X.max():.4f}")
-
-# ── 5. Build var ─────────────────────────────────────────────────────────────
-var = pd.DataFrame({"illumina_probe_id": cpg_ids})
-var.index = cpg_ids
-
-# ── 6. Verify splits are clean ───────────────────────────────────────────────
-print("\nSplit verification:")
-for split in ["train", "valid", "test"]:
-    mask = obs["split"] == split
-    ages = obs.loc[mask, "age"].values
-    print(f"  {split}: {mask.sum():,} samples | age mean={ages.mean():.1f} std={ages.std():.1f} min={ages.min():.0f} max={ages.max():.0f}")
-
-# Cross-split ID check (original IDs within each split should be unique)
-for split in ["train", "valid", "test"]:
-    ids = obs[obs["split"] == split]["original_id"].tolist()
-    assert len(ids) == len(set(ids)), f"Duplicate original IDs in {split}!"
-print("  No duplicate IDs within any split ✓")
-
-# No cross-split leakage check (beta fingerprint)
-print("  Checking cross-split data leakage...")
-split_masks = {s: obs["split"] == s for s in ["train", "valid", "test"]}
-for s1, s2 in [("train", "valid"), ("train", "test"), ("valid", "test")]:
-    X1 = X[split_masks[s1]]
-    X2 = X[split_masks[s2]]
-    fp1 = set(map(tuple, X1[:, :8].tolist()))
-    fp2 = set(map(tuple, X2[:, :8].tolist()))
-    n_overlap = len(fp1 & fp2)
-    print(f"    {s1} ∩ {s2} fingerprint overlap: {n_overlap} samples {'⚠️  LEAKAGE' if n_overlap > 0 else '✓'}")
-
-# ── 7. Create AnnData and save ───────────────────────────────────────────────
-print(f"\nCreating AnnData ({X.shape[0]:,} cells × {X.shape[1]:,} CpGs)...")
-adata = ad.AnnData(X=X, obs=obs, var=var)
-adata.obs_names_make_unique()
-
-print(f"Saving to {OUT_H5AD} ...")
-adata.write_h5ad(OUT_H5AD, compression="gzip")
-
-import os
-size_mb = os.path.getsize(OUT_H5AD) / 1e6
-print(f"Done. File size: {size_mb:.1f} MB")
-
-# ── 8. Summary ───────────────────────────────────────────────────────────────
-print(f"""
-============================================================
-CONVERSION COMPLETE
-============================================================
-Output:       {OUT_H5AD}
-Shape:        {adata.n_obs:,} cells × {adata.n_vars:,} CpGs
-NaN:          0 (clean)
-obs columns:  {list(adata.obs.columns)}
-var columns:  {list(adata.var.columns)}
-Splits:       {dict(adata.obs['split'].value_counts())}
-
-vs old h5ad:
-  Old: 11,453 cells × 49,156 CpGs (29,548 always-NaN columns)
-  New: {adata.n_obs:,} cells × {adata.n_vars:,} CpGs (zero NaN)
-============================================================
-""")
+if issues:
+    print("Issues found:")
+    for iss in issues: print(f"  ⚠ {iss}")
+else:
+    print("✓ Both h5ad files look correct — ready to use for fine-tuning")
+    print(f"✓ Recommended file: altumage_21k_3way.h5ad (has split column)")
 PY
 
 echo "============================================================"
-echo "Conversion finished: $(date)"
-echo "Output: ${OUT_H5AD}"
+echo "Analysis finished: $(date)"
 echo "============================================================"
