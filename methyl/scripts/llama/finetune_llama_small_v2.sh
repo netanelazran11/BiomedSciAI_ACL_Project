@@ -23,7 +23,7 @@ set -euo pipefail
 #   4. encoder_lr: 5e-6 (vs 5e-5 — less aggressive backbone adaptation)
 #   5. unfreeze_epoch: 30 (vs 10 — longer head warmup before encoder moves)
 #   6. head_dropout: 0.2 (vs 0.1 — more regularization for 7k training samples)
-#   7. loss_type: huber (vs mse — robust to age outliers, delta=5yr)
+#   7. loss_type: mse (huber reverted — delta=5.0 on z-scored age ≈ 75 real years, no benefit)
 #   8. head simplified: 256→128→1 (vs 256→256→128→64→1)
 # ─────────────────────────────────────────────────────────────────────────────
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
@@ -57,7 +57,7 @@ RECON_WEIGHT="${RECON_WEIGHT:-0.0}"
 HEAD_HIDDEN="${HEAD_HIDDEN:-256}"
 HEAD_DROPOUT="${HEAD_DROPOUT:-0.2}"       # more regularization: 0.2 vs 0.1
 POOLING="${POOLING:-cls}"                 # match WCED pretraining: cls vs mean
-LOSS_TYPE="${LOSS_TYPE:-huber}"           # robust to age outliers: huber vs mse
+LOSS_TYPE="${LOSS_TYPE:-mse}"             # mse on z-scored age (huber delta would need normalization)
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
