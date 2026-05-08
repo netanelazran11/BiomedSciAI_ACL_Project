@@ -55,6 +55,7 @@ finetune:
   # Decoder regularizer weight (keeps reconstruction objective alive during fine-tuning)
   recon_weight: 0.1
   pooling: mean               # mean pooling over all tokens (better than CLS-only)
+  loss_type: mse              # mse or huber (huber delta must be in normalized space)
 
 finetune_epochs: 100
 accumulate_grad_batches: 4
