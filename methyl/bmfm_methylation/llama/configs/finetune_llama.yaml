@@ -53,7 +53,7 @@ finetune:
   freeze_encoder: true
   unfreeze_encoder_epoch: 9999  # Set to e.g. 5 for M2-style gradual unfreeze
   # Decoder regularizer weight (keeps reconstruction objective alive during fine-tuning)
-  recon_weight: 0.1
+  recon_weight: 0.0              # 0.0 when input_ratio=1.0 (no held-out CpGs to reconstruct)
   pooling: mean               # mean pooling over all tokens (better than CLS-only)
   loss_type: mse              # mse or huber (huber delta must be in normalized space)
 
