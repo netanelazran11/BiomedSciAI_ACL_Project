@@ -40,7 +40,7 @@ age_std: 1.0
 # Fine-tuning settings
 # ─────────────────────────────────────────────────────────────────────────────
 finetune:
-  head_hidden_size: 256        # head: 256→256→128→64→1
+  head_hidden_size: 256        # head: 256→256→128→1 (64D bottleneck removed)
   head_dropout: 0.1
   learning_rate: 1e-4          # MLP head lr
   encoder_lr: 5e-5             # encoder lr after unfreeze (5× lower than head)
@@ -49,7 +49,8 @@ finetune:
   freeze_encoder: true
   unfreeze_encoder_epoch: 10   # unfreeze encoder after head warmup
   recon_weight: 0.0            # disabled: input_ratio=1.0, no held-out CpGs
-  pooling: mean                # mean pooling over all tokens
+  pooling: mean                # mean pooling over all tokens (v1); v2 uses cls
+  loss_type: mse              # mse or huber (if huber: delta must be in z-score space)
 
 finetune_epochs: 150
 accumulate_grad_batches: 16    # effective batch = 8 × 16 = 128
