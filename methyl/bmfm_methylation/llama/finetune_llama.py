@@ -106,6 +106,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         learning_rate: float = 1e-4,
         encoder_lr: float = 1e-5,
         weight_decay: float = 0.01,
+        warmup_steps: int = 500,
         max_steps: int = 10000,
         age_mean: float = 0.0,
         age_std: float = 1.0,
@@ -113,12 +114,13 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         unfreeze_encoder_epoch: int = 9999,
         recon_weight: float = 0.1,
         pooling: str = "mean",
+        loss_type: str = "mse",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["encoder", "decoder"])
 
         self.encoder = encoder
-        self.decoder = decoder  # Kept as regularizer (frozen or unfrozen)
+        self.decoder = decoder
         self.age_mean = age_mean
         self.age_std  = age_std
         self.recon_weight = recon_weight
@@ -130,12 +132,11 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             logger.info(f"Encoder frozen (unfreeze at epoch {unfreeze_encoder_epoch})")
 
         if decoder is not None:
-            # Decoder is a regularizer — freeze it to prevent overfitting on age data
             for p in self.decoder.parameters():
                 p.requires_grad = False
             logger.info("Decoder frozen (reconstruction regularizer)")
 
-        # MLP age head: hidden → head_hidden → head_hidden//2 → head_hidden//4 → 1
+        # MLP age head: hidden → head_hidden → head_hidden//2 → 1
         self.age_head = nn.Sequential(
             nn.Linear(hidden_size, head_hidden_size),
             nn.LayerNorm(head_hidden_size),
@@ -145,14 +146,13 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             nn.LayerNorm(head_hidden_size // 2),
             nn.GELU(),
             nn.Dropout(head_dropout),
-            nn.Linear(head_hidden_size // 2, head_hidden_size // 4),
-            nn.LayerNorm(head_hidden_size // 4),
-            nn.GELU(),
-            nn.Dropout(head_dropout),
-            nn.Linear(head_hidden_size // 4, 1),
+            nn.Linear(head_hidden_size // 2, 1),
         )
 
-        self.age_loss_fn   = nn.MSELoss()
+        if loss_type == "huber":
+            self.age_loss_fn = nn.HuberLoss(delta=5.0)
+        else:
+            self.age_loss_fn = nn.MSELoss()
         self.recon_loss_fn = nn.MSELoss(reduction="none")
 
         # Dataset-level metrics (accumulate across full epoch, then compute)
@@ -167,20 +167,18 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.test_medae  = MedianAbsoluteError()
 
     def on_train_epoch_start(self):
-        """Unfreeze encoder after warmup epochs and add its params to the optimizer."""
+        """Unfreeze encoder after warmup epochs by activating its pre-registered param group."""
         epoch = self.current_epoch
         if epoch == self.hparams.unfreeze_encoder_epoch:
-            logger.info(f"Epoch {epoch}: unfreezing encoder")
+            logger.info(f"Epoch {epoch}: unfreezing encoder (lr={self.hparams.encoder_lr:.2e})")
             for p in self.encoder.parameters():
                 p.requires_grad = True
-            # configure_optimizers captured only head params at init — add encoder now
-            optimizer = self.optimizers()
-            optimizer.add_param_group({
-                "params": list(self.encoder.parameters()),
-                "lr": self.hparams.encoder_lr,
-                "weight_decay": self.hparams.weight_decay,
-            })
-            logger.info(f"Encoder params added to optimizer (lr={self.hparams.encoder_lr:.2e})")
+            # Encoder was pre-registered in configure_optimizers with lr=0.
+            # Update base_lr in the scheduler so LambdaLR decays from encoder_lr.
+            scheduler = self.lr_schedulers()
+            scheduler.base_lrs[1] = self.hparams.encoder_lr
+            self.optimizers().param_groups[1]["lr"] = self.hparams.encoder_lr
+            logger.info("Encoder lr activated in optimizer and scheduler")
 
     def _encode_cls(
         self,
@@ -321,19 +319,30 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.test_medae.reset()
 
     def configure_optimizers(self):
-        # Only optimize trainable parameters
-        trainable = [p for p in self.parameters() if p.requires_grad]
+        import math
+
+        # Pre-register both groups so the scheduler sees them from step 0.
+        # Encoder starts with lr=0 (frozen); activated in on_train_epoch_start.
         optimizer = torch.optim.AdamW(
-            trainable,
-            lr=self.hparams.learning_rate,
+            [
+                {"params": list(self.age_head.parameters()), "lr": self.hparams.learning_rate},
+                {"params": list(self.encoder.parameters()),  "lr": 0.0},
+            ],
             weight_decay=self.hparams.weight_decay,
         )
 
-        # Cosine annealing
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        warmup = self.hparams.warmup_steps
+        T_max  = self.hparams.max_steps
+
+        def cosine_with_warmup(step):
+            if step < warmup:
+                return float(step) / max(1, warmup)
+            t = float(step - warmup) / max(1, T_max - warmup)
+            return max(0.01, 0.5 * (1.0 + math.cos(math.pi * t)))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer,
-            T_max=self.hparams.max_steps,
-            eta_min=self.hparams.learning_rate * 0.01,
+            lr_lambda=[cosine_with_warmup, cosine_with_warmup],
         )
         return {
             "optimizer": optimizer,
@@ -555,6 +564,7 @@ def main(cfg: DictConfig):
         learning_rate=ft_cfg.get("learning_rate", 1e-4),
         encoder_lr=ft_cfg.get("encoder_lr", 5e-5),
         weight_decay=ft_cfg.get("weight_decay", 0.01),
+        warmup_steps=ft_cfg.get("warmup_steps", 500),
         max_steps=max_steps,
         age_mean=age_mean,
         age_std=age_std,
@@ -562,6 +572,7 @@ def main(cfg: DictConfig):
         unfreeze_encoder_epoch=ft_cfg.get("unfreeze_encoder_epoch", 9999),
         recon_weight=ft_cfg.get("recon_weight", 0.0),
         pooling=ft_cfg.get("pooling", "mean"),
+        loss_type=ft_cfg.get("loss_type", "mse"),
     )
 
     n_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
