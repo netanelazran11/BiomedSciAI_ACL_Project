@@ -115,6 +115,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         recon_weight: float = 0.1,
         pooling: str = "mean",
         loss_type: str = "mse",
+        beta_noise: float = 0.0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["encoder", "decoder"])
@@ -125,6 +126,11 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.age_std  = age_std
         self.recon_weight = recon_weight
         self.pooling = pooling
+
+        # Freeze CpG embedding table always — well-trained over all 49k tokens in pretraining;
+        # weight decay during fine-tuning would shrink the 29k never-accessed rows toward zero.
+        for p in self.encoder.embeddings.cpg_sites_embeddings.parameters():
+            p.requires_grad = False
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -171,8 +177,10 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         epoch = self.current_epoch
         if epoch == self.hparams.unfreeze_encoder_epoch:
             logger.info(f"Epoch {epoch}: unfreezing encoder (lr={self.hparams.encoder_lr:.2e})")
-            for p in self.encoder.parameters():
-                p.requires_grad = True
+            # Keep CpG embedding table frozen — excluded from optimizer entirely.
+            for name, p in self.encoder.named_parameters():
+                if "cpg_sites_embeddings" not in name:
+                    p.requires_grad = True
             # Encoder was pre-registered in configure_optimizers with lr=0.
             # Update base_lr in the scheduler so LambdaLR decays from encoder_lr.
             scheduler = self.lr_schedulers()
@@ -199,8 +207,18 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             return out.pooler_output  # [B, D]
 
     def _shared_step(self, batch, stage: str):
-        cpg_ids      = batch["cpg_ids"]
-        beta_values  = batch["beta_values"]
+        cpg_ids     = batch["cpg_ids"]
+        beta_values = batch["beta_values"]
+
+        # Beta noise augmentation — training only; adds Gaussian noise to real CpG measurements
+        # (beta >= 0) to improve robustness to methylation array technical noise.
+        if self.training and self.hparams.beta_noise > 0:
+            real = beta_values >= 0  # False for CLS/PAD/MASK special tokens (negative values)
+            beta_values = beta_values.clone()
+            beta_values[real] = (
+                beta_values[real] + torch.randn_like(beta_values[real]) * self.hparams.beta_noise
+            ).clamp(0.0, 1.0)
+
         attn_mask    = batch.get("attention_mask")
         all_betas    = batch.get("all_betas")
         input_mask   = batch.get("input_mask")
@@ -321,12 +339,17 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
     def configure_optimizers(self):
         import math
 
+        # Exclude the CpG embedding table from the optimizer entirely — it's frozen and we
+        # don't want AdamW weight decay applied to the 29k never-accessed rows.
+        emb_param_ids = {id(p) for p in self.encoder.embeddings.cpg_sites_embeddings.parameters()}
+        enc_non_emb = [p for p in self.encoder.parameters() if id(p) not in emb_param_ids]
+
         # Pre-register both groups so the scheduler sees them from step 0.
         # Encoder starts with lr=0 (frozen); activated in on_train_epoch_start.
         optimizer = torch.optim.AdamW(
             [
                 {"params": list(self.age_head.parameters()), "lr": self.hparams.learning_rate},
-                {"params": list(self.encoder.parameters()),  "lr": 0.0},
+                {"params": enc_non_emb,                      "lr": 0.0},
             ],
             weight_decay=self.hparams.weight_decay,
         )
@@ -381,16 +404,23 @@ def load_wced_llama_checkpoint(checkpoint_path: str) -> WCEDLlamaModule:
     intermediate_size = sd["encoder.encoder.layers.0.mlp.gate_proj.weight"].shape[0]
     n_sin_basis = sd.get("encoder.embeddings.beta_values_embeddings.basis", torch.zeros(48)).shape[0]
 
+    # num_attention_heads cannot be inferred from weight shapes (all projections are [D, D]).
+    # Use intermediate_size as proxy: small model (256D, intermediate=320) → 4 heads;
+    # full model (512D, intermediate=1408) → 8 heads.
+    num_attention_heads = 4 if intermediate_size == 320 else 8
+
     model_config = MethylLlamaConfig(
         vocab_size=vocab_size,
         hidden_size=hidden_size,
         num_hidden_layers=num_layers,
         intermediate_size=intermediate_size,
         n_sin_basis=n_sin_basis,
+        num_attention_heads=num_attention_heads,
     )
     logger.info(
         f"Inferred config: vocab={vocab_size}, hidden={hidden_size}, "
-        f"layers={num_layers}, intermediate={intermediate_size}, sin_basis={n_sin_basis}"
+        f"layers={num_layers}, intermediate={intermediate_size}, "
+        f"heads={num_attention_heads}, sin_basis={n_sin_basis}"
     )
 
     module = WCEDLlamaModule(model_config=model_config, **hparams)
@@ -543,7 +573,8 @@ def main(cfg: DictConfig):
 
     pretrained = load_wced_llama_checkpoint(checkpoint_path)
     encoder = pretrained.encoder
-    decoder = pretrained.decoder   # Keep for reconstruction regularizer
+    # Decoder not used: recon_weight=0.0 and input_ratio=1.0 leave no held-out CpGs.
+    # Passing it would waste ~25MB VRAM (12.7M frozen params on GPU doing nothing).
 
     # Fine-tuning module
     ft_cfg = cfg.get("finetune", {})
@@ -557,7 +588,7 @@ def main(cfg: DictConfig):
 
     module = MethylationAgeRegressorLlama(
         encoder=encoder,
-        decoder=decoder,
+        decoder=None,
         hidden_size=encoder.config.hidden_size,
         head_hidden_size=ft_cfg.get("head_hidden_size", 256),
         head_dropout=ft_cfg.get("head_dropout", 0.1),
@@ -573,6 +604,7 @@ def main(cfg: DictConfig):
         recon_weight=ft_cfg.get("recon_weight", 0.0),
         pooling=ft_cfg.get("pooling", "mean"),
         loss_type=ft_cfg.get("loss_type", "mse"),
+        beta_noise=ft_cfg.get("beta_noise", 0.0),
     )
 
     n_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)

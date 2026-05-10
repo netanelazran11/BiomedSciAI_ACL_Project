@@ -56,6 +56,7 @@ finetune:
   recon_weight: 0.0              # 0.0 when input_ratio=1.0 (no held-out CpGs to reconstruct)
   pooling: mean               # mean pooling over all tokens (better than CLS-only)
   loss_type: mse              # mse or huber (huber delta must be in normalized space)
+  beta_noise: 0.0             # Gaussian noise σ on real CpG beta values during training only
 
 finetune_epochs: 100
 accumulate_grad_batches: 4

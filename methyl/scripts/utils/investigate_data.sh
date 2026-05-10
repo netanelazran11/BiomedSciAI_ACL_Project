@@ -16,7 +16,7 @@ cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 
 echo "============================================================"
-echo " Dataset Investigation — Pretrain 169k×49k + Finetune 11.5k×49k"
+echo " Dataset Investigation — AltumAge 21k Original + Clean 21k Fine-tune"
 echo " Time: $(date)"
 echo "============================================================"
 

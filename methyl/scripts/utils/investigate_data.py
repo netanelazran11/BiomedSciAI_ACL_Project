@@ -1,6 +1,9 @@
 """
-Data Investigation — Pretraining (169k × 49k) and Fine-tuning (11.5k × 49k)
-=============================================================================
+Data Investigation — AltumAge 21k Fine-tuning Dataset
+======================================================
+Analyzes both the original 21k AltumAge file and the cleaned 19k version
+used in MethylLlama fine-tuning.
+
 Covers all 14 inspection points per dataset:
   1.  File path & size
   2.  File format
@@ -17,8 +20,11 @@ Covers all 14 inspection points per dataset:
   13. CpGs with 100% missing values
   14. Samples with 100% missing methylation
 
-NaN analysis is done in chunks (CHUNK_ROWS rows at a time) to stay within
-memory budget even for the 169k × 49k pretrain corpus (~33 GB dense).
+Plus extended analysis:
+  - Age distribution (mean, std, min, max, percentiles, histogram)
+  - Beta-value distribution per split
+  - Zero vs NaN breakdown (zeros are real unmethylated CpGs)
+  - Per-split statistics (train / val / test)
 
 Usage:
     python scripts/utils/investigate_data.py
@@ -37,16 +43,17 @@ except ImportError:
     sys.exit("scanpy not installed. Run: pip install scanpy")
 
 
-PRETRAIN_PATH = (
-    "/sci/labs/benjamin.yakir/netanel.azran/data"
-    "/data_methyl_pretrain_type3_h5ad/methylgpt_pretrain_type3.h5ad"
-)
-FINETUNE_PATH = (
-    "/sci/labs/benjamin.yakir/netanel.azran/data"
-    "/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
+BASE = "/sci/labs/benjamin.yakir/netanel.azran/data"
+
+# Original AltumAge 21k file (train/val/test splits baked in)
+ALTUMAGE_21K_PATH = f"{BASE}/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
+
+# Cleaned version: only the 19,608 CpGs that have zero NaN across all samples
+CLEAN_19K_PATH = (
+    f"{BASE}/data_methyl_finetune_19k_h5ad/finetuning_19608_clean.h5ad"
 )
 
-CHUNK_ROWS = 2000   # rows per NaN-analysis chunk (~200 MB per chunk at 49k CpGs)
+CHUNK_ROWS = 2000   # rows per NaN-analysis chunk
 SEP = "=" * 70
 
 
@@ -251,9 +258,22 @@ def investigate_dataset(path, dataset_name):
 
     if "age" in adata.obs.columns:
         age = adata.obs["age"].dropna()
-        print(f"\n     Age — n={len(age):,}, "
-              f"min={age.min():.1f}, max={age.max():.1f}, "
-              f"mean={age.mean():.1f}, NaN={adata.obs['age'].isna().sum():,}")
+        nan_age = adata.obs["age"].isna().sum()
+        print(f"\n     Age — n={len(age):,}  NaN={nan_age:,}")
+        print(f"     min={age.min():.1f}   max={age.max():.1f}")
+        print(f"     mean={age.mean():.2f}  std={age.std():.2f}  median={age.median():.1f}")
+        pcts = np.percentile(age, [5, 25, 50, 75, 95])
+        print(f"     percentiles — p5={pcts[0]:.1f}  p25={pcts[1]:.1f}  "
+              f"p50={pcts[2]:.1f}  p75={pcts[3]:.1f}  p95={pcts[4]:.1f}")
+        # Age histogram in terminal (10-year bins)
+        print(f"\n     Age histogram (10-year bins):")
+        bins = list(range(0, 121, 10))
+        counts, _ = np.histogram(age, bins=bins)
+        max_c = max(counts) if max(counts) > 0 else 1
+        for i, (lo, hi) in enumerate(zip(bins[:-1], bins[1:])):
+            bar_len = int(40 * counts[i] / max_c)
+            bar = "█" * bar_len
+            print(f"     {lo:3d}–{hi:3d}: {bar:<40s} {counts[i]:,}")
 
     # ── Split distribution ────────────────────────────────────────────────────
     split_col = next((c for c in ["split", "Split", "dataset_split", "fold"]
@@ -433,8 +453,8 @@ def print_interpretation(results):
 
 def main():
     datasets = [
-        (PRETRAIN_PATH, "pretrain-169k-49k"),
-        (FINETUNE_PATH, "finetune-11.5k-49k"),
+        (ALTUMAGE_21K_PATH, "altumage-21k-original"),
+        (CLEAN_19K_PATH,    "finetune-21k-clean"),
     ]
 
     results = []

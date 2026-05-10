@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fine-tuning MethylLlama-Small v3 — bug fixes only, reverted bad changes
+# Fine-tuning MethylLlama-Small v3 — bug fixes + architecture corrections
 #
 # V1 (44695049) baseline: test/r2=0.862, test/mae=6.81yr
 # V2 (44705936) result:   test/r2=0.823, test/mae=7.50yr  ← worse
@@ -24,7 +24,7 @@ set -euo pipefail
 #   - head_dropout=0.2 caused underfitting (val≈train at epoch 150)
 #   - encoder_lr=5e-6 too conservative, encoder barely adapted
 #
-# V3 keeps only the confirmed improvements:
+# V3 confirmed improvements from v2:
 #   1. Warmup fixed: LambdaLR warmup+cosine (was CosineAnnealingLR, no warmup)
 #   2. Scheduler fixed: encoder pre-registered, base_lr updated at unfreeze
 #   3. Head simplified: 256→256→128→1 (removed 64D bottleneck, kept from v2)
@@ -34,6 +34,13 @@ set -euo pipefail
 # Reverted to v1 values:
 #   - pooling: mean (CLS hurt performance)
 #   - head_dropout: 0.1 (0.2 caused underfitting)
+#
+# New in v3 (architecture corrections from deep analysis):
+#   6. num_attention_heads=4 fixed in loader (all prior runs used wrong 8-head split)
+#   7. Decoder removed from GPU (12.7M frozen unused params, wastes 25MB VRAM)
+#   8. CpG embedding table frozen (29k of 49k rows never seen; weight decay drifts them)
+#   9. Early stop patience: 30→50 (v1 stopped at epoch 83, may have improved further)
+#  10. Beta noise σ=0.02 on training CpGs (robust to methylation array measurement noise)
 # ─────────────────────────────────────────────────────────────────────────────
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs_llama-wced"
@@ -58,7 +65,7 @@ WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 ACCUM="${ACCUM:-16}"
 FINETUNE_EPOCHS="${FINETUNE_EPOCHS:-150}"
-EARLY_STOP="${EARLY_STOP:-30}"
+EARLY_STOP="${EARLY_STOP:-50}"            # increased: v1 stopped at epoch 83, may improve further
 FREEZE_ENCODER="${FREEZE_ENCODER:-true}"
 UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-20}"    # kept from v2: more head warmup than v1's 10
 WARMUP_STEPS="${WARMUP_STEPS:-500}"       # kept from v2: properly implemented now
@@ -67,6 +74,7 @@ HEAD_HIDDEN="${HEAD_HIDDEN:-256}"
 HEAD_DROPOUT="${HEAD_DROPOUT:-0.1}"       # reverted: 0.2 caused underfitting in v2
 POOLING="${POOLING:-mean}"                # reverted: CLS hurt performance in v2
 LOSS_TYPE="${LOSS_TYPE:-mse}"
+BETA_NOISE="${BETA_NOISE:-0.02}"          # Gaussian noise on training beta values
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,13 +90,13 @@ OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
 echo "============================================================"
-echo "METHYLLAMA-SMALL FINE-TUNING v3 (bug fixes, reverted bad changes)"
+echo "METHYLLAMA-SMALL FINE-TUNING v3 (arch fixes + improvements)"
 echo "============================================================"
 echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
 echo "Checkpoint: ${CHECKPOINT}"
-echo "Pooling: ${POOLING} | Loss: ${LOSS_TYPE}"
+echo "Pooling: ${POOLING} | Loss: ${LOSS_TYPE} | beta_noise=${BETA_NOISE}"
 echo "encoder_lr=${ENCODER_LR} | unfreeze_epoch=${UNFREEZE_EPOCH}"
-echo "head_dropout=${HEAD_DROPOUT} | warmup_steps=${WARMUP_STEPS}"
+echo "head_dropout=${HEAD_DROPOUT} | warmup_steps=${WARMUP_STEPS} | patience=${EARLY_STOP}"
 echo "Output: ${OUTDIR}"
 echo "============================================================"
 
@@ -132,6 +140,7 @@ python -m bmfm_methylation.llama.finetune_llama \
     finetune.recon_weight="${RECON_WEIGHT}" \
     finetune.pooling="${POOLING}" \
     finetune.loss_type="${LOSS_TYPE}" \
+    finetune.beta_noise="${BETA_NOISE}" \
     finetune_epochs="${FINETUNE_EPOCHS}" \
     accumulate_grad_batches="${ACCUM}" \
     gradient_clip_val=1.0 \
@@ -144,6 +153,6 @@ python -m bmfm_methylation.llama.finetune_llama \
     ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
-echo "v3 fine-tuning finished: $(date)"
+echo "v3 fine-tuning finished (arch-corrected): $(date)"
 echo "Checkpoint: ${OUTDIR}/checkpoints/"
 echo "============================================================"
