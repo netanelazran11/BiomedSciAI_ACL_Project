@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=eval-embeddings
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
+#SBATCH --partition=goldfish
+#SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
