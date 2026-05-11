@@ -48,7 +48,6 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from torch.utils.data import DataLoader
 
 # ── project imports ───────────────────────────────────────────────────────────
-from bmfm_methylation.llama.finetune_llama import MethylLlamaFinetuneModule
 from bmfm_methylation.llama.wced_llama import MethylationDataset, WCEDCollator
 
 
