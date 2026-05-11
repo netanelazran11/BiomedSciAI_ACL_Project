@@ -15,6 +15,7 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 cd "${REPO}"
 source bmfm_methyl_env/bin/activate
+export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
 CHECKPOINT="${CHECKPOINT:-???}"        # required: path to .ckpt
 CKPT_TYPE="${CKPT_TYPE:-pretrain}"    # pretrain or finetune
