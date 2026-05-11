@@ -47,9 +47,7 @@ from sklearn.metrics import classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from torch.utils.data import DataLoader
 
-# ── project imports ───────────────────────────────────────────────────────────
-from bmfm_methylation.llama.wced_llama import MethylationDataset, WCEDCollator
-
+# ── project imports (deferred to main to avoid circular import issues) ────────
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -71,17 +69,29 @@ def parse_args():
 # ── Embedding extraction ──────────────────────────────────────────────────────
 
 @torch.no_grad()
-def extract_embeddings(module, adata, tokenizer_path, batch_size, device):
-    module.eval().to(device)
+def extract_embeddings(encoder, data_path, tokenizer_path, batch_size, device):
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    from bmfm_methylation.shared.data_module import MethylationDataset, WCEDCollator
 
+    encoder.eval().to(device)
+
+    # Load tokenizer
+    tokenizer = MultiFieldTokenizer.from_pretrained(tokenizer_path)
+
+    # Dataset — no split filter, loads all samples
+    dataset = MethylationDataset(h5ad_path=data_path, split=None, normalize_age=False)
+    cpg_sites = dataset.cpg_sites
+
+    # Collator: input_ratio=1.0 → all CpGs as input, no held-out
     collator = WCEDCollator(
-        tokenizer_path=tokenizer_path,
-        subset_k=adata.n_vars,
+        tokenizer=tokenizer,
+        cpg_sites=cpg_sites,
+        vocab_size=len(cpg_sites),
         input_ratio=1.0,
+        contrastive=False,
     )
-    dataset = MethylationDataset(adata)
-    loader  = DataLoader(dataset, batch_size=batch_size, collate_fn=collator,
-                         shuffle=False, num_workers=4)
+    loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collator,
+                        shuffle=False, num_workers=4)
 
     all_embs = []
     for batch in loader:
@@ -89,18 +99,17 @@ def extract_embeddings(module, adata, tokenizer_path, batch_size, device):
         beta_values = batch["beta_values"].to(device)
         attn_mask   = batch["attention_mask"].to(device)
 
-        hidden = module.encoder(
-            input_ids      = cpg_ids,
-            beta_values    = beta_values,
-            attention_mask = attn_mask,
-        ).last_hidden_state                         # [B, L, 256]
+        # Encoder forward — same as MethylationAgeRegressorLlama._encode_cls
+        input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)  # [B, 2, L]
+        out = encoder(input_ids=input_ids, attention_mask=attn_mask)
 
-        # mean pooling over non-CLS tokens (same as finetune forward)
-        mask = attn_mask[:, 1:].unsqueeze(-1).float()
-        emb  = (hidden[:, 1:] * mask).sum(1) / mask.sum(1).clamp(min=1)
+        # Mean pooling over non-CLS tokens (skip pos 0)
+        hidden = out.last_hidden_state[:, 1:, :]         # [B, L-1, 256]
+        mask   = attn_mask[:, 1:].unsqueeze(-1).float()  # [B, L-1, 1]
+        emb    = (hidden * mask).sum(1) / mask.sum(1).clamp(min=1)  # [B, 256]
         all_embs.append(emb.cpu().float().numpy())
 
-    return np.concatenate(all_embs, axis=0)         # [N, 256]
+    return np.concatenate(all_embs, axis=0)  # [N, 256]
 
 
 # ── SGDCallback equivalent ────────────────────────────────────────────────────
@@ -178,13 +187,8 @@ def main():
         ft_module = MethylationAgeRegressorLlama.load_from_checkpoint(args.checkpoint)
         encoder = ft_module.encoder
 
-    # Wrap encoder in a minimal module for extract_embeddings
-    class _EncoderModule(torch.nn.Module):
-        def __init__(self, enc): super().__init__(); self.encoder = enc
-    module = _EncoderModule(encoder)
-
     print("\nExtracting embeddings...")
-    embs = extract_embeddings(module, adata, args.tokenizer,
+    embs = extract_embeddings(encoder, args.data, args.tokenizer,
                               args.batch_size, args.device)
     print(f"  Embeddings shape: {embs.shape}")
     np.save(os.path.join(args.outdir, "embeddings.npy"), embs)
