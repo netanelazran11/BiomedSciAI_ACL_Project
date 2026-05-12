@@ -295,8 +295,8 @@
   <div class="col center">
     <div class="box box-data w440">
       <div class="box-title">📁 finetuning_clean.h5ad</div>
-      <div class="box-sub">~11,500 samples × 21k CpG sites</div>
-      <div class="box-note">21k CpGs measured across all samples (pre-cleaned)</div>
+      <div class="box-sub">10,988 samples × 21,368 CpG sites <span style="color:#b07010;">(before cleaning)</span></div>
+      <div class="box-note">After cleaning: 10,656 samples × 19,608 CpGs &nbsp;·&nbsp; 332 samples + 1,760 CpGs removed</div>
     </div>
 
     <div class="arrow-down">↓</div>
@@ -327,11 +327,11 @@
     <div class="box box-proc w640">
       <div class="box-title">WCEDCollator &nbsp;<span style="font-weight:400; color:#8090b0;">(input_ratio = 1.0)</span></div>
       <div class="box-sub" style="margin-top:6px;">
-        For each sample: select all 21k valid CpG sites → sort by token ID → prepend CLS token
+        For each sample: select all 19,608 CpG sites → sort by token ID → prepend CLS token
       </div>
       <div style="display:flex; justify-content:center; gap:32px; margin-top:10px;">
         <div style="font-size:11px; color:#6090d0;">
-          Sequence length = 21k + 1 CLS = <strong style="color:#80b0e0;">~21,001</strong>
+          Sequence length = 19,608 + 1 CLS = <strong style="color:#80b0e0;">19,609</strong>
         </div>
         <div style="font-size:11px; color:#6090d0;">
           Batch size = <strong style="color:#80b0e0;">8</strong> &nbsp;·&nbsp; Effective batch = 8 × 16 accum = <strong style="color:#80b0e0;">128</strong>
@@ -347,7 +347,7 @@
       <div class="col center">
         <div class="box box-model w200">
           <div class="box-title">cpg_ids</div>
-          <div class="box-dim">[8, 21k+1]</div>
+          <div class="box-dim">[8, 19609]</div>
           <div class="box-sub">CpG token ID<br>0 = CLS, 5…49160 = sites</div>
         </div>
       </div>
@@ -355,7 +355,7 @@
       <div class="col center">
         <div class="box box-model w200">
           <div class="box-title">beta_values</div>
-          <div class="box-dim">[8, 21k+1]</div>
+          <div class="box-dim">[8, 19609]</div>
           <div class="box-sub">Methylation level [0, 1]<br>−2.0 for CLS token</div>
         </div>
       </div>
@@ -363,7 +363,7 @@
       <div class="col center">
         <div class="box box-model w200">
           <div class="box-title">attention_mask</div>
-          <div class="box-dim">[8, 21k+1]</div>
+          <div class="box-dim">[8, 19609]</div>
           <div class="box-sub">1 = real token<br>0 = padding</div>
         </div>
       </div>
@@ -411,7 +411,7 @@
         <div class="section-tag">Input</div>
         <div class="box box-data w220">
           <div class="box-title">cpg_ids</div>
-          <div class="box-dim">[B, 21k+1]</div>
+          <div class="box-dim">[B, 19609]</div>
           <div class="box-sub">site identity tokens</div>
         </div>
       </div>
@@ -419,7 +419,7 @@
         <div class="section-tag" style="opacity:0">.</div>
         <div class="box box-data w220">
           <div class="box-title">beta_values</div>
-          <div class="box-dim">[B, 21k+1]</div>
+          <div class="box-dim">[B, 19609]</div>
           <div class="box-sub">methylation levels [0,1]</div>
         </div>
       </div>
@@ -436,7 +436,7 @@
       <div class="box box-embed w280">
         <div class="box-title">CpG Embedding Table</div>
         <div class="box-sub">nn.Embedding(49,161 × 256)</div>
-        <div class="box-dim">→ [B, 21k+1, 256]</div>
+        <div class="box-dim">→ [B, 19609, 256]</div>
         <div class="box-note">× cpg_scale (learned scalar, init 0.1)</div>
       </div>
 
@@ -446,7 +446,7 @@
         <div class="box-title">ScaleAdaptEncoder</div>
         <div class="box-sub">48 sin/cos basis pairs → 96 features</div>
         <div class="box-sub">Linear(96 → 256, no bias)</div>
-        <div class="box-dim">→ [B, 21k+1, 256]</div>
+        <div class="box-dim">→ [B, 19609, 256]</div>
         <div class="box-note">Encodes methylation level [0,1] as a learned sinusoidal embedding</div>
       </div>
     </div>
@@ -458,7 +458,7 @@
     <div class="box box-embed w380">
       <div class="box-title">Fused Embedding</div>
       <div class="box-sub">RMSNorm + Dropout(0.1)</div>
-      <div class="box-dim">[B, 21k+1, 256]</div>
+      <div class="box-dim">[B, 19609, 256]</div>
     </div>
 
     <div class="arrow-down">↓</div>
@@ -491,7 +491,7 @@
         </div>
       </div>
       <div style="margin-top:10px; text-align:center; font-size:11px; color:#6050a0;">
-        Output: [B, 21k+1, 256] &nbsp;—&nbsp; same shape in, same shape out
+        Output: [B, 19609, 256] &nbsp;—&nbsp; same shape in, same shape out
       </div>
     </div>
 
@@ -502,7 +502,7 @@
     <!-- Final norm -->
     <div class="box box-layer w380">
       <div class="box-title">Final RMSNorm</div>
-      <div class="box-dim">[B, 21k+1, 256]</div>
+      <div class="box-dim">[B, 19609, 256]</div>
     </div>
 
     <div class="arrow-down">↓</div>
@@ -510,9 +510,9 @@
     <!-- Mean pooling -->
     <div class="box box-pool w440">
       <div class="box-title">Mean Pooling</div>
-      <div class="box-sub">Average over tokens 1 … 21k (skip CLS at pos 0)</div>
+      <div class="box-sub">Average over tokens 1 … 19608 (skip CLS at pos 0)</div>
       <div class="box-sub">Weighted by attention_mask — padding excluded</div>
-      <div class="box-dim">[B, 21k+1, 256]  →  [B, 256]</div>
+      <div class="box-dim">[B, 19609, 256]  →  [B, 256]</div>
       <div class="box-note" style="color:#5a9a9a; font-size:10px; margin-top:6px;">
         ≈ learned weighted average of methylation levels across all CpG sites
       </div>
@@ -756,7 +756,7 @@
       <div style="background:#0a1a10; border:1px solid #2a5030; border-radius:10px; padding:14px 18px;">
         <div style="font-size:12px; font-weight:700; color:#6aaa6a; margin-bottom:8px; letter-spacing:0.5px;">DATA QUALITY</div>
         <div style="font-size:11px; color:#4a7050; line-height:2.0;">
-          ✅ &nbsp;Zero NaN in model input — all 21k CpGs measured in every sample<br>
+          ✅ &nbsp;Zero NaN in model input — all 19,608 CpGs measured in every sample<br>
           ✅ &nbsp;beta = 0.0 is valid (unmethylated) — not NaN, not imputed<br>
           ✅ &nbsp;Bimodal distribution reflects biology (CpGs are ON or OFF)<br>
           ✅ &nbsp;All samples from 450k array — consistent measurement platform<br>
@@ -775,7 +775,7 @@
 ═══════════════════════════════════════════════════════════ -->
 <div class="slide">
   <div class="slide-label">Slide 4 / 4</div>
-  <div class="slide-title">Dataset Statistics — AltumAge 21k Methylation</div>
+  <div class="slide-title">Dataset Statistics — AltumAge Methylation Dataset</div>
 
   <!-- Top stat cards -->
   <div class="top-row">
@@ -899,7 +899,7 @@
         <thead>
           <tr>
             <th>Property</th>
-            <th><span class="tag-orig">Original 21k</span></th>
+            <th><span class="tag-orig">Original</span></th>
             <th><span class="tag-clean">Clean (used)</span></th>
           </tr>
         </thead>
