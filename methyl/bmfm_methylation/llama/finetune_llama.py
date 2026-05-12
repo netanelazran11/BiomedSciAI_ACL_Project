@@ -181,12 +181,14 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             for name, p in self.encoder.named_parameters():
                 if "cpg_sites_embeddings" not in name:
                     p.requires_grad = True
-            # Encoder was pre-registered in configure_optimizers with lr=0.
+            # Encoder occupies param groups 2 (decay) and 3 (no-decay) — both start at lr=0.
             # Update base_lr in the scheduler so LambdaLR decays from encoder_lr.
             scheduler = self.lr_schedulers()
-            scheduler.base_lrs[1] = self.hparams.encoder_lr
-            self.optimizers().param_groups[1]["lr"] = self.hparams.encoder_lr
-            logger.info("Encoder lr activated in optimizer and scheduler")
+            optimizer = self.optimizers()
+            for pg_idx in [2, 3]:
+                scheduler.base_lrs[pg_idx] = self.hparams.encoder_lr
+                optimizer.param_groups[pg_idx]["lr"] = self.hparams.encoder_lr
+            logger.info("Encoder lr activated in optimizer and scheduler (groups 2+3)")
 
     def _encode_cls(
         self,
@@ -344,14 +346,38 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         emb_param_ids = {id(p) for p in self.encoder.embeddings.cpg_sites_embeddings.parameters()}
         enc_non_emb = [p for p in self.encoder.parameters() if id(p) not in emb_param_ids]
 
+        # Split age_head params into decay / no-decay groups.
+        # LayerNorm weight+bias and Linear biases must NOT get weight decay:
+        #   - LayerNorm.weight (gamma): decay shrinks it toward 0, fighting normalization
+        #   - LayerNorm.bias  (beta):  same — bias is a location parameter, not a magnitude
+        #   - Linear.bias:             biases are offsets, not magnitude weights
+        # Only Linear.weight matrices should be decayed.
+        head_decay, head_no_decay = [], []
+        for name, param in self.age_head.named_parameters():
+            if "bias" in name or "norm" in name.lower():
+                head_no_decay.append(param)
+            else:
+                head_decay.append(param)
+
+        # Same split for encoder non-embedding params (RMSNorm weights, attention biases, etc.)
+        enc_decay, enc_no_decay = [], []
+        for name, param in self.encoder.named_parameters():
+            if id(param) in emb_param_ids:
+                continue
+            if "bias" in name or "norm" in name.lower():
+                enc_no_decay.append(param)
+            else:
+                enc_decay.append(param)
+
         # Pre-register both groups so the scheduler sees them from step 0.
         # Encoder starts with lr=0 (frozen); activated in on_train_epoch_start.
         optimizer = torch.optim.AdamW(
             [
-                {"params": list(self.age_head.parameters()), "lr": self.hparams.learning_rate},
-                {"params": enc_non_emb,                      "lr": 0.0},
+                {"params": head_decay,    "lr": self.hparams.learning_rate, "weight_decay": self.hparams.weight_decay},
+                {"params": head_no_decay, "lr": self.hparams.learning_rate, "weight_decay": 0.0},
+                {"params": enc_decay,     "lr": 0.0,                        "weight_decay": self.hparams.weight_decay},
+                {"params": enc_no_decay,  "lr": 0.0,                        "weight_decay": 0.0},
             ],
-            weight_decay=self.hparams.weight_decay,
         )
 
         warmup = self.hparams.warmup_steps
@@ -363,9 +389,10 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             t = float(step - warmup) / max(1, T_max - warmup)
             return max(0.01, 0.5 * (1.0 + math.cos(math.pi * t)))
 
+        # 4 param groups: head_decay, head_no_decay, enc_decay, enc_no_decay
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer,
-            lr_lambda=[cosine_with_warmup, cosine_with_warmup],
+            lr_lambda=[cosine_with_warmup] * 4,
         )
         return {
             "optimizer": optimizer,
