@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MethylLlama — Pretraining Data Flow & Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #eef0f4;
+    color: #1e2535;
+    font-size: 15px;
+  }
+
+  /* ── Slide container ─────────────────────────────────── */
+  .slide {
+    width: 1280px;
+    min-height: 720px;
+    margin: 40px auto;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 48px 56px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+    position: relative;
+    border: 1px solid #dde1ea;
+  }
+
+  .slide-title {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    margin-bottom: 36px;
+    color: #1a2340;
+    border-bottom: 2px solid #dde3f0;
+    padding-bottom: 14px;
+  }
+
+  .slide-label {
+    position: absolute;
+    top: 20px;
+    right: 28px;
+    font-size: 11px;
+    color: #a0aabb;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ── Box types ───────────────────────────────────────── */
+  .box {
+    border-radius: 10px;
+    padding: 12px 16px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .box-data   { background: #eef3ff; border: 1.5px solid #7a9fe0; }
+  .box-proc   { background: #edf7ed; border: 1.5px solid #4a9a4a; }
+  .box-model  { background: #f4eeff; border: 1.5px solid #8a60c8; }
+  .box-output { background: #fff8ee; border: 1.5px solid #cc9040; }
+  .box-head   { background: #fff0f4; border: 1.5px solid #cc4a7a; }
+  .box-embed  { background: #edf6ff; border: 1.5px solid #3a8ac8; }
+  .box-layer  { background: #f2f0ff; border: 1.5px solid #7060b0; }
+  .box-pool   { background: #edfafa; border: 1.5px solid #3a9a9a; }
+  .box-loss   { background: #fff4ee; border: 1.5px solid #c06830; }
+  .box-attn   { background: #f0f4ff; border: 1.5px solid #5070c8; }
+  .box-ffn    { background: #f4f0ff; border: 1.5px solid #8060c0; }
+  .box-gray   { background: #f4f5f8; border: 1.5px solid #b0b8cc; }
+
+  .box-title  { font-weight: 700; font-size: 13px; margin-bottom: 4px; color: #1a2340; }
+  .box-sub    { font-size: 11px; color: #5a6580; margin-top: 3px; }
+  .box-dim    { font-size: 11px; color: #2a70b8; font-family: monospace; margin-top: 5px; }
+  .box-note   { font-size: 10px; color: #708060; margin-top: 4px; font-style: italic; }
+
+  /* ── Arrows ──────────────────────────────────────────── */
+  .arrow-down {
+    text-align: center;
+    color: #aab4cc;
+    font-size: 22px;
+    line-height: 1;
+    margin: 4px 0;
+  }
+  .arrow-right {
+    display: flex;
+    align-items: center;
+    color: #aab4cc;
+    font-size: 20px;
+    padding: 0 8px;
+  }
+
+  /* ── Layout helpers ──────────────────────────────────── */
+  .row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0px;
+  }
+  .center { align-items: center; }
+
+  .w120 { width: 120px; }
+  .w160 { width: 160px; }
+  .w180 { width: 180px; }
+  .w200 { width: 200px; }
+  .w220 { width: 220px; }
+  .w260 { width: 260px; }
+  .w300 { width: 300px; }
+  .w340 { width: 340px; }
+  .w380 { width: 380px; }
+  .w440 { width: 440px; }
+  .w500 { width: 500px; }
+  .w560 { width: 560px; }
+  .w640 { width: 640px; }
+  .w760 { width: 760px; }
+  .w900 { width: 900px; }
+  .full { flex: 1; }
+
+  /* ── Legend ──────────────────────────────────────────── */
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #6a7890;
+  }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+  }
+
+  /* ── Section label ───────────────────────────────────── */
+  .section-tag {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8090a8;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  /* ── Divider ─────────────────────────────────────────── */
+  .divider { height: 1px; background: #dde3f0; margin: 28px 0; }
+
+  /* ── Merge line ──────────────────────────────────────── */
+  .merge-line { height: 2px; background: #c0cce0; margin: 0 auto; }
+  .vline { width: 2px; background: #dde3f0; margin: 0 auto; }
+
+  /* ── Repeat badge ────────────────────────────────────── */
+  .repeat-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: #6050a0;
+    background: #f2f0ff;
+    border: 1.5px solid #8070c0;
+    border-radius: 6px;
+    padding: 3px 10px;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* ── Plus / tag ──────────────────────────────────────── */
+  .plus {
+    font-size: 20px;
+    color: #8090b0;
+    font-weight: 300;
+    padding: 0 6px;
+    align-self: center;
+  }
+
+  /* ── Table ───────────────────────────────────────────── */
+  table.info-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12px;
+  }
+  table.info-table th {
+    background: #eef1f8;
+    color: #3a4a70;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    border-bottom: 2px solid #ccd4e8;
+    text-align: left;
+  }
+  table.info-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid #e4e8f4;
+    color: #3a4a68;
+  }
+  table.info-table tr:last-child td { border-bottom: none; }
+  table.info-table td.mono { font-family: monospace; color: #2a60a8; font-size: 11px; }
+  table.info-table td.val  { font-weight: 700; color: #1a2a50; }
+
+  /* ── Loss formula ────────────────────────────────────── */
+  .formula-box {
+    background: #f8f6ff;
+    border: 2px solid #9080d8;
+    border-radius: 10px;
+    padding: 18px 28px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    color: #2a1a60;
+    letter-spacing: 0.3px;
+    font-family: 'Georgia', serif;
+  }
+  .formula-box .formula-sub {
+    font-size: 12px;
+    color: #6a6090;
+    margin-top: 10px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-weight: 400;
+    font-style: italic;
+  }
+
+  /* ── Config table ────────────────────────────────────── */
+  .cfg-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .cfg-card {
+    background: #f4f7ff;
+    border: 1.5px solid #a0b8e8;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .cfg-card .cfg-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #4a6090;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #ccd4e8;
+  }
+  .cfg-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+  }
+  .cfg-row .key { color: #5a6a8a; }
+  .cfg-row .vval { font-weight: 700; color: #1a2a50; font-family: monospace; }
+
+  /* ── Color tokens ────────────────────────────────────── */
+  .c-blue   { color: #2a70b8; font-weight: 700; }
+  .c-green  { color: #2a8040; font-weight: 700; }
+  .c-purple { color: #6040b0; font-weight: 700; }
+  .c-orange { color: #c07020; font-weight: 700; }
+  .c-red    { color: #c03050; font-weight: 700; }
+  .c-teal   { color: #207870; font-weight: 700; }
+  .mono     { font-family: monospace; }
+
+  /* ── Input bar (WCED split illustration) ─────────────── */
+  .cpg-bar {
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    margin: 6px 0;
+    border: 1px solid #c8d0e0;
+  }
+  .cpg-input { background: #3a7acc; flex: 1; display: flex; align-items: center; padding-left: 10px; color: #fff; font-size: 11px; font-weight: 600; }
+  .cpg-held  { background: #cc5a3a; flex: 1; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; color: #fff; font-size: 11px; font-weight: 600; }
+  .cpg-label { font-size: 11px; color: #5a6880; margin: 2px 0 8px; }
+
+  /* ── ScaleAdapt formula ──────────────────────────────── */
+  .math-line {
+    font-family: 'Georgia', serif;
+    font-size: 13px;
+    color: #2a1a50;
+    margin: 4px 0;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 1 — Pretraining Data Pipeline
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">1 / 5</div>
+  <div class="slide-title">Pretraining Data Pipeline — WCED Data Flow</div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#3a7acc"></div> Raw Data</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3a7a3a"></div> Processing / Splitting</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7a4aaa"></div> WCED Collator Output</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c06830"></div> Training Targets</div>
+  </div>
+
+  <div class="row" style="align-items:flex-start; gap:28px;">
+
+    <!-- LEFT: vertical data flow -->
+    <div class="col center" style="flex:1.2;">
+
+      <!-- Raw file -->
+      <div class="box box-data w500">
+        <div class="box-title">📁 methylgpt_pretrain_type3.h5ad</div>
+        <div class="box-sub" style="margin-top:4px;">
+          Large-scale public methylation atlas &nbsp;·&nbsp;
+          <span class="c-blue">49,156 CpG sites</span>
+        </div>
+        <div class="box-note">probe_ids_csv used to resolve CpG identity → token ID mapping</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <!-- Tokenizer -->
+      <div class="box box-proc w500">
+        <div class="box-title">MultiFieldTokenizer &nbsp;<span style="font-weight:400; color:#5a7a5a;">(from_pretrained)</span></div>
+        <div class="box-sub" style="margin-top:5px;">
+          Each CpG site name (e.g. <span class="mono">cg00000029</span>) → unique integer token ID<br>
+          Vocabulary: <span class="c-blue">49,156 CpG tokens</span> + 5 special tokens (UNK / SEP / PAD / CLS / MASK)
+        </div>
+        <div class="box-note">Tokenizer saved to <span class="mono">tokenizer_llama_pretrain49k/</span> and reused for fine-tuning</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <!-- DataModule + splits -->
+      <div class="box box-proc w500">
+        <div class="box-title">MethylationDataModule — Train / Val / Test split</div>
+        <div class="row" style="justify-content:center; gap:28px; margin-top:8px;">
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#3a7acc; font-weight:600;">Train</div>
+            <div class="box-sub">majority of samples</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#3a9a4a; font-weight:600;">Val</div>
+            <div class="box-sub">held-out for<br>checkpoint selection</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#c040a0; font-weight:600;">Test</div>
+            <div class="box-sub">final evaluation<br>(PCC reported)</div>
+          </div>
+        </div>
+        <div class="box-note" style="margin-top:8px;">
+          MethylationDataset per split — <span class="mono">split</span> column in adata.obs routes samples
+        </div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <!-- WCEDCollator -->
+      <div class="box box-model w500" style="padding:14px 18px;">
+        <div class="box-title">WCEDCollator &nbsp;<span style="font-weight:400; color:#8060b0;">(called per batch)</span></div>
+        <div class="box-sub" style="margin-top:6px;">
+          From 49,156 CpGs → randomly sample <span class="c-blue">24,578 CpGs</span> as <b>input view</b><br>
+          Remaining <span class="c-red">24,578 CpGs</span> → reconstruction <b>targets</b> (never seen by encoder)
+        </div>
+        <!-- bar -->
+        <div style="margin:10px auto; width:440px;">
+          <div class="cpg-bar">
+            <div class="cpg-input">INPUT VIEW (50% = 24,578 CpGs)</div>
+            <div class="cpg-held">TARGET (50%)</div>
+          </div>
+          <div class="cpg-label" style="text-align:center;">
+            Random split changes every batch &nbsp;·&nbsp; input_ratio = 0.5 &nbsp;·&nbsp; subset_k = 49,156
+          </div>
+        </div>
+        <div class="box-note">
+          Contrastive mode (optional): two independent random 50% views of the same sample → View 1 &amp; View 2
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: output tensors -->
+    <div class="col" style="flex:0.9; margin-top:0;">
+
+      <div class="section-tag" style="margin-top:8px;">Output tensors per batch</div>
+
+      <!-- cpg_ids -->
+      <div class="box box-embed w380" style="margin-bottom:10px;">
+        <div class="box-title">cpg_ids &nbsp;<span style="color:#5a80b0; font-weight:400;">[B, L]</span></div>
+        <div class="box-sub">Integer token IDs of the <b>input</b> CpG subset<br>CLS prepended at position 0</div>
+        <div class="box-dim">L = 24,578 + 1 CLS = 24,579</div>
+      </div>
+
+      <!-- beta_values -->
+      <div class="box box-embed w380" style="margin-bottom:10px;">
+        <div class="box-title">beta_values &nbsp;<span style="color:#5a80b0; font-weight:400;">[B, L]</span></div>
+        <div class="box-sub">Methylation levels ∈ [0, 1] for input CpGs<br>Special tokens marked as negative sentinels</div>
+        <div class="box-dim">CLS position → beta = −2 &nbsp;(special-token route)</div>
+      </div>
+
+      <!-- attention_mask -->
+      <div class="box box-embed w380" style="margin-bottom:10px;">
+        <div class="box-title">attention_mask &nbsp;<span style="color:#5a80b0; font-weight:400;">[B, L]</span></div>
+        <div class="box-sub">1 = attend, 0 = padding &nbsp;·&nbsp; all 1s (no padding in pretrain)</div>
+        <div class="box-dim">Batch size B = 32 &nbsp;·&nbsp; GPU count = 4</div>
+      </div>
+
+      <div style="margin: 4px 0 8px; text-align:center; font-size:11px; color:#8090a8; letter-spacing:1px; text-transform:uppercase;">Training Targets (held-out)</div>
+
+      <!-- all_betas -->
+      <div class="box box-loss w380" style="margin-bottom:10px;">
+        <div class="box-title">all_betas &nbsp;<span style="color:#9a5020; font-weight:400;">[B, 49,156]</span></div>
+        <div class="box-sub">Full methylation profile of every sample<br>Decoder must predict all 49,156 CpG beta values</div>
+        <div class="box-note">BMFMWCEDCollator format: labels tensor with −100 at input positions</div>
+      </div>
+
+      <!-- input_mask -->
+      <div class="box box-loss w380">
+        <div class="box-title">input_mask &nbsp;<span style="color:#9a5020; font-weight:400;">[B, 49,156]</span></div>
+        <div class="box-sub">Boolean: True = CpG was given as input<br>Loss computed ONLY on non-input positions</div>
+        <div class="box-dim">recon_mask = ~input_mask (held-out only)</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 2 — Embedding Layer (step-by-step)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">2 / 5</div>
+  <div class="slide-title">Embedding Layer — Dual-Field Fusion into Hidden Space</div>
+
+  <div class="row" style="align-items:flex-start; gap:32px; margin-bottom:28px;">
+
+    <!-- LEFT column: cpg_ids path -->
+    <div class="col center" style="flex:1;">
+      <div class="section-tag">CpG Identity (which site?)</div>
+
+      <div class="box box-data w340">
+        <div class="box-title">cpg_ids &nbsp;<span class="box-dim" style="display:inline;">[B, 24579]</span></div>
+        <div class="box-sub">Integer token IDs (0–49,160)</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-embed w340">
+        <div class="box-title">nn.Embedding lookup</div>
+        <div class="box-sub">49,161-row embedding table<br>(49,156 CpGs + 5 special tokens)<br><span class="c-blue">each row = 256-dim learned vector</span></div>
+        <div class="box-dim">[B, 24579] → [B, 24579, 256]</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-embed w340">
+        <div class="box-title">× cpg_scale &nbsp;<span style="font-weight:400; color:#5a80b0;">(learned scalar)</span></div>
+        <div class="box-sub">Trainable weight initialized at <span class="c-blue">0.1</span><br>starts small so beta encoder dominates initially</div>
+        <div class="box-dim">[B, 24579, 256]</div>
+      </div>
+    </div>
+
+    <!-- PLUS sign -->
+    <div style="display:flex; align-items:center; margin-top:160px; font-size:36px; color:#8090b0; font-weight:200;">+</div>
+
+    <!-- RIGHT column: beta_values path -->
+    <div class="col center" style="flex:1;">
+      <div class="section-tag">Beta Value (how methylated?)</div>
+
+      <div class="box box-data w340">
+        <div class="box-title">beta_values &nbsp;<span class="box-dim" style="display:inline;">[B, 24579]</span></div>
+        <div class="box-sub">Float ∈ [0, 1] for CpGs; sentinel for specials</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-model w340">
+        <div class="box-title">ScaleAdaptEncoder</div>
+        <div class="box-sub" style="margin-top:5px;">
+          Sinusoidal basis encoding of continuous beta:<br>
+        </div>
+        <div class="math-line" style="margin-top:8px;">features<sub>k</sub> = [sin(β · f<sub>k</sub>), cos(β · f<sub>k</sub>)]</div>
+        <div class="math-line">→ Linear(96 → 256)</div>
+        <div class="box-sub" style="margin-top:6px;">
+          48 basis pairs = 96 features &nbsp;·&nbsp; f<sub>k</sub> trainable<br>
+          Special tokens (β &lt; 0) → separate nn.Embedding
+        </div>
+        <div class="box-dim">[B, 24579] → [B, 24579, 256]</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-model w340">
+        <div class="box-title">ScaleAdapt output</div>
+        <div class="box-sub">Continuous resolution of methylation level<br>high-frequency basis captures e.g. 0.85 vs 0.87</div>
+        <div class="box-dim">[B, 24579, 256]</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fusion -->
+  <div class="merge-line" style="width:640px; height:2px;"></div>
+  <div class="arrow-down" style="font-size:28px;">↓</div>
+
+  <div style="display:flex; justify-content:center;">
+    <div class="box box-embed w640">
+      <div class="box-title" style="font-size:14px;">Fused Token Embedding &nbsp;<span style="font-weight:400; color:#5a80b0;">h = cpg_scale × E(cpg_ids) + ScaleAdapt(beta_values)</span></div>
+      <div class="box-sub" style="margin-top:6px;">
+        Element-wise addition of CpG identity embedding and beta value embedding<br>
+        No absolute positional embedding — positions are handled by <span class="c-purple">RoPE</span> inside each attention layer
+      </div>
+      <div class="box-dim" style="font-size:12px; margin-top:8px;">[B, 24579, 256] &nbsp;→&nbsp; input to 4 × Transformer Layers</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 3 — Encoder Architecture (Transformer Layers)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">3 / 5</div>
+  <div class="slide-title">Encoder Architecture — MethylLlama-Small (4 × Transformer Layer)</div>
+
+  <div class="row" style="align-items:flex-start; gap:32px;">
+
+    <!-- LEFT: one transformer layer zoom -->
+    <div class="col center" style="flex:1.1;">
+
+      <div class="section-tag">One Transformer Layer (× 4)</div>
+
+      <div class="box box-gray w440">
+        <div class="box-title">Input from previous layer</div>
+        <div class="box-dim">[B, 24579, 256]</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <!-- Pre-LN + Attention -->
+      <div class="box box-attn w440">
+        <div class="box-title">① RMSNorm &nbsp;<span style="font-weight:400; color:#5060a0;">(Pre-LN — applied BEFORE attention)</span></div>
+        <div class="box-sub" style="margin-top:4px;">
+          Normalize hidden states by root-mean-square<br>
+          Pre-LN: more stable gradients at initialization vs Post-LN (BERT style)
+        </div>
+        <div class="box-dim">[B, 24579, 256] → normalized</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-attn w440">
+        <div class="box-title">② Multi-Head Self-Attention &nbsp;<span style="font-weight:400;">4 heads × 64 head-dim</span></div>
+        <div class="box-sub" style="margin-top:4px;">
+          Q, K, V projections: Linear(256 → 256) each<br>
+          <span class="c-purple">RoPE</span> applied to Q and K before dot-product:<br>
+          &nbsp;&nbsp;rotates Q/K pairs by position angle → encodes relative distance<br>
+          &nbsp;&nbsp;<b>no learnable position table needed</b> (saves ~12M params vs BERT)<br>
+          Scaled dot-product attention (SDPA, flash-attention backend)<br>
+          Output projection: Linear(256 → 256)
+        </div>
+        <div class="box-dim">output: [B, 24579, 256]</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-attn w440">
+        <div class="box-title">③ Residual add &nbsp;+&nbsp; Dropout</div>
+        <div class="box-dim">h = h_prev + Dropout(attn_out)</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <!-- Pre-LN + FFN -->
+      <div class="box box-ffn w440">
+        <div class="box-title">④ RMSNorm &nbsp;<span style="font-weight:400; color:#6050a0;">(Pre-LN — applied BEFORE FFN)</span></div>
+        <div class="box-dim">normalize again</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-ffn w440">
+        <div class="box-title">⑤ SwiGLU Feed-Forward Network</div>
+        <div class="box-sub" style="margin-top:4px;">
+          Three linear projections (gate, up, down):<br>
+          &nbsp;&nbsp;gate_proj: Linear(256 → 320)<br>
+          &nbsp;&nbsp;up_proj:&nbsp;&nbsp;&nbsp;Linear(256 → 320)<br>
+          &nbsp;&nbsp;SiLU(gate_proj(x)) × up_proj(x) &nbsp;→ gated activation<br>
+          &nbsp;&nbsp;down_proj:&nbsp;Linear(320 → 256)<br>
+          Gating mechanism: element-wise product suppresses irrelevant features
+        </div>
+        <div class="box-dim">output: [B, 24579, 256]</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-ffn w440">
+        <div class="box-title">⑥ Residual add &nbsp;+&nbsp; Dropout</div>
+        <div class="box-dim">h = h_attn + Dropout(ffn_out)</div>
+      </div>
+
+      <div class="repeat-badge">× 4 layers</div>
+
+    </div>
+
+    <!-- RIGHT: architecture table + CLS pooler -->
+    <div class="col" style="flex:0.9; gap:18px;">
+
+      <div class="section-tag">Architecture Parameters</div>
+      <div style="background:#f8f9fc; border:1.5px solid #dde3f0; border-radius:10px; overflow:hidden;">
+        <table class="info-table">
+          <tr><th>Parameter</th><th>Value</th></tr>
+          <tr><td>Model variant</td><td class="val">MethylLlama-Small</td></tr>
+          <tr><td>Hidden size D</td><td class="val">256</td></tr>
+          <tr><td>Transformer layers</td><td class="val">4</td></tr>
+          <tr><td>Attention heads</td><td class="val">4</td></tr>
+          <tr><td>Head dimension</td><td class="val">64 (= 256 / 4)</td></tr>
+          <tr><td>SwiGLU intermediate</td><td class="val">320</td></tr>
+          <tr><td>Normalization</td><td class="val">RMSNorm (Pre-LN)</td></tr>
+          <tr><td>Position encoding</td><td class="val">RoPE (θ = 10,000)</td></tr>
+          <tr><td>Dropout</td><td class="val">0.1</td></tr>
+          <tr><td>Encoder params</td><td class="val">~5M total</td></tr>
+        </table>
+      </div>
+
+      <div class="section-tag" style="margin-top:8px;">After 4 Layers → CLS Pooler</div>
+
+      <div class="col center" style="gap:0;">
+        <div class="box box-gray w380">
+          <div class="box-title">last_hidden_state</div>
+          <div class="box-dim">[B, 24579, 256]</div>
+          <div class="box-sub">All token representations after 4 transformer layers</div>
+        </div>
+        <div class="arrow-down">↓ extract position 0 (CLS)</div>
+        <div class="box box-pool w380">
+          <div class="box-title">CLS token hidden state</div>
+          <div class="box-dim">[B, 256]</div>
+          <div class="box-sub">The CLS token aggregates information from all input CpGs via self-attention</div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="box box-pool w380">
+          <div class="box-title">Pooler: Linear(256 → 256) + Tanh</div>
+          <div class="box-dim">pooler_output: [B, 256]</div>
+          <div class="box-sub">Final sentence-level representation used by all heads</div>
+        </div>
+      </div>
+
+      <div class="section-tag" style="margin-top:8px;">Why LLaMA-style vs BERT?</div>
+      <div style="background:#f4f7ff; border:1.5px solid #a0b8e8; border-radius:10px; padding:14px 16px; font-size:12px; color:#3a4a68; line-height:1.7;">
+        <b>RMSNorm</b>: ~40% cheaper than LayerNorm (no mean subtraction)<br>
+        <b>Pre-LN</b>: stable gradients from step 1 (BERT Post-LN needs careful lr warmup)<br>
+        <b>SwiGLU</b>: gated activation is more expressive than GELU at equal param count<br>
+        <b>RoPE</b>: relative position from frequency rotation — no learnable position table<br>
+        <b>ScaleAdapt</b>: sinusoidal beta encoder outperforms 2-layer MLP for [0,1] range
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 4 — Training Heads & Loss Functions
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">4 / 5</div>
+  <div class="slide-title">Training Heads &amp; Loss Functions — WCED Multi-Task Pretraining</div>
+
+  <div class="row" style="align-items:flex-start; gap:24px;">
+
+    <!-- CLS input -->
+    <div class="col center" style="flex:0; min-width:160px;">
+      <div class="section-tag" style="text-align:center;">From Encoder</div>
+      <div class="box box-pool w160">
+        <div class="box-title">CLS</div>
+        <div class="box-dim">[B, 256]</div>
+        <div class="box-sub">pooler_output</div>
+      </div>
+    </div>
+
+    <div class="arrow-right" style="align-self:center; font-size:28px; margin-top:28px;">→</div>
+
+    <!-- Three heads -->
+    <div class="col" style="flex:1; gap:20px; justify-content:flex-start;">
+
+      <!-- Head 1: Reconstruction Decoder -->
+      <div class="box box-output" style="padding:14px 18px;">
+        <div class="row" style="align-items:flex-start; gap:14px; text-align:left;">
+          <div style="min-width:26px; height:26px; background:#cc9040; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; flex-shrink:0;">1</div>
+          <div style="flex:1;">
+            <div class="box-title" style="text-align:left;">WCED Reconstruction Decoder</div>
+            <div class="box-sub" style="text-align:left; margin-top:4px;">
+              <span class="mono">CLS [B,256]</span> → Linear(256→256) → LayerNorm → GELU → Dropout(0.1) → Linear(256→49,156) → Sigmoid<br>
+              Output: <span class="c-orange">predicted_betas [B, 49,156]</span> — full methylation profile prediction
+            </div>
+          </div>
+          <div style="text-align:right; min-width:160px;">
+            <div style="font-size:11px; color:#8a6020; font-weight:600; margin-bottom:4px;">LOSS</div>
+            <div style="background:#fff4e0; border:1px solid #e0a840; border-radius:6px; padding:6px 10px; font-size:12px; font-family:Georgia,serif;">
+              MSE(pred, target)<br>
+              <span style="font-size:10px; color:#8a6020;">on held-out CpGs only</span>
+            </div>
+          </div>
+        </div>
+        <div class="box-note" style="text-align:left; margin-top:8px;">
+          Loss masked to non-input positions: <span class="mono">recon_loss = Σ MSE[i] × recon_mask[i] / Σ recon_mask[i]</span><br>
+          Encoder is forced to learn from 50% of CpGs to reconstruct the other 50% — cannot memorize input
+        </div>
+      </div>
+
+      <!-- Head 2: Projection (contrastive) -->
+      <div class="box box-head" style="padding:14px 18px;">
+        <div class="row" style="align-items:flex-start; gap:14px; text-align:left;">
+          <div style="min-width:26px; height:26px; background:#cc4a7a; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; flex-shrink:0;">2</div>
+          <div style="flex:1;">
+            <div class="box-title" style="text-align:left;">SimCLR Projection Head &nbsp;<span style="font-weight:400; color:#9a3060;">(optional — contrastive mode)</span></div>
+            <div class="box-sub" style="text-align:left; margin-top:4px;">
+              <span class="mono">CLS [B,256]</span> → Linear(256→128) → ReLU → Linear(128→128) → L2-normalize<br>
+              Output: <span class="c-red">projection z₁ [B, 128]</span> &nbsp;·&nbsp; same for View 2 → <span class="c-red">z₂ [B, 128]</span>
+            </div>
+          </div>
+          <div style="text-align:right; min-width:160px;">
+            <div style="font-size:11px; color:#8a2050; font-weight:600; margin-bottom:4px;">LOSS</div>
+            <div style="background:#fff0f4; border:1px solid #dd7090; border-radius:6px; padding:6px 10px; font-size:12px; font-family:Georgia,serif;">
+              InfoNCE(z₁, z₂)<br>
+              <span style="font-size:10px; color:#8a2050;">symmetric cross-entropy</span>
+            </div>
+          </div>
+        </div>
+        <div class="box-note" style="text-align:left; margin-top:8px;">
+          InfoNCE: sim(z₁[i], z₂[i]) / τ maximized vs negatives (other samples in batch)<br>
+          Temperature τ = 0.1 &nbsp;·&nbsp; Pulls two views of same sample together; pushes different samples apart<br>
+          <b>Disabled (weight=0) in standard run</b> — only enabled with <span class="mono">--wced_contrastive true</span>
+        </div>
+      </div>
+
+      <!-- Head 3: Age head -->
+      <div class="box box-embed" style="padding:14px 18px;">
+        <div class="row" style="align-items:flex-start; gap:14px; text-align:left;">
+          <div style="min-width:26px; height:26px; background:#3a8ac8; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; flex-shrink:0;">3</div>
+          <div style="flex:1;">
+            <div class="box-title" style="text-align:left;">Age Prediction Head &nbsp;<span style="font-weight:400; color:#3060a0;">(auxiliary task)</span></div>
+            <div class="box-sub" style="text-align:left; margin-top:4px;">
+              <span class="mono">CLS [B,256]</span> → Linear(256→128) → ReLU → Dropout(0.1) → Linear(128→1)<br>
+              Output: <span class="c-blue">predicted_age [B]</span> — scalar year prediction per sample
+            </div>
+          </div>
+          <div style="text-align:right; min-width:160px;">
+            <div style="font-size:11px; color:#205080; font-weight:600; margin-bottom:4px;">LOSS</div>
+            <div style="background:#edf4ff; border:1px solid #70a0d0; border-radius:6px; padding:6px 10px; font-size:12px; font-family:Georgia,serif;">
+              MSE(pred_age, age)<br>
+              <span style="font-size:10px; color:#205080;">valid samples only</span>
+            </div>
+          </div>
+        </div>
+        <div class="box-note" style="text-align:left; margin-top:8px;">
+          Auxiliary supervision: prevents CLS from collapsing to uninformative average<br>
+          NaN ages (e.g. sperm/placenta samples) automatically skipped: <span class="mono">valid = ~torch.isnan(age_labels)</span><br>
+          age_weight = 0.0 in small pretrain (disabled) — purely reconstruction-based
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Total Loss Formula -->
+  <div class="divider"></div>
+  <div style="display:flex; justify-content:center;">
+    <div class="formula-box w760">
+      <span style="color:#c06030;">ℒ<sub>total</sub></span> &nbsp;=&nbsp;
+      <span style="color:#c07a20;">ℒ<sub>recon</sub></span>
+      &nbsp;+&nbsp; λ<sub>age</sub> · <span style="color:#3070b8;">ℒ<sub>age</sub></span>
+      &nbsp;+&nbsp; λ<sub>contrastive</sub> · <span style="color:#b03060;">ℒ<sub>InfoNCE</sub></span>
+      <div class="formula-sub">
+        Standard run: λ<sub>age</sub> = 0.0 &nbsp;·&nbsp; λ<sub>contrastive</sub> = 0.0 &nbsp;→&nbsp; ℒ<sub>total</sub> = ℒ<sub>recon</sub> only &nbsp;·&nbsp; contrastive mode: λ<sub>contrastive</sub> = 0.1 with τ = 0.1
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 5 — Training Configuration & Optimizer
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">5 / 5</div>
+  <div class="slide-title">Training Configuration — Optimizer, Schedule &amp; Infrastructure</div>
+
+  <div class="cfg-grid" style="margin-bottom:28px;">
+
+    <!-- Card 1: Model -->
+    <div class="cfg-card">
+      <div class="cfg-title">🏗 Architecture (Small)</div>
+      <div class="cfg-row"><span class="key">Hidden size</span><span class="vval">256</span></div>
+      <div class="cfg-row"><span class="key">Layers</span><span class="vval">4</span></div>
+      <div class="cfg-row"><span class="key">Attention heads</span><span class="vval">4</span></div>
+      <div class="cfg-row"><span class="key">Intermediate (SwiGLU)</span><span class="vval">320</span></div>
+      <div class="cfg-row"><span class="key">ScaleAdapt basis</span><span class="vval">48 pairs</span></div>
+      <div class="cfg-row"><span class="key">RoPE θ</span><span class="vval">10,000</span></div>
+      <div class="cfg-row"><span class="key">Encoder params</span><span class="vval">~5M</span></div>
+    </div>
+
+    <!-- Card 2: Data -->
+    <div class="cfg-card">
+      <div class="cfg-title">📂 Data &amp; WCED Settings</div>
+      <div class="cfg-row"><span class="key">CpG vocab (subset_k)</span><span class="vval">49,156</span></div>
+      <div class="cfg-row"><span class="key">Input ratio</span><span class="vval">0.5</span></div>
+      <div class="cfg-row"><span class="key">Input CpGs per sample</span><span class="vval">24,578</span></div>
+      <div class="cfg-row"><span class="key">Sequence length</span><span class="vval">24,579</span></div>
+      <div class="cfg-row"><span class="key">fixed_subset</span><span class="vval">true (seed=42)</span></div>
+      <div class="cfg-row"><span class="key">bmfm_style</span><span class="vval">true</span></div>
+      <div class="cfg-row"><span class="key">Decoder dropout</span><span class="vval">0.1</span></div>
+    </div>
+
+    <!-- Card 3: Optimizer -->
+    <div class="cfg-card">
+      <div class="cfg-title">⚙️ Optimizer &amp; Schedule</div>
+      <div class="cfg-row"><span class="key">Optimizer</span><span class="vval">AdamW</span></div>
+      <div class="cfg-row"><span class="key">Learning rate</span><span class="vval">5e-4</span></div>
+      <div class="cfg-row"><span class="key">Weight decay</span><span class="vval">0.01</span></div>
+      <div class="cfg-row"><span class="key">β₁, β₂</span><span class="vval">0.9, 0.99</span></div>
+      <div class="cfg-row"><span class="key">ε</span><span class="vval">1e-8</span></div>
+      <div class="cfg-row"><span class="key">Warmup steps</span><span class="vval">2,000</span></div>
+      <div class="cfg-row"><span class="key">Schedule</span><span class="vval">Cosine decay</span></div>
+    </div>
+
+    <!-- Card 4: Training -->
+    <div class="cfg-card">
+      <div class="cfg-title">🖥 Training Setup</div>
+      <div class="cfg-row"><span class="key">Batch size / GPU</span><span class="vval">32</span></div>
+      <div class="cfg-row"><span class="key">GPUs</span><span class="vval">4 × H200</span></div>
+      <div class="cfg-row"><span class="key">Grad accumulation</span><span class="vval">2</span></div>
+      <div class="cfg-row"><span class="key">Effective batch</span><span class="vval">32 × 4 × 2 = 256</span></div>
+      <div class="cfg-row"><span class="key">Precision</span><span class="vval">16-mixed (AMP)</span></div>
+      <div class="cfg-row"><span class="key">Gradient clip</span><span class="vval">1.0</span></div>
+      <div class="cfg-row"><span class="key">Strategy</span><span class="vval">DDP</span></div>
+    </div>
+
+    <!-- Card 5: Schedule/Callbacks -->
+    <div class="cfg-card">
+      <div class="cfg-title">📉 Schedule Details</div>
+      <div style="text-align:center; margin-bottom:10px;">
+        <svg width="240" height="70">
+          <!-- LR warmup + cosine curve -->
+          <polyline points="0,60 30,5 240,58" fill="none" stroke="#3a7acc" stroke-width="2.5" stroke-linejoin="round"/>
+          <line x1="30" y1="0" x2="30" y2="70" stroke="#dde3f0" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="32" y="12" font-size="9" fill="#8090b0">warmup</text>
+          <text x="32" y="22" font-size="9" fill="#8090b0">2000 steps</text>
+          <text x="100" y="36" font-size="9" fill="#3a7acc">cosine decay</text>
+          <text x="0" y="68" font-size="9" fill="#8090b0">0</text>
+          <text x="220" y="68" font-size="9" fill="#8090b0">T</text>
+        </svg>
+      </div>
+      <div class="cfg-row"><span class="key">Max epochs</span><span class="vval">300</span></div>
+      <div class="cfg-row"><span class="key">Early stop patience</span><span class="vval">60 epochs</span></div>
+      <div class="cfg-row"><span class="key">Monitor</span><span class="vval">validation/loss</span></div>
+    </div>
+
+    <!-- Card 6: Checkpointing / WandB -->
+    <div class="cfg-card">
+      <div class="cfg-title">💾 Checkpointing &amp; Logging</div>
+      <div class="cfg-row"><span class="key">Save top-k</span><span class="vval">3 checkpoints</span></div>
+      <div class="cfg-row"><span class="key">Filename</span><span class="vval">epoch=N-val_loss=X</span></div>
+      <div class="cfg-row"><span class="key">Logger</span><span class="vval">WandB</span></div>
+      <div class="cfg-row"><span class="key">Project</span><span class="vval">pretrain-llama-wced</span></div>
+      <div class="cfg-row" style="margin-top:8px; font-size:11px; color:#5a6a8a;">Logged metrics:</div>
+      <div style="font-size:11px; color:#5a6a8a; line-height:1.7; margin-top:2px;">
+        train/pcc &nbsp;·&nbsp; train/recon_loss &nbsp;·&nbsp; train/cpg_scale<br>
+        validation/pcc &nbsp;·&nbsp; validation/cls_variance<br>
+        train/grad_norm &nbsp;·&nbsp; train/lr
+      </div>
+    </div>
+  </div>
+
+  <!-- Full forward pass summary -->
+  <div class="divider"></div>
+  <div class="section-tag" style="text-align:center; margin-bottom:12px;">End-to-End Forward Pass Summary</div>
+  <div class="row" style="align-items:center; justify-content:center; gap:4px; flex-wrap:nowrap; overflow-x:auto;">
+    <div class="box box-data" style="padding:8px 12px; min-width:120px;">
+      <div class="box-title" style="font-size:12px;">h5ad file</div>
+      <div class="box-dim" style="font-size:10px;">49,156 CpGs</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-proc" style="padding:8px 12px; min-width:130px;">
+      <div class="box-title" style="font-size:12px;">WCEDCollator</div>
+      <div class="box-dim" style="font-size:10px;">50% in / 50% target</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-embed" style="padding:8px 12px; min-width:130px;">
+      <div class="box-title" style="font-size:12px;">Embedding fusion</div>
+      <div class="box-dim" style="font-size:10px;">[B, 24579, 256]</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-layer" style="padding:8px 12px; min-width:130px;">
+      <div class="box-title" style="font-size:12px;">4 × Transformer</div>
+      <div class="box-dim" style="font-size:10px;">[B, 24579, 256]</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-pool" style="padding:8px 12px; min-width:100px;">
+      <div class="box-title" style="font-size:12px;">CLS pooler</div>
+      <div class="box-dim" style="font-size:10px;">[B, 256]</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-output" style="padding:8px 12px; min-width:120px;">
+      <div class="box-title" style="font-size:12px;">Decoder</div>
+      <div class="box-dim" style="font-size:10px;">[B, 49,156]</div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="box box-loss" style="padding:8px 12px; min-width:100px;">
+      <div class="box-title" style="font-size:12px;">MSE loss</div>
+      <div class="box-dim" style="font-size:10px;">held-out CpGs</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
