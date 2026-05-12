@@ -346,28 +346,40 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         emb_param_ids = {id(p) for p in self.encoder.embeddings.cpg_sites_embeddings.parameters()}
         enc_non_emb = [p for p in self.encoder.parameters() if id(p) not in emb_param_ids]
 
-        # Split age_head params into decay / no-decay groups.
+        # Split params into decay / no-decay groups.
         # LayerNorm weight+bias and Linear biases must NOT get weight decay:
         #   - LayerNorm.weight (gamma): decay shrinks it toward 0, fighting normalization
         #   - LayerNorm.bias  (beta):  same — bias is a location parameter, not a magnitude
         #   - Linear.bias:             biases are offsets, not magnitude weights
         # Only Linear.weight matrices should be decayed.
+        #
+        # IMPORTANT: We iterate named_modules() not named_parameters() because
+        # age_head is an nn.Sequential — its LayerNorm weights are named "1.weight",
+        # "5.weight" etc. (integer indices), so a string search for "norm" misses them.
+        # Checking type(module).__name__ catches LayerNorm, RMSNorm, GroupNorm, etc.
+        def _is_no_decay(module, param_name: str) -> bool:
+            if param_name == "bias":
+                return True
+            return "norm" in type(module).__name__.lower()
+
         head_decay, head_no_decay = [], []
-        for name, param in self.age_head.named_parameters():
-            if "bias" in name or "norm" in name.lower():
-                head_no_decay.append(param)
-            else:
-                head_decay.append(param)
+        for _, mod in self.age_head.named_modules():
+            for param_name, param in mod.named_parameters(recurse=False):
+                if _is_no_decay(mod, param_name):
+                    head_no_decay.append(param)
+                else:
+                    head_decay.append(param)
 
         # Same split for encoder non-embedding params (RMSNorm weights, attention biases, etc.)
         enc_decay, enc_no_decay = [], []
-        for name, param in self.encoder.named_parameters():
-            if id(param) in emb_param_ids:
-                continue
-            if "bias" in name or "norm" in name.lower():
-                enc_no_decay.append(param)
-            else:
-                enc_decay.append(param)
+        for _, mod in self.encoder.named_modules():
+            for param_name, param in mod.named_parameters(recurse=False):
+                if id(param) in emb_param_ids:
+                    continue
+                if _is_no_decay(mod, param_name):
+                    enc_no_decay.append(param)
+                else:
+                    enc_decay.append(param)
 
         # Pre-register both groups so the scheduler sees them from step 0.
         # Encoder starts with lr=0 (frozen); activated in on_train_epoch_start.

@@ -50,7 +50,8 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs_llama-wced"
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean.h5ad"
+# Use stratified split (run create_stratified_split.sh first to generate this file)
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified.h5ad"
 
 CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"
 TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"

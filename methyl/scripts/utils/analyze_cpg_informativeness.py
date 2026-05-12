@@ -35,7 +35,7 @@ from scipy.stats import pearsonr
 # ── Paths ─────────────────────────────────────────────────────────────────────
 H5AD_PATH = (
     "/sci/labs/benjamin.yakir/netanel.azran/data/"
-    "data_methyl_finetune_19k_h5ad/finetuning_19608_clean.h5ad"
+    "data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified.h5ad"
 )
 OUTDIR = Path(
     "/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/"
@@ -355,14 +355,20 @@ pop_std   = sample_mean.std()
 outlier_mask = np.abs(sample_mean - pop_mean) > 3 * pop_std
 n_outliers = outlier_mask.sum()
 p(f"\nSamples with mean beta > 3σ from population mean: {n_outliers}")
-if n_outliers > 0 and n_outliers < 50:
+if n_outliers > 0:
     outlier_idx = np.where(outlier_mask)[0]
-    p("  Sample index | mean beta | split | age")
+    p(f"  Showing first {min(20, n_outliers)} of {n_outliers}:")
+    p("  Sample index | mean beta | split | age | tissue")
     for idx in outlier_idx[:20]:
         row = adata.obs.iloc[idx]
         split_val = row.get("split", "?")
         age_val = row.get("age", float("nan"))
-        p(f"  {idx:6d}       | {sample_mean[idx]:.4f}    | {split_val} | {age_val:.1f}")
+        tissue_val = row.get("tissue_type", "?")
+        p(f"  {idx:6d}       | {sample_mean[idx]:.4f}    | {split_val} | {age_val:.1f} | {tissue_val}")
+    # Outlier split distribution
+    if "split" in adata.obs.columns:
+        outlier_splits = adata.obs.iloc[outlier_idx]["split"].value_counts()
+        p(f"\n  Outlier split distribution: {dict(outlier_splits)}")
 
 # ── 8. Summary and recommendations ───────────────────────────────────────────
 p(f"\n{SEP}")
