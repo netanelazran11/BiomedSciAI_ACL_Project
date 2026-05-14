@@ -59,14 +59,40 @@ for s in ["train", "valid", "test"]:
     n_tot = mask_split.sum()
     print(f"  {s:6s}: {n_out:3d} / {n_tot} ({100*n_out/n_tot:.1f}%)")
 
-# Show what we're removing
-print("\nTop 10 outliers by deviation:")
+# Show what we're removing — tissue breakdown
+print("\nTissue breakdown of removed samples:")
+outlier_obs = adata.obs[outlier_mask]
+tissue_counts = outlier_obs["tissue_type"].value_counts()
+for tissue, count in tissue_counts.items():
+    total_tissue = (adata.obs["tissue_type"] == tissue).sum()
+    pct_removed = 100 * count / total_tissue
+    print(f"  {str(tissue):35s}: {count:3d} / {total_tissue:4d} ({pct_removed:5.1f}% of tissue removed)")
+
+# Age distribution of removed samples
+removed_ages = outlier_obs["age"].astype(float).dropna()
+print(f"\nAge distribution of removed samples:")
+print(f"  mean={removed_ages.mean():.1f}  std={removed_ages.std():.1f}  "
+      f"range=[{removed_ages.min():.0f}, {removed_ages.max():.0f}]")
+
+# Mean beta distribution of removed samples
+removed_betas = sample_mean[outlier_mask]
+print(f"\nMean beta of removed samples:")
+print(f"  min={removed_betas.min():.4f}  max={removed_betas.max():.4f}  "
+      f"mean={removed_betas.mean():.4f}")
+low  = (removed_betas < pop_mean - threshold).sum()
+high = (removed_betas > pop_mean + threshold).sum()
+print(f"  hypomethylated (below threshold): {low}")
+print(f"  hypermethylated (above threshold): {high}")
+
+# Show top 20 outliers by deviation
+print("\nTop 20 outliers by deviation:")
 deviations = np.abs(sample_mean - pop_mean)
-top_idx = np.argsort(deviations)[::-1][:10]
-print(f"  {'idx':>6}  {'mean_beta':>9}  {'deviation':>9}  {'split':>6}  {'age':>5}  tissue")
+top_idx = np.argsort(deviations)[::-1][:20]
+print(f"  {'idx':>6}  {'mean_beta':>9}  {'sigma':>6}  {'split':>6}  {'age':>5}  tissue")
 for idx in top_idx:
     row = adata.obs.iloc[idx]
-    print(f"  {idx:6d}  {sample_mean[idx]:9.4f}  {deviations[idx]:9.4f}  "
+    sigma = deviations[idx] / pop_std
+    print(f"  {idx:6d}  {sample_mean[idx]:9.4f}  {sigma:6.1f}σ  "
           f"{str(row.get('split','?')):>6}  {row.get('age', float('nan')):5.1f}  "
           f"{row.get('tissue_type','?')}")
 
