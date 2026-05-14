@@ -85,9 +85,6 @@ WARMSTART_WEIGHTS="${WARMSTART_WEIGHTS:-${REPO}/outputs/finetune-llama-small/lla
 
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 EVAL_CHECKPOINT="${EVAL_CHECKPOINT:-}"
-# Ablation: set to true to reinitialize encoder randomly (no pretrain weights).
-# Use to measure pretraining contribution: RANDOM_INIT=true sbatch ...
-RANDOM_INIT="${RANDOM_INIT:-false}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -165,7 +162,6 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
     "warmstart_weights_path='${WARMSTART_WEIGHTS}'" \
-    random_init_encoder="${RANDOM_INIT}" \
     ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"} \
     ${EVAL_CHECKPOINT:+"eval_checkpoint='${EVAL_CHECKPOINT}'"}
 

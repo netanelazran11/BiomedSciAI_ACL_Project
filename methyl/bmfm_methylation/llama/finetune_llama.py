@@ -627,15 +627,6 @@ def main(cfg: DictConfig):
 
     pretrained = load_wced_llama_checkpoint(checkpoint_path)
     encoder = pretrained.encoder
-
-    # Ablation: random_init_encoder=true reinitializes all encoder weights randomly.
-    # Use this to measure pretraining contribution: same architecture + fine-tuning,
-    # but no pretrained knowledge. Compare test/mae vs V4b to quantify pretraining gain.
-    if cfg.get("random_init_encoder", False):
-        logger.info("ABLATION: reinitializing encoder weights randomly (no pretrain)")
-        encoder.apply(encoder._init_weights)
-        logger.info("Encoder weights randomized — fine-tuning from scratch.")
-
     # Decoder not used: recon_weight=0.0 and input_ratio=1.0 leave no held-out CpGs.
     # Passing it would waste ~25MB VRAM (12.7M frozen params on GPU doing nothing).
 
