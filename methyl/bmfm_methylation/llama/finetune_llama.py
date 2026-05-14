@@ -729,8 +729,8 @@ def main(cfg: DictConfig):
     trainer.fit(module, datamodule=data_module, ckpt_path=resume_ckpt)
 
     if data_module.test_dataset is not None:
-        logger.info("Running test evaluation...")
-        trainer.test(module, datamodule=data_module)
+        logger.info("Running test evaluation on best val/mae checkpoint...")
+        trainer.test(module, datamodule=data_module, ckpt_path="best")
 
     logger.info(f"Fine-tuning complete. Checkpoints: {output_dir / 'checkpoints'}")
 
