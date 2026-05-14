@@ -156,7 +156,11 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         )
 
         if loss_type == "huber":
-            self.age_loss_fn = nn.HuberLoss(delta=5.0)
+            # Loss is computed in z-score space. Translate a 5yr real-year threshold:
+            # delta_z = 5yr / age_std. With age_std≈26.9yr → delta_z≈0.186.
+            # delta=5.0 would require 134yr error to exit MSE regime — never activates.
+            delta_zscore = 5.0 / max(age_std, 1.0)
+            self.age_loss_fn = nn.HuberLoss(delta=delta_zscore)
         else:
             self.age_loss_fn = nn.MSELoss()
         self.recon_loss_fn = nn.MSELoss(reduction="none")
@@ -173,22 +177,33 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.test_medae  = MedianAbsoluteError()
 
     def on_train_epoch_start(self):
-        """Unfreeze encoder after warmup epochs by activating its pre-registered param group."""
+        """Unfreeze encoder after warmup epochs by activating its pre-registered param group.
+
+        Uses >= (not ==) so this fires on resume when current_epoch > unfreeze_encoder_epoch.
+        Checks actual requires_grad state to avoid redundant unfreeze on every epoch.
+        """
         epoch = self.current_epoch
-        if epoch == self.hparams.unfreeze_encoder_epoch:
-            logger.info(f"Epoch {epoch}: unfreezing encoder (lr={self.hparams.encoder_lr:.2e})")
-            # Keep CpG embedding table frozen — excluded from optimizer entirely.
-            for name, p in self.encoder.named_parameters():
-                if "cpg_sites_embeddings" not in name:
-                    p.requires_grad = True
-            # Encoder occupies param groups 2 (decay) and 3 (no-decay) — both start at lr=0.
-            # Update base_lr in the scheduler so LambdaLR decays from encoder_lr.
-            scheduler = self.lr_schedulers()
-            optimizer = self.optimizers()
-            for pg_idx in [2, 3]:
-                scheduler.base_lrs[pg_idx] = self.hparams.encoder_lr
-                optimizer.param_groups[pg_idx]["lr"] = self.hparams.encoder_lr
-            logger.info("Encoder lr activated in optimizer and scheduler (groups 2+3)")
+        if epoch >= self.hparams.unfreeze_encoder_epoch:
+            # Check actual frozen state — handles resume (epoch already > 0 at start)
+            enc_frozen = not any(
+                p.requires_grad
+                for name, p in self.encoder.named_parameters()
+                if "cpg_sites_embeddings" not in name
+            )
+            if enc_frozen:
+                logger.info(f"Epoch {epoch}: unfreezing encoder (lr={self.hparams.encoder_lr:.2e})")
+                # Keep CpG embedding table frozen — excluded from optimizer entirely.
+                for name, p in self.encoder.named_parameters():
+                    if "cpg_sites_embeddings" not in name:
+                        p.requires_grad = True
+                # Encoder occupies param groups 2 (decay) and 3 (no-decay) — both start at lr=0.
+                # Update base_lr in the scheduler so LambdaLR decays from encoder_lr.
+                scheduler = self.lr_schedulers()
+                optimizer = self.optimizers()
+                for pg_idx in [2, 3]:
+                    scheduler.base_lrs[pg_idx] = self.hparams.encoder_lr
+                    optimizer.param_groups[pg_idx]["lr"] = self.hparams.encoder_lr
+                logger.info("Encoder lr activated in optimizer and scheduler (groups 2+3)")
 
     def _encode_cls(
         self,
@@ -645,6 +660,21 @@ def main(cfg: DictConfig):
         loss_type=ft_cfg.get("loss_type", "mse"),
         beta_noise=ft_cfg.get("beta_noise", 0.0),
     )
+
+    # Warmstart: load weights from a previous fine-tune checkpoint without restoring
+    # optimizer state or epoch counter. This gives a fresh cosine LR schedule while
+    # keeping trained weights — use this instead of resume_checkpoint when extending
+    # training after cosine LR has decayed to floor.
+    warmstart_path = cfg.get("warmstart_weights_path", None)
+    if warmstart_path:
+        logger.info(f"Warmstart: loading fine-tune weights (no optimizer restore) from: {warmstart_path}")
+        ws_ckpt = torch.load(warmstart_path, map_location="cpu")
+        missing, unexpected = module.load_state_dict(ws_ckpt["state_dict"], strict=False)
+        if missing:
+            logger.warning(f"Warmstart missing keys ({len(missing)}): {missing[:3]}...")
+        if unexpected:
+            logger.warning(f"Warmstart unexpected keys ({len(unexpected)}): {unexpected[:3]}...")
+        logger.info("Warmstart weights loaded — optimizer will start fresh from epoch 0.")
 
     n_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
     n_total     = sum(p.numel() for p in module.parameters())

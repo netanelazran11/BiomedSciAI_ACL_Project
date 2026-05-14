@@ -82,6 +82,11 @@ POOLING="${POOLING:-mean}"                # keep from v3
 LOSS_TYPE="${LOSS_TYPE:-mse}"
 BETA_NOISE="${BETA_NOISE:-0.0}"           # FIX: 0.02→0.0  (clean data, no train/test mismatch)
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
+# Warmstart: load weights from a finetune checkpoint WITHOUT restoring optimizer/epoch.
+# Use this instead of RESUME_CHECKPOINT when extending training after cosine LR decay:
+#   RESUME_CHECKPOINT → inherits near-zero LR from cosine floor (almost no learning)
+#   WARMSTART_WEIGHTS → fresh optimizer (full LR from epoch 0) + trained weights (V4b strategy)
+WARMSTART_WEIGHTS="${WARMSTART_WEIGHTS:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -101,6 +106,8 @@ echo "============================================================"
 echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
 echo "Checkpoint: ${CHECKPOINT}"
 echo "Pooling: ${POOLING} | Loss: ${LOSS_TYPE} | beta_noise=${BETA_NOISE}"
+[ -n "${WARMSTART_WEIGHTS}" ] && echo "WARMSTART weights: ${WARMSTART_WEIGHTS}"
+[ -n "${RESUME_CHECKPOINT}" ] && echo "RESUME from: ${RESUME_CHECKPOINT}"
 echo "batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff | warmup=${WARMUP_STEPS} steps"
 echo "encoder_lr=${ENCODER_LR} | unfreeze_epoch=${UNFREEZE_EPOCH} | patience=${EARLY_STOP}"
 echo "Output: ${OUTDIR}"
@@ -156,7 +163,8 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
-    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"} \
+    ${WARMSTART_WEIGHTS:+"warmstart_weights_path='${WARMSTART_WEIGHTS}'"}
 
 echo "============================================================"
 echo "v4 fine-tuning finished: $(date)"
