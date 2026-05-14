@@ -87,6 +87,9 @@ RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 #   RESUME_CHECKPOINT → inherits near-zero LR from cosine floor (almost no learning)
 #   WARMSTART_WEIGHTS → fresh optimizer (full LR from epoch 0) + trained weights (V4b strategy)
 WARMSTART_WEIGHTS="${WARMSTART_WEIGHTS:-}"
+# Eval-only: skip training, run test on a specific checkpoint.
+# Example: EVAL_CHECKPOINT=".../epoch=88-val_medae=4.4263.ckpt" sbatch ...
+EVAL_CHECKPOINT="${EVAL_CHECKPOINT:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB
@@ -164,7 +167,8 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
     ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"} \
-    ${WARMSTART_WEIGHTS:+"warmstart_weights_path='${WARMSTART_WEIGHTS}'"}
+    ${WARMSTART_WEIGHTS:+"warmstart_weights_path='${WARMSTART_WEIGHTS}'"} \
+    ${EVAL_CHECKPOINT:+"eval_checkpoint='${EVAL_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "v4 fine-tuning finished: $(date)"

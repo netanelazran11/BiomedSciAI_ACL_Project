@@ -721,6 +721,17 @@ def main(cfg: DictConfig):
         log_every_n_steps=10,
     )
 
+    # eval_checkpoint: skip training, run test on a specific checkpoint only.
+    # Use this to evaluate the best-MedAE checkpoint after training completes:
+    #   eval_checkpoint='/path/to/epoch=...-val_medae=4.4263.ckpt'
+    eval_ckpt = cfg.get("eval_checkpoint", None)
+    if eval_ckpt:
+        logger.info(f"EVAL-ONLY mode: testing checkpoint {eval_ckpt}")
+        if data_module.test_dataset is not None:
+            trainer.test(module, datamodule=data_module, ckpt_path=eval_ckpt)
+        logger.info("Eval-only done.")
+        return
+
     resume_ckpt = cfg.get("resume_checkpoint", None)
     if resume_ckpt:
         logger.info(f"Resuming fine-tuning from: {resume_ckpt}")
