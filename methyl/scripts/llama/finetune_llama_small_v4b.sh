@@ -161,7 +161,7 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
-    "warmstart_weights_path='${WARMSTART_WEIGHTS}'" \
+    "+warmstart_weights_path='${WARMSTART_WEIGHTS}'" \
     ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"} \
     ${EVAL_CHECKPOINT:+"eval_checkpoint='${EVAL_CHECKPOINT}'"}
 
