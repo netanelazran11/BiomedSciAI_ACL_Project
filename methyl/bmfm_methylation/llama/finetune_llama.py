@@ -683,10 +683,20 @@ def main(cfg: DictConfig):
     # Logger and callbacks
     exp_logger = setup_wandb(cfg)
     callbacks = [
+        # Best by MAE (mean — includes outlier impact)
         pl.callbacks.ModelCheckpoint(
             dirpath=str(output_dir / "checkpoints"),
             filename="epoch={epoch}-val_mae={val/mae:.4f}",
             monitor="val/mae",
+            mode="min",
+            save_top_k=3,
+            auto_insert_metric_name=False,
+        ),
+        # Best by MedAE (median — robust to outliers, peaks at a different epoch)
+        pl.callbacks.ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints"),
+            filename="epoch={epoch}-val_medae={val/medae:.4f}",
+            monitor="val/medae",
             mode="min",
             save_top_k=3,
             auto_insert_metric_name=False,
