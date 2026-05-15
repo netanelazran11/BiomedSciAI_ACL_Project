@@ -81,7 +81,8 @@ BETA_NOISE="${BETA_NOISE:-0.0}"
 
 # Warmstart: V4 best val/mae checkpoint — weights only, no optimizer state
 # Fresh optimizer gives full LR from epoch 0 (vs RESUME_CHECKPOINT which inherits dead LR)
-WARMSTART_WEIGHTS="${WARMSTART_WEIGHTS:-${REPO}/outputs/finetune-llama-small/llama-small-ft-v4-b32-uf10-enc2e-5-44744875/checkpoints/epoch=117-val_mae=6.3071.ckpt}"
+# Default: warmstart from V4 best checkpoint. Override with WARMSTART_WEIGHTS="" to train from scratch.
+WARMSTART_WEIGHTS="${WARMSTART_WEIGHTS-${REPO}/outputs/finetune-llama-small/llama-small-ft-v4-b32-uf10-enc2e-5-44744875/checkpoints/epoch=117-val_mae=6.3071.ckpt}"
 
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 EVAL_CHECKPOINT="${EVAL_CHECKPOINT:-}"
@@ -91,7 +92,8 @@ EVAL_CHECKPOINT="${EVAL_CHECKPOINT:-}"
 # ─────────────────────────────────────────────────────────────────────────────
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="finetune-llama-small"
-WANDB_RUN_NAME="llama-small-ft-v4b-huber-ep${FINETUNE_EPOCHS}-wu${WARMUP_STEPS}-${SLURM_JOB_ID}"
+WS_TAG=$( [ -n "${WARMSTART_WEIGHTS}" ] && echo "ws" || echo "scratch" )
+WANDB_RUN_NAME="llama-small-ft-v4b-huber-ep${FINETUNE_EPOCHS}-wu${WARMUP_STEPS}-${WS_TAG}-${SLURM_JOB_ID}"
 
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
 OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
@@ -161,9 +163,9 @@ python -m bmfm_methylation.llama.finetune_llama \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
     track_wandb.name="${WANDB_RUN_NAME}" \
-    "+warmstart_weights_path='${WARMSTART_WEIGHTS}'" \
-    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"} \
-    ${EVAL_CHECKPOINT:+"eval_checkpoint='${EVAL_CHECKPOINT}'"}
+    ${WARMSTART_WEIGHTS:+"+warmstart_weights_path='${WARMSTART_WEIGHTS}'"} \
+    ${RESUME_CHECKPOINT:+"+resume_checkpoint='${RESUME_CHECKPOINT}'"} \
+    ${EVAL_CHECKPOINT:+"+eval_checkpoint='${EVAL_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "V4b fine-tuning finished: $(date)"
