@@ -41,16 +41,22 @@ import wandb
 # ==============================
 ENTITY  = os.getenv("WANDB_ENTITY",  "netanelazran11-hebrew-university-of-jerusalem")
 PROJECT = os.getenv("WANDB_PROJECT", "finetune-llama-small")
-RUN_ID  = os.getenv("WANDB_RUN_ID",  "bvt444p3")   # V4: llama-small-ft-v4-b32-uf10-enc2e-5-44744875
+RUN_ID  = os.getenv("WANDB_RUN_ID",  "bvt444p3")   # V4:             bvt444p3
+                                                     # V4b warmstart:  1w1rk694
+                                                     # V4b scratch:    8mjxsoez
 
-DEFAULT_OUTDIR = os.path.join(os.path.dirname(__file__), "..", "wandb_analysis", "finetune")
-OUTDIR = os.path.abspath(os.path.expanduser(os.getenv("OUTDIR", DEFAULT_OUTDIR)))
+# Output saved to wandb_analysis/finetune/<run_id>/ — separate folder per run
+_BASE_OUTDIR = os.path.join(os.path.dirname(__file__), "..", "wandb_analysis", "finetune")
+OUTDIR = os.path.abspath(os.path.expanduser(
+    os.getenv("OUTDIR", os.path.join(_BASE_OUTDIR, RUN_ID))
+))
 
 WANDB_TIMEOUT = int(os.getenv("WANDB_TIMEOUT", "600"))
 
-# Reference baselines
-RIDGE_BASELINE_MAE  = 4.49
-RIDGE_BASELINE_R2   = 0.94
+# Reference baselines (from clean test set, finetuning_19608_clean_stratified_no_outliers.h5ad)
+RIDGE_BASELINE_MAE  = 4.178   # Ridge alpha=10, test set 1927 samples
+RIDGE_BASELINE_MEDAE = 3.046
+RIDGE_BASELINE_R2   = 0.9485
 V1_BEST_MAE         = 6.81   # previous best (V1, mean pooling, epoch ~98)
 
 # Metric names logged by MethylationAgeRegressorLlama
