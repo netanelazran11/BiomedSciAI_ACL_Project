@@ -53,10 +53,9 @@ OUTDIR = os.path.abspath(os.path.expanduser(
 
 WANDB_TIMEOUT = int(os.getenv("WANDB_TIMEOUT", "600"))
 
-# Reference baselines (from clean test set, finetuning_19608_clean_stratified_no_outliers.h5ad)
-RIDGE_BASELINE_MAE  = 4.178   # Ridge alpha=10, test set 1927 samples
-RIDGE_BASELINE_MEDAE = 3.046
-RIDGE_BASELINE_R2   = 0.9485
+# Reference baselines
+RIDGE_BASELINE_MAE  = 4.49
+RIDGE_BASELINE_R2   = 0.94
 V1_BEST_MAE         = 6.81   # previous best (V1, mean pooling, epoch ~98)
 
 # Metric names logged by MethylationAgeRegressorLlama
