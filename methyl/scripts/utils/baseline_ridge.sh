@@ -1,6 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=baseline-ridge
 #SBATCH --partition=goldfish
+#SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
