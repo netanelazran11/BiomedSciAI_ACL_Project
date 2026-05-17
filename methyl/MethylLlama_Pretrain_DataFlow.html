@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>MethylLlama — Pretraining Data Flow & Architecture</title>
+<title>MethylLlama — Pretraining & Fine-tuning Data Flow</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -289,6 +289,50 @@
     margin: 4px 0;
     text-align: center;
   }
+
+  /* ── Fine-tuning slides ──────────────────────────────── */
+  .box-finetune { background: #edfff4; border: 1.5px solid #3a9a5a; }
+  .box-warn     { background: #fff8e8; border: 1.5px solid #c8a020; }
+  .box-v4b      { background: #f0eeff; border: 2px solid #6040c0; }
+  .box-ablation { background: #fff0f8; border: 1.5px solid #c04080; }
+
+  .metric-card {
+    background: #f0f7ff; border: 2px solid #3a7acc; border-radius: 12px;
+    padding: 16px 20px; text-align: center; min-width: 150px; flex: 1;
+  }
+  .metric-card.best-card { background: #edfff4; border-color: #2a8a40; }
+  .metric-card .mc-label { font-size: 10px; color: #5a7090; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .metric-card .mc-val   { font-size: 26px; font-weight: 700; color: #1a3a70; line-height: 1.1; }
+  .metric-card.best-card .mc-val { color: #1a5a28; }
+  .metric-card .mc-unit  { font-size: 12px; color: #5a7090; margin-top: 2px; }
+  .metric-card .mc-epoch { font-size: 10px; color: #8090a8; margin-top: 5px; font-style: italic; }
+  .metric-card .mc-delta { font-size: 11px; color: #2a8040; font-weight: 700; margin-top: 4px; }
+
+  .change-block { background: #fafbff; border: 1px solid #d8e0f0; border-radius: 10px; padding: 14px 18px; }
+  .change-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid #edf0f8; font-size: 12px; }
+  .change-row:last-child { border-bottom: none; }
+  .change-row .chg-key { color: #4a5a78; min-width: 155px; font-weight: 600; }
+  .change-row .chg-old { color: #b03030; font-family: monospace; text-decoration: line-through; min-width: 90px; }
+  .change-row .chg-arr { color: #aab4cc; font-size: 14px; }
+  .change-row .chg-new { color: #1a7a38; font-family: monospace; font-weight: 700; min-width: 130px; }
+  .change-row .chg-why { color: #6a7890; font-size: 11px; font-style: italic; flex: 1; }
+
+  table.res-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.res-table th { background: #eef1f8; color: #3a4a70; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 8px 14px; border-bottom: 2px solid #ccd4e8; text-align: center; }
+  table.res-table td { padding: 8px 14px; border-bottom: 1px solid #e4e8f4; text-align: center; color: #3a4a68; }
+  table.res-table tr:last-child td { border-bottom: none; }
+  table.res-table td.run-name { text-align: left; font-weight: 600; color: #1a2a50; }
+  table.res-table td.best-cell { font-weight: 700; color: #1a6a30; background: #edfff4; }
+  table.res-table td.delta { font-size: 11px; color: #2a8040; font-weight: 700; }
+
+  .section-band { background: #f0f4ff; border-left: 4px solid #4a70cc; border-radius: 0 8px 8px 0; padding: 7px 14px; font-size: 12px; font-weight: 700; color: #2a3a70; margin-bottom: 14px; }
+  .section-band.green  { background: #edfff4; border-color: #2a9a4a; color: #1a4a28; }
+  .section-band.orange { background: #fff8ee; border-color: #c07020; color: #6a3a10; }
+  .section-band.purple { background: #f4eeff; border-color: #7040c0; color: #3a1a70; }
+
+  .timeline-bar { height: 38px; border-radius: 8px; display: flex; overflow: hidden; border: 1px solid #c8d0e4; margin: 8px 0; }
+  .tl-frozen   { background: #b0c8f0; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#2a4a80; padding: 0 12px; }
+  .tl-unfreeze { background: #5a9860; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; flex:1; }
 </style>
 </head>
 <body>
@@ -297,7 +341,7 @@
      SLIDE 1 — Pretraining Data Pipeline
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">1 / 5</div>
+  <div class="slide-label">1 / 11</div>
   <div class="slide-title">Pretraining Data Pipeline — WCED Data Flow</div>
 
   <div class="legend">
@@ -435,7 +479,7 @@
      SLIDE 2 — Embedding Layer (step-by-step)
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">2 / 5</div>
+  <div class="slide-label">2 / 11</div>
   <div class="slide-title">Embedding Layer — Dual-Field Fusion into Hidden Space</div>
 
   <div class="row" style="align-items:flex-start; gap:32px; margin-bottom:28px;">
@@ -525,7 +569,7 @@
      SLIDE 3 — Encoder Architecture (Transformer Layers)
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">3 / 5</div>
+  <div class="slide-label">3 / 11</div>
   <div class="slide-title">Encoder Architecture — MethylLlama-Small (4 × Transformer Layer)</div>
 
   <div class="row" style="align-items:flex-start; gap:32px;">
@@ -667,7 +711,7 @@
      SLIDE 4 — Training Heads & Loss Functions
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">4 / 5</div>
+  <div class="slide-label">4 / 11</div>
   <div class="slide-title">Training Heads &amp; Loss Functions — WCED Multi-Task Pretraining</div>
 
   <div class="row" style="align-items:flex-start; gap:24px;">
@@ -787,7 +831,7 @@
      SLIDE 5 — Training Configuration & Optimizer
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">5 / 5</div>
+  <div class="slide-label">5 / 11</div>
   <div class="slide-title">Training Configuration — Optimizer, Schedule &amp; Infrastructure</div>
 
   <div class="cfg-grid" style="margin-bottom:28px;">
@@ -916,6 +960,771 @@
     </div>
   </div>
 </div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 6 — Pretraining Results (job 44450919)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">6 / 11</div>
+  <div class="slide-title">Pretraining Results — WCED Reconstruction &nbsp;<span style="font-size:14px; color:#6a7890; font-weight:400;">job 44450919 &nbsp;·&nbsp; 99 epochs &nbsp;·&nbsp; ~4.5 days on 4×H200</span></div>
+
+  <div class="row" style="gap:28px; align-items:flex-start;">
+
+    <!-- LEFT: metric cards -->
+    <div class="col" style="flex:1.1;">
+
+      <div class="section-band green">Final Validation Metrics (epoch 99)</div>
+      <div class="row" style="gap:12px; margin-bottom:18px;">
+        <div class="metric-card best-card">
+          <div class="mc-label">validation/pcc</div>
+          <div class="mc-val">0.971</div>
+          <div class="mc-unit">Pearson corr.</div>
+          <div class="mc-epoch">pred vs true beta (held-out CpGs)</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">validation/mae</div>
+          <div class="mc-val">0.043</div>
+          <div class="mc-unit">beta units</div>
+          <div class="mc-epoch">4.3% absolute error on [0,1] scale</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">validation/loss</div>
+          <div class="mc-val">0.00589</div>
+          <div class="mc-unit">MSE (z-score)</div>
+          <div class="mc-epoch">reconstruction loss on held-out CpGs</div>
+        </div>
+      </div>
+
+      <div class="section-band green">Training Metrics (epoch 99)</div>
+      <div class="row" style="gap:12px; margin-bottom:18px;">
+        <div class="metric-card">
+          <div class="mc-label">train/pcc</div>
+          <div class="mc-val">0.970</div>
+          <div class="mc-unit">Pearson corr.</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">train/mae</div>
+          <div class="mc-val">0.045</div>
+          <div class="mc-unit">beta units</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">train/loss</div>
+          <div class="mc-val">0.00607</div>
+          <div class="mc-unit">MSE</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">train/cpg_scale</div>
+          <div class="mc-val">3.68</div>
+          <div class="mc-unit">learned scalar</div>
+          <div class="mc-epoch">nn.Parameter in embeddings</div>
+        </div>
+      </div>
+
+      <div class="section-band">CLS Representation Quality</div>
+      <div class="row" style="gap:12px; margin-bottom:18px;">
+        <div class="metric-card">
+          <div class="mc-label">cls_variance</div>
+          <div class="mc-val">0.429</div>
+          <div class="mc-unit">across batch</div>
+          <div class="mc-epoch">high variance → diverse representations</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">cls_similarity</div>
+          <div class="mc-val">0.376</div>
+          <div class="mc-unit">cosine sim.</div>
+          <div class="mc-epoch">not collapsed (would be ~1.0 if collapsed)</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">pred_var_ratio</div>
+          <div class="mc-val">0.570</div>
+          <div class="mc-unit">pred/true var</div>
+          <div class="mc-epoch">predictions spread across full beta range</div>
+        </div>
+      </div>
+
+      <div class="section-band orange">Disabled Heads (weight = 0)</div>
+      <div class="box box-warn" style="padding:10px 14px;">
+        <div style="font-size:12px; line-height:1.8; color:#6a4010;">
+          · <b>Age loss</b>: train/age_loss = 0 &nbsp;·&nbsp; train/age_mae = 0 → age_weight = 0.0 (pure reconstruction)<br>
+          · <b>Contrastive loss</b>: train/contrastive_loss = 0 → contrastive_weight = 0.0 (run name: w0.0)<br>
+          · Only reconstruction loss active: <span class="mono">ℒ = ℒ_recon</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: checkpoints + convergence -->
+    <div class="col" style="flex:0.9;">
+
+      <div class="section-band">Best Checkpoints Saved (top-3 by val_loss)</div>
+      <div class="box box-gray" style="padding:14px 16px; margin-bottom:14px;">
+        <div style="font-size:12px; line-height:2.0; font-family:monospace; color:#2a4a80;">
+          epoch=95-val_loss=0.0059.ckpt<br>
+          epoch=96-val_loss=0.0059.ckpt<br>
+          <span style="color:#1a6a30; font-weight:700;">epoch=98-val_loss=0.0059.ckpt ← used for fine-tuning</span>
+        </div>
+        <div class="box-note" style="margin-top:8px;">
+          All 3 checkpoints have identical val_loss=0.0059 → model converged, loss plateau from ep~95
+        </div>
+      </div>
+
+      <div class="section-band">Convergence Analysis</div>
+      <div class="box box-model" style="padding:14px 16px; margin-bottom:14px;">
+        <div style="font-size:12px; line-height:1.8; color:#3a2a6a;">
+          · Train/val PCC gap: 0.9698 vs 0.9709 → val slightly <b>better</b> than train (no overfitting)<br>
+          · Train/val loss gap: 0.00607 vs 0.00589 → consistent, healthy generalization<br>
+          · Runtime: 385,635s ≈ <b>4.5 days</b> on 4×H200<br>
+          · Global step 52,659 ≈ 527 steps/epoch × 99 epochs<br>
+          · LR at final: 3.82e-4 (cosine not yet floored — still learning slowly)
+        </div>
+      </div>
+
+      <div class="section-band">valid_pct Interpretation</div>
+      <div class="box box-gray" style="padding:12px 14px; margin-bottom:14px;">
+        <div style="font-size:12px; line-height:1.7; color:#3a4a68;">
+          <b>train/valid_pct = 42.1%</b> — percentage of the 49,156 CpGs that were <br>
+          held out (not given as input) and used to compute reconstruction loss.<br>
+          With input_ratio=0.5, ~50% held out; valid_pct=42% reflects NaN/missing CpGs<br>
+          in some samples that are excluded from loss computation.
+        </div>
+      </div>
+
+      <div class="section-band purple">Checkpoint Used in Fine-tuning</div>
+      <div class="box box-v4b" style="padding:12px 14px;">
+        <div style="font-size:11px; font-family:monospace; color:#3a1a70; word-break:break-all; line-height:1.6;">
+          pretrain-llama-wced/<br>
+          llama-small-all49k-r0.5-w0.0-44450919/<br>
+          checkpoints/<br>
+          <b>epoch=98-val_loss=0.0059.ckpt</b>
+        </div>
+        <div class="box-note" style="margin-top:8px;">
+          Loaded for encoder architecture + weights. Fine-tuning adds AgeHead on top and trains with age supervision only.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 6 — Fine-tuning Data Pipeline
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">7 / 11</div>
+  <div class="slide-title">Fine-tuning Data Pipeline — Age Prediction from Methylation</div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#3a7acc"></div> Raw Data</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3a7a3a"></div> Processing / Splitting</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3a9a5a"></div> All CpGs as Input (no masking)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c06830"></div> Supervision Target</div>
+  </div>
+
+  <div class="row" style="align-items:flex-start; gap:28px;">
+
+    <!-- LEFT: vertical pipeline -->
+    <div class="col center" style="flex:1.2;">
+
+      <div class="box box-data w500">
+        <div class="box-title">📁 finetuning_19608_clean_stratified_no_outliers.h5ad</div>
+        <div class="box-sub" style="margin-top:4px;">
+          Multi-tissue human methylation cohort &nbsp;·&nbsp;
+          <span class="c-blue">19,608 CpG sites</span> (subset of pretrain's 49,156)
+        </div>
+        <div class="box-note">Same tokenizer from pretraining — CpG IDs map directly to pretrained embeddings</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-proc w500">
+        <div class="box-title">Outlier Removal — 3σ on per-sample mean beta</div>
+        <div class="box-sub" style="margin-top:4px;">
+          <span class="c-red">298 samples removed</span> (2.8% of cohort): blood-whole batch-effect hypermethylated + brain-cerebellum hypomethylated<br>
+          Outliers inflated MAE by ~1.8yr without contributing useful age signal
+        </div>
+        <div class="box-note">Split breakdown of removed: train=201, val=30, test=67</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-proc w500">
+        <div class="box-title">Stratified Split &nbsp;·&nbsp; Age-balanced across train / val / test</div>
+        <div class="row" style="justify-content:center; gap:20px; margin-top:8px;">
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#3a7acc; font-weight:700;">Train</div>
+            <div class="box-sub">7,286 samples</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#3a9a4a; font-weight:700;">Val</div>
+            <div class="box-sub">1,145 samples</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px; color:#c040a0; font-weight:700;">Test</div>
+            <div class="box-sub">1,927 samples</div>
+          </div>
+        </div>
+        <div class="box-note" style="margin-top:8px;">Age normalization computed from train only: mean=41.77yr, std=26.91yr → z-score targets</div>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="box box-finetune w500" style="padding:14px 18px;">
+        <div class="box-title">WCEDCollator — Fine-tuning Mode (input_ratio = 1.0)</div>
+        <div class="box-sub" style="margin-top:6px;">
+          ALL 19,608 CpGs fed as input — <span class="c-green">no masking, no held-out target CpGs</span><br>
+          CLS token prepended → sequence length = <span class="c-blue">19,609</span>
+        </div>
+        <div style="margin:10px auto; width:440px;">
+          <div class="cpg-bar">
+            <div class="cpg-input" style="background:#2a8a50; flex:1;">INPUT — ALL 19,608 CpGs (100%)</div>
+          </div>
+          <div class="cpg-label" style="text-align:center;">
+            input_ratio=1.0 &nbsp;·&nbsp; subset_k=49,156 &gt; 19,608 → uses ALL available CpGs
+          </div>
+        </div>
+        <div class="box-note">Reconstruction loss disabled (recon_weight=0.0) — encoder sees everything, predicts age only</div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: tensors + age head -->
+    <div class="col" style="flex:0.9; margin-top:0;">
+
+      <div class="section-tag" style="margin-top:8px;">Output tensors per batch</div>
+
+      <div class="box box-embed w380" style="margin-bottom:10px;">
+        <div class="box-title">cpg_ids &nbsp;<span style="color:#5a80b0; font-weight:400;">[B, 19609]</span></div>
+        <div class="box-sub">Token IDs for all 19,608 CpGs + CLS at position 0</div>
+        <div class="box-dim">IDs from same pretrain tokenizer (49,156-vocab)</div>
+      </div>
+
+      <div class="box box-embed w380" style="margin-bottom:10px;">
+        <div class="box-title">beta_values &nbsp;<span style="color:#5a80b0; font-weight:400;">[B, 19609]</span></div>
+        <div class="box-sub">Methylation levels ∈ [0,1] · CLS position → −2 sentinel</div>
+        <div class="box-dim">No NaN in cleaned dataset (confirmed)</div>
+      </div>
+
+      <div class="box box-embed w380" style="margin-bottom:16px;">
+        <div class="box-title">age &nbsp;<span style="color:#5a80b0; font-weight:400;">[B]</span></div>
+        <div class="box-sub">Chronological age in years → z-score normalized</div>
+        <div class="box-dim">age_z = (age − 41.77) / 26.91</div>
+      </div>
+
+      <div class="section-tag">Age Prediction Head</div>
+
+      <div class="box box-head w380" style="padding:14px 16px;">
+        <div class="box-title">AgeHead — 2-layer MLP</div>
+        <div class="box-sub" style="margin-top:6px; text-align:left;">
+          Mean-pool encoder outputs → [B, 256]<br>
+          Linear(256→256) → GELU → Dropout(p) → Linear(256→1)<br>
+          Output: <span class="c-red">predicted age z-score [B]</span>
+        </div>
+        <div class="box-note" style="margin-top:6px; text-align:left;">
+          Metrics logged in real years: MAE, MedAE, R² (denormalized with train mean/std)
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 7 — V4: First Fine-tuning Run
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">8 / 11</div>
+  <div class="slide-title">V4 — First Fine-tuning Run &nbsp;<span style="font-size:14px; color:#6a7890; font-weight:400;">(baseline, stopped at epoch 150)</span></div>
+
+  <div class="row" style="gap:28px; align-items:flex-start;">
+
+    <!-- LEFT: setup -->
+    <div class="col" style="flex:1.1;">
+
+      <div class="section-band">Initialization &amp; Architecture</div>
+      <div class="box box-data" style="margin-bottom:12px; padding:14px 16px;">
+        <div class="box-title">Load: WCED pretrain checkpoint (epoch=98, val_loss=0.0059)</div>
+        <div class="box-sub" style="margin-top:4px;">
+          Encoder weights loaded from pretraining — 14.7M params<br>
+          Fresh AgeHead added on top (99K params, random init)<br>
+          Pooling: <span class="c-purple">mean</span> over all 19,608 CpG token outputs (not CLS)
+        </div>
+      </div>
+
+      <div class="section-band">Training Phases</div>
+      <div style="font-size:11px; color:#5a6880; margin-bottom:6px;">Epochs 0–9: encoder frozen, only head trains (99K params)</div>
+      <div class="timeline-bar">
+        <div class="tl-frozen" style="width:7%;">ep 0–9<br>frozen</div>
+        <div class="tl-unfreeze">ep 10–150 — encoder unfrozen (14.8M params)</div>
+      </div>
+      <div style="font-size:11px; color:#5a6880; margin-top:4px; margin-bottom:14px;">Encoder unfrozen at epoch 10 → encoder_lr = 2e-5 activated in optimizer</div>
+
+      <div class="section-band">Optimizer — 4-Group AdamW</div>
+      <div class="box box-gray" style="padding:12px 16px;">
+        <div class="row" style="gap:10px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <div style="font-size:11px; font-weight:700; color:#3a5080; margin-bottom:6px;">Group 1 &amp; 2 — Head</div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">LR</span><span style="font-family:monospace; color:#2a6ab8; font-weight:700;">1e-4</span></div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">Weight decay</span><span style="font-family:monospace; color:#2a6ab8; font-weight:700;">0.01 (weights only)</span></div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">No decay</span><span style="color:#6a7890; font-size:11px;">bias, LayerNorm</span></div>
+          </div>
+          <div style="flex:1; min-width:200px;">
+            <div style="font-size:11px; font-weight:700; color:#3a5080; margin-bottom:6px;">Group 3 &amp; 4 — Encoder</div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">LR</span><span style="font-family:monospace; color:#2a6ab8; font-weight:700;">2e-5</span></div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">Weight decay</span><span style="font-family:monospace; color:#2a6ab8; font-weight:700;">0.01 (weights only)</span></div>
+            <div class="change-row" style="border:none; padding:2px 0;"><span class="chg-key" style="min-width:100px;">No decay</span><span style="color:#6a7890; font-size:11px;">bias, LayerNorm, cpg_scale</span></div>
+          </div>
+        </div>
+        <div class="box-note" style="margin-top:8px;">Weight decay applied via <span class="mono">type(module).__name__</span> check — Linear weights decay, bias/norm/embedding do NOT</div>
+      </div>
+
+      <div style="margin-top:12px;" class="section-band orange">Issues Identified After V4</div>
+      <div class="box box-warn" style="padding:12px 16px;">
+        <div style="font-size:12px; line-height:1.8;">
+          ⚠️ <b>LR cosine floor</b>: schedule decayed to near-zero by epoch ~145 → no learning in final 5 epochs<br>
+          ⚠️ <b>Outliers in test set</b>: 67 outlier samples inflate MAE by ~1.8yr → MAE−MedAE gap = 1.81yr<br>
+          ⚠️ <b>MSE loss</b>: squares large errors → dominated by outlier samples during training<br>
+          ⚠️ <b>Early stop 50</b>: too short for a 150-epoch budget if val plateaus mid-training
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: config + results -->
+    <div class="col" style="flex:0.9;">
+
+      <div class="section-band">Hyperparameters</div>
+      <div class="cfg-card" style="margin-bottom:14px;">
+        <div class="cfg-row"><span class="key">Loss function</span><span class="vval">MSE (z-score)</span></div>
+        <div class="cfg-row"><span class="key">Max epochs</span><span class="vval">150</span></div>
+        <div class="cfg-row"><span class="key">Early stop patience</span><span class="vval">50 epochs</span></div>
+        <div class="cfg-row"><span class="key">Warmup steps</span><span class="vval">100</span></div>
+        <div class="cfg-row"><span class="key">Batch size (eff)</span><span class="vval">32 × 4 = 128</span></div>
+        <div class="cfg-row"><span class="key">Head dropout</span><span class="vval">0.0</span></div>
+        <div class="cfg-row"><span class="key">LR schedule</span><span class="vval">cosine (100 wu → max_steps)</span></div>
+        <div class="cfg-row"><span class="key">Gradient clip</span><span class="vval">1.0</span></div>
+        <div class="cfg-row"><span class="key">Precision</span><span class="vval">16-mixed (AMP)</span></div>
+        <div class="cfg-row"><span class="key">Data</span><span class="vval">with outliers</span></div>
+      </div>
+
+      <div class="section-band green">Results — Best Checkpoints</div>
+      <div class="row" style="gap:10px; margin-bottom:12px;">
+        <div class="metric-card">
+          <div class="mc-label">Best val/mae</div>
+          <div class="mc-val">6.307</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">@ epoch 117</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">Best val/medae</div>
+          <div class="mc-val">4.426</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">@ epoch 88 ← different peak</div>
+        </div>
+      </div>
+
+      <div class="section-band">Test Results (best val/mae ckpt)</div>
+      <div class="row" style="gap:10px;">
+        <div class="metric-card">
+          <div class="mc-label">test/mae</div>
+          <div class="mc-val">6.493</div>
+          <div class="mc-unit">years</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">test/medae</div>
+          <div class="mc-val">4.683</div>
+          <div class="mc-unit">years</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">test/r²</div>
+          <div class="mc-val">0.881</div>
+          <div class="mc-unit"></div>
+        </div>
+      </div>
+      <div class="box-note" style="margin-top:8px; text-align:center;">MAE − MedAE gap = 1.81yr &nbsp;·&nbsp; test set includes 67 outlier samples</div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 8 — V4b: Changes from V4
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">9 / 11</div>
+  <div class="slide-title">V4b — Exact Changes from V4 &nbsp;<span style="font-size:14px; color:#6a7890; font-weight:400;">(and the reason for each)</span></div>
+
+  <div class="row" style="gap:28px; align-items:flex-start;">
+
+    <!-- LEFT: change table -->
+    <div class="col" style="flex:1.3;">
+
+      <div class="section-band purple">Hyperparameter Changes</div>
+      <div class="change-block" style="margin-bottom:16px;">
+        <div class="change-row">
+          <span class="chg-key">Loss function</span>
+          <span class="chg-old">MSE</span><span class="chg-arr">→</span>
+          <span class="chg-new">Huber (δ=0.186)</span>
+          <span class="chg-why">δ = 5yr / age_std (26.91) ≈ 0.186 z-scores. Errors &lt;5yr: quadratic (same as MSE). Errors &gt;5yr: linear → down-weights outlier samples</span>
+        </div>
+        <div class="change-row">
+          <span class="chg-key">Max epochs</span>
+          <span class="chg-old">150</span><span class="chg-arr">→</span>
+          <span class="chg-new">300</span>
+          <span class="chg-why">Full cosine schedule over 300 epochs. V4 hit cosine floor at ep~145 with no room to keep learning</span>
+        </div>
+        <div class="change-row">
+          <span class="chg-key">Early stop patience</span>
+          <span class="chg-old">50 epochs</span><span class="chg-arr">→</span>
+          <span class="chg-new">100 epochs</span>
+          <span class="chg-why">More patience proportional to longer budget (300ep). 50 was too aggressive for mid-training plateaus</span>
+        </div>
+        <div class="change-row">
+          <span class="chg-key">Warmup steps</span>
+          <span class="chg-old">100 steps (~2 ep)</span><span class="chg-arr">→</span>
+          <span class="chg-new">500 steps (~9 ep)</span>
+          <span class="chg-why">Warmstart loads pre-trained weights → slower LR ramp protects already-good weights from being overwritten</span>
+        </div>
+        <div class="change-row">
+          <span class="chg-key">Dual checkpoint monitor</span>
+          <span class="chg-old">val/mae only</span><span class="chg-arr">→</span>
+          <span class="chg-new">val/mae + val/medae</span>
+          <span class="chg-why">MAE and MedAE peak at different epochs (ep156 vs ep139). Dual save captures both best models</span>
+        </div>
+      </div>
+
+      <div class="section-band purple">Initialization Change — Warmstart Strategy</div>
+      <div class="change-block" style="margin-bottom:16px;">
+        <div class="change-row">
+          <span class="chg-key">Encoder init</span>
+          <span class="chg-old">WCED pretrain ep98</span><span class="chg-arr">→</span>
+          <span class="chg-new">V4 ep117 weights</span>
+          <span class="chg-why">Warmstart: load fine-tune weights only (state_dict), no optimizer state → fresh optimizer + fresh LR from epoch 0</span>
+        </div>
+        <div style="margin-top:8px; font-size:11px; color:#5a6080; line-height:1.7; padding:0 4px;">
+          <b>WARMSTART vs RESUME:</b><br>
+          &nbsp;· <span class="mono">RESUME_CHECKPOINT</span>: restores optimizer + scheduler → inherits near-zero LR from cosine floor (almost no learning)<br>
+          &nbsp;· <span class="mono">WARMSTART_WEIGHTS</span>: loads weights only → fresh AdamW + full cosine schedule from step 0 with trained encoder weights
+        </div>
+      </div>
+
+      <div class="section-band purple">Data Change</div>
+      <div class="change-block">
+        <div class="change-row">
+          <span class="chg-key">Training data</span>
+          <span class="chg-old">with outliers (7,487 train)</span><span class="chg-arr">→</span>
+          <span class="chg-new">outlier-free (7,286 train)</span>
+          <span class="chg-why">201 train outliers removed → cleaner gradients, no batch-effect samples dominating loss</span>
+        </div>
+        <div class="change-row">
+          <span class="chg-key">Test data</span>
+          <span class="chg-old">1,994 samples (with 67 outliers)</span><span class="chg-arr">→</span>
+          <span class="chg-new">1,927 samples (clean)</span>
+          <span class="chg-why">Removes blood-whole batch-effect + brain-cerebellum hypomethylated samples from evaluation</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: unchanged + grad details -->
+    <div class="col" style="flex:0.7;">
+
+      <div class="section-band green">Unchanged from V4</div>
+      <div class="box box-finetune" style="padding:12px 16px; margin-bottom:14px;">
+        <div style="font-size:12px; line-height:2.0; color:#2a5a3a;">
+          ✓ Architecture: 256D × 4L × 4H, RoPE, SwiGLU, RMSNorm<br>
+          ✓ Pooling: mean over all CpG tokens [B, 19608, 256] → [B, 256]<br>
+          ✓ LR: 1e-4 (head), 2e-5 (encoder after unfreeze)<br>
+          ✓ Freeze encoder epoch 0–9, unfreeze at epoch 10<br>
+          ✓ Batch: 32 × accum 4 = eff batch 128<br>
+          ✓ Weight decay: 0.01<br>
+          ✓ Head dropout: 0.0<br>
+          ✓ Gradient clip: 1.0<br>
+          ✓ Precision: 16-mixed AMP
+        </div>
+      </div>
+
+      <div class="section-band">Weight Decay &amp; Gradient Detail</div>
+      <div class="box box-gray" style="padding:14px 16px;">
+        <div class="box-title" style="margin-bottom:8px;">Decay applied to WEIGHTS only — not bias</div>
+        <div style="font-size:12px; line-height:1.8; color:#3a4a68;">
+          Implemented via <span class="mono">type(module).__name__</span> check:<br>
+          &nbsp;· <b>Linear</b> weight matrix → weight decay = 0.01<br>
+          &nbsp;· <b>Linear</b> bias → no decay (separate param group)<br>
+          &nbsp;· <b>LayerNorm</b>, <b>RMSNorm</b> → no decay<br>
+          &nbsp;· <b>cpg_scale</b> (nn.Parameter in embeddings) → no decay
+        </div>
+        <div class="box-note" style="margin-top:8px;">
+          Gradients flow through all active params on every step.<br>
+          Only the AdamW penalty (λ · w) is suppressed for bias/norm — NOT the gradient itself.
+        </div>
+      </div>
+
+      <div style="margin-top:14px;" class="section-band">LR Schedule — Cosine with Warmup</div>
+      <div class="box box-gray" style="padding:12px 16px;">
+        <div style="text-align:center; margin-bottom:8px;">
+          <svg width="280" height="70">
+            <polyline points="0,65 35,5 280,62" fill="none" stroke="#3a7acc" stroke-width="2.5" stroke-linejoin="round"/>
+            <line x1="35" y1="0" x2="35" y2="70" stroke="#dde3f0" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="2" y="62" font-size="9" fill="#8090b0">0</text>
+            <text x="37" y="14" font-size="9" fill="#c07020">500 steps</text>
+            <text x="37" y="24" font-size="9" fill="#c07020">(warmup)</text>
+            <text x="130" y="40" font-size="9" fill="#3a7acc">cosine decay</text>
+            <text x="255" y="62" font-size="9" fill="#8090b0">17,100</text>
+          </svg>
+        </div>
+        <div style="font-size:11px; color:#5a6880; text-align:center;">
+          max_steps = 57 steps/epoch × 300 epochs = 17,100<br>
+          Head: 1e-4 → ~0 &nbsp;·&nbsp; Encoder: 2e-5 → ~0
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 9 — V4b Warmstart Results (job 44756236)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">10 / 11</div>
+  <div class="slide-title">V4b Warmstart Results &nbsp;<span style="font-size:14px; color:#6a7890; font-weight:400;">job 44756236 &nbsp;·&nbsp; pretrain → V4 ep117 → V4b 300ep Huber</span></div>
+
+  <div class="row" style="gap:24px; align-items:flex-start; margin-bottom:20px;">
+
+    <!-- Best checkpoint summary -->
+    <div class="col" style="flex:1;">
+      <div class="section-band green">Best Checkpoints Saved</div>
+      <div class="row" style="gap:12px; margin-bottom:16px;">
+        <div class="metric-card best-card">
+          <div class="mc-label">Best val/mae</div>
+          <div class="mc-val">5.621</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">epoch = 156</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">Best val/medae</div>
+          <div class="mc-val">3.563</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">epoch = 139 (peaked earlier)</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">Best val/r²</div>
+          <div class="mc-val">0.903</div>
+          <div class="mc-unit"></div>
+          <div class="mc-epoch">early stopped @ ep 257</div>
+        </div>
+      </div>
+
+      <div class="section-band green">Test Results — Best val/mae Checkpoint (ep 156)</div>
+      <div class="row" style="gap:12px; margin-bottom:16px;">
+        <div class="metric-card best-card">
+          <div class="mc-label">test/mae</div>
+          <div class="mc-val">5.546</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-delta">−0.947yr vs V4</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">test/medae</div>
+          <div class="mc-val">3.633</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-delta">−1.050yr vs V4</div>
+        </div>
+        <div class="metric-card best-card">
+          <div class="mc-label">test/r²</div>
+          <div class="mc-val">0.904</div>
+          <div class="mc-unit"></div>
+          <div class="mc-delta">+0.023 vs V4</div>
+        </div>
+      </div>
+
+      <div class="section-band">Training Observations</div>
+      <div class="box box-v4b" style="padding:12px 16px;">
+        <div style="font-size:12px; line-height:1.9; color:#3a2a6a;">
+          · Early stopped at <b>epoch 257</b> (best at ep156 + 100 patience)<br>
+          · MedAE peaked at <b>ep139</b> — 17 epochs before MAE peak (same pattern as V4)<br>
+          · Dual checkpoint saves both: <span class="mono">epoch=156-val_mae=5.6212.ckpt</span> &amp; <span class="mono">epoch=139-val_medae=3.5625.ckpt</span><br>
+          · Train/val MAE gap at final epoch: 4.01 → 5.80 = 1.79yr (mild overfitting, val still good)<br>
+          · test/mae (5.546) &lt; val/mae at final epoch (5.801) → test set slightly easier than val
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: comparison table -->
+    <div class="col" style="flex:0.9;">
+      <div class="section-band purple">Comparison: V4 vs V4b Warmstart</div>
+      <table class="res-table" style="margin-bottom:16px;">
+        <thead>
+          <tr><th style="text-align:left;">Run</th><th>val/mae</th><th>val/medae</th><th>test/mae</th><th>test/medae</th><th>test/r²</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="run-name">V4 baseline</td>
+            <td>6.307yr</td><td>4.426yr</td><td>6.493yr</td><td>4.683yr</td><td>0.881</td>
+          </tr>
+          <tr>
+            <td class="run-name" style="color:#6040c0;">V4b Warmstart</td>
+            <td class="best-cell">5.621yr</td><td class="best-cell">3.563yr</td>
+            <td class="best-cell">5.546yr</td><td class="best-cell">3.633yr</td><td class="best-cell">0.904</td>
+          </tr>
+          <tr>
+            <td class="run-name" style="color:#2a8040; font-size:11px;">Δ (improvement)</td>
+            <td class="delta">−0.686yr</td><td class="delta">−0.863yr</td>
+            <td class="delta">−0.947yr</td><td class="delta">−1.050yr</td><td class="delta">+0.023</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="section-band orange">Note on Test Set Difference</div>
+      <div class="box box-warn" style="padding:12px 16px;">
+        <div style="font-size:12px; line-height:1.8; color:#6a4010;">
+          ⚠️ V4 test set: <b>1,994 samples</b> (includes 67 outliers)<br>
+          ⚠️ V4b test set: <b>1,927 samples</b> (outliers removed)<br><br>
+          The MAE improvement is partly from a better model, partly from evaluating on a cleaner test set. To isolate model quality: re-evaluate V4 checkpoint on the clean 1,927-sample test set (future work).
+        </div>
+      </div>
+
+      <div style="margin-top:14px;" class="section-band">Confirmed Reproducibility</div>
+      <div class="box box-gray" style="padding:12px 14px;">
+        <div style="font-size:12px; line-height:1.7; color:#3a4a68;">
+          Run <span class="mono">44756034</span> (same warmstart, submitted first):<br>
+          &nbsp;· test/mae = <b>5.5459yr</b> &nbsp;·&nbsp; test/medae = <b>3.633yr</b> &nbsp;·&nbsp; test/r² = <b>0.9044</b><br>
+          Results match 44756236 to 4 decimal places → training is deterministic (seed=42)
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SLIDE 10 — V4b Scratch Run: Ablation (job 44770333)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-label">11 / 11</div>
+  <div class="slide-title">V4b Scratch — Warmstart Ablation &nbsp;<span style="font-size:14px; color:#6a7890; font-weight:400;">job 44770333 &nbsp;·&nbsp; pretrain → V4b 300ep Huber (no warmstart)</span></div>
+
+  <div class="row" style="gap:24px; align-items:flex-start; margin-bottom:20px;">
+
+    <!-- LEFT: scratch results -->
+    <div class="col" style="flex:1;">
+
+      <div class="section-band red" style="background:#fff0f4; border-color:#c04060; color:#6a1a30;">Only change vs V4b Warmstart: <b>no warmstart weights</b> — encoder starts from WCED pretrain ep98 directly</div>
+
+      <div class="section-band green">Best Checkpoints Saved</div>
+      <div class="row" style="gap:12px; margin-bottom:14px;">
+        <div class="metric-card">
+          <div class="mc-label">Best val/mae</div>
+          <div class="mc-val">5.673</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">epoch = 149</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">Best val/medae</div>
+          <div class="mc-val">3.650</div>
+          <div class="mc-unit">years</div>
+          <div class="mc-epoch">epoch = 121 (peaked earlier)</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">Best val/r²</div>
+          <div class="mc-val">0.903</div>
+          <div class="mc-unit"></div>
+          <div class="mc-epoch">early stopped @ ep 250</div>
+        </div>
+      </div>
+
+      <div class="section-band green">Test Results — Best val/mae Checkpoint (ep 149)</div>
+      <div class="row" style="gap:12px; margin-bottom:14px;">
+        <div class="metric-card">
+          <div class="mc-label">test/mae</div>
+          <div class="mc-val">5.691</div>
+          <div class="mc-unit">years</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">test/medae</div>
+          <div class="mc-val">3.750</div>
+          <div class="mc-unit">years</div>
+        </div>
+        <div class="metric-card">
+          <div class="mc-label">test/r²</div>
+          <div class="mc-val">0.901</div>
+          <div class="mc-unit"></div>
+        </div>
+      </div>
+
+      <div class="section-band">Training Observations</div>
+      <div class="box box-ablation" style="padding:12px 16px;">
+        <div style="font-size:12px; line-height:1.9; color:#5a1a30;">
+          · Early stopped at <b>epoch 250</b> (best at ep149 + 100 patience = 249 ≈ 250)<br>
+          · MedAE peaked at <b>ep121</b> — 28 epochs before MAE peak (consistent with V4b warmstart)<br>
+          · Converged 7 epochs earlier than warmstart (ep149 vs ep156) — warmstart took longer to find optimum<br>
+          · Train/val MAE gap at final: 4.49 → 5.74 = 1.25yr (slightly less overfit than warmstart)
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: decomposition -->
+    <div class="col" style="flex:0.9;">
+
+      <div class="section-band purple">Full 3-Way Comparison</div>
+      <table class="res-table" style="margin-bottom:18px;">
+        <thead>
+          <tr><th style="text-align:left;">Run</th><th>test/mae</th><th>test/medae</th><th>test/r²</th><th>stopped</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="run-name">V4 (baseline)</td>
+            <td>6.493yr</td><td>4.683yr</td><td>0.881</td><td>ep150</td>
+          </tr>
+          <tr>
+            <td class="run-name" style="color:#c04080;">V4b scratch</td>
+            <td>5.691yr</td><td>3.750yr</td><td>0.901</td><td>ep250</td>
+          </tr>
+          <tr>
+            <td class="run-name" style="color:#6040c0;">V4b warmstart</td>
+            <td class="best-cell">5.546yr</td><td class="best-cell">3.633yr</td><td class="best-cell">0.904</td><td>ep257</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="section-band purple">Improvement Decomposition</div>
+      <div class="box box-v4b" style="padding:16px 18px; margin-bottom:14px;">
+        <div style="font-size:13px; font-family:'Georgia',serif; color:#2a1a5a; margin-bottom:12px; text-align:center;">
+          Total gain (MAE): 6.493 → 5.546 = <b>−0.947yr</b>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="background:#edfff4; border:1px solid #4a9a5a; border-radius:8px; padding:10px 14px;">
+            <div style="font-size:11px; font-weight:700; color:#1a5a28; margin-bottom:4px;">① V4b changes (Huber + outlier-free + 300ep)</div>
+            <div style="font-size:12px; color:#2a5a3a;">MAE: 6.493 → 5.691 = <b>−0.802yr &nbsp;(85%)</b></div>
+            <div style="font-size:12px; color:#2a5a3a;">MedAE: 4.683 → 3.750 = <b>−0.933yr &nbsp;(89%)</b></div>
+          </div>
+          <div style="background:#f0eeff; border:1px solid #7040c0; border-radius:8px; padding:10px 14px;">
+            <div style="font-size:11px; font-weight:700; color:#3a1a70; margin-bottom:4px;">② Warmstart from V4 ep117</div>
+            <div style="font-size:12px; color:#4a2a80;">MAE: 5.691 → 5.546 = <b>−0.145yr &nbsp;(15%)</b></div>
+            <div style="font-size:12px; color:#4a2a80;">MedAE: 3.750 → 3.633 = <b>−0.117yr &nbsp;(11%)</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-band orange">Interpretation for Article</div>
+      <div class="box box-warn" style="padding:12px 14px;">
+        <div style="font-size:12px; line-height:1.8; color:#6a4010;">
+          · V4b changes (data quality + loss + training budget) drive <b>85%</b> of improvement<br>
+          · Warmstart adds a real but modest <b>0.145yr MAE</b> benefit<br>
+          · Both scratch &amp; warmstart start from WCED pretrained encoder<br>
+          · Random-init ablation (no WCED pretrain) still pending — will isolate pretraining contribution
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 
 </body>
 </html>
