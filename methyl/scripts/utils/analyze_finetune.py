@@ -886,7 +886,7 @@ def main() -> int:
     test_r2    = _last("test/r2")
 
     print("\n" + "=" * 80)
-    print("ANALYSIS SUMMARY — V4")
+    print(f"ANALYSIS SUMMARY — {run.name}")
     print("=" * 80)
     print(f"Best Val MAE:         {best.get('best_mae', 'N/A'):.4f} yr  @ epoch {best.get('best_epoch', '?')}")
     print(f"Best Val MedAE:       {best.get('best_medae', 'N/A'):.4f} yr  @ epoch {best.get('best_medae_epoch', '?')}")
