@@ -66,6 +66,9 @@ print(f"  obs columns: {list(adata.obs.columns)}")
 X = adata.X.toarray() if sp.issparse(adata.X) else np.array(adata.X, dtype=np.float32)
 y = adata.obs["age"].values.astype(np.float64)
 
+nan_frac = np.isnan(X).mean()
+print(f"  NaN fraction in X: {nan_frac:.4f} ({nan_frac*100:.1f}%)")
+
 # ── Build splits ──────────────────────────────────────────────────────────────
 if "split" in adata.obs.columns:
     print(f"\nUsing existing 'split' column:")
@@ -107,6 +110,16 @@ X_val,   y_val   = X[val_mask],   y[val_mask]
 X_test,  y_test  = X[test_mask],  y[test_mask]
 
 print(f"\nFinal splits: train={len(y_train)}  val={len(y_val)}  test={len(y_test)}")
+
+# ── Mean imputation (train mean → fill all splits) ────────────────────────────
+print("Imputing NaN with per-CpG train mean...")
+col_means = np.nanmean(X_train, axis=0)
+# If a CpG is ALL NaN in train, fill with 0.5 (midpoint of beta scale)
+col_means = np.where(np.isnan(col_means), 0.5, col_means)
+for arr in [X_train, X_val, X_test]:
+    nan_mask = np.isnan(arr)
+    arr[nan_mask] = np.take(col_means, np.where(nan_mask)[1])
+print(f"  NaN after imputation: {np.isnan(X_train).sum() + np.isnan(X_val).sum() + np.isnan(X_test).sum()}")
 print(f"Age (train): mean={y_train.mean():.1f}  std={y_train.std():.1f}  "
       f"range=[{y_train.min():.0f}, {y_train.max():.0f}]")
 
