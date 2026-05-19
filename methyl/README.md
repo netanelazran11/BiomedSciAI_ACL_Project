@@ -2,7 +2,7 @@
 
 **MSc Thesis — Hebrew University of Jerusalem**  
 **Author:** Netanel Azran · [netanelazran11@gmail.com](mailto:netanelazran11@gmail.com)  
-**Supervisor:** Prof. Benjamin Yakir
+**Supervisors:** Dr. Michal Rozen-Zvi · Prof. Benjamin Yakir
 
 ---
 
@@ -10,40 +10,7 @@
 
 **MethylLlama** adapts a Llama-style Transformer foundation model to predict biological age from DNA methylation (DNAm) profiles. CpG sites are tokenized by identity and β-value, pretrained with a Whole-Cell Expression Decoder (WCED) objective, then fine-tuned for age regression across diverse human tissues.
 
-The project benchmarks against [MethylGPT (Ying et al., 2024)](https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2) and classical regression baselines (Ridge, ElasticNet) on both datasets.
-
----
-
-## Key Results
-
-### Fine-tuning (V4b — best run, warmstart from WCED pretrain)
-
-| Split | MAE (yr) | MedAE (yr) | R² |
-|-------|----------|------------|-----|
-| Train | ~2.2 | — | ~0.986 |
-| Val   | ~4.4 | ~3.2 | ~0.942 |
-| **Test** | **5.546** | **3.633** | **0.904** |
-
-Dataset: `finetuning_19608_clean_stratified_no_outliers.h5ad`  
-19,608 CpG sites · 10,358 samples after outlier removal · stratified train/val/test split
-
-### Ridge Baseline (grid-searched, same dataset)
-
-| Model | Test MAE (yr) | Test MedAE (yr) | Test R² |
-|-------|--------------|-----------------|---------|
-| Ridge (α=10) | 4.178 | 3.046 | 0.949 |
-| ElasticNet (best params) | 4.668 | — | — |
-
-### MethylGPT Comparison (their 49k dataset, our re-run baseline)
-
-| Model | Test MedAE (yr) | Source |
-|-------|----------------|--------|
-| MethylGPT transformer | 4.59 | Paper (Fig 4e) |
-| ElasticNet (their reported) | 5.10 | Paper (Fig 4e, untuned) |
-| **Ridge (our grid-search, same data)** | **3.199** | **This work** |
-| **ElasticNet (our grid-search, same data)** | **3.498** | **This work** |
-
-> Our tuned Ridge baseline outperforms MethylGPT's transformer on their own dataset and split.
+The project benchmarks against [MethylGPT (Ying et al., 2024)](https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2) on both datasets.
 
 ---
 
@@ -132,18 +99,6 @@ WARMSTART_WEIGHTS="" sbatch scripts/llama/finetune_llama_small_v4b.sh
 - Batch: 32, grad accum 4 (eff. 128)
 - Early stopping: patience 100
 - Max epochs: 300
-
----
-
-## Baselines
-
-```bash
-# Ridge + ElasticNet on our dataset (19k CpGs, clean split)
-sbatch scripts/utils/baseline_ridge.sh
-
-# Ridge + ElasticNet on MethylGPT's dataset (49k CpGs, their split)
-sbatch scripts/utils/baseline_ridge_49k.sh
-```
 
 ---
 
