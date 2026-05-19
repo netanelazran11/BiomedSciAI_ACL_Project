@@ -22,6 +22,7 @@ args_path = DST / "args.json"
 with open(args_path) as f:
     args = json.load(f)
 args["probe_id_dir"] = PROBE_IDS
+args["n_hvg"] = 21368  # match actual data (medium model pretrained on 49k, but we fine-tune on 21k subset)
 with open(args_path, "w") as f:
     json.dump(args, f, indent=4)
 print(f"args.json: layer_size={args['layer_size']}, n_hvg={args['n_hvg']}, probe_id_dir OK")
