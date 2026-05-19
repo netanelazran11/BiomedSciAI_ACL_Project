@@ -41,7 +41,7 @@ import wandb
 # ==============================
 ENTITY  = os.getenv("WANDB_ENTITY",  "netanelazran11-hebrew-university-of-jerusalem")
 PROJECT = os.getenv("WANDB_PROJECT", "finetune-llama-small")
-RUN_ID  = os.getenv("WANDB_RUN_ID",  "bvt444p3")   # V4:             bvt444p3
+RUN_ID  = os.getenv("WANDB_RUN_ID",  "8mjxsoez")   # V4b scratch             bvt444p3
                                                      # V4b warmstart:  1w1rk694
                                                      # V4b scratch:    8mjxsoez
 
@@ -53,9 +53,9 @@ OUTDIR = os.path.abspath(os.path.expanduser(
 
 WANDB_TIMEOUT = int(os.getenv("WANDB_TIMEOUT", "600"))
 
-# Reference baselines
-RIDGE_BASELINE_MAE  = 4.49
-RIDGE_BASELINE_R2   = 0.94
+# Reference baselines (set to None to hide from plots)
+RIDGE_BASELINE_MAE  = None
+RIDGE_BASELINE_R2   = None
 V1_BEST_MAE         = 6.81   # previous best (V1, mean pooling, epoch ~98)
 
 # Metric names logged by MethylationAgeRegressorLlama
@@ -279,10 +279,11 @@ def plot_mae_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
             if len(data):
                 ax.plot(data[ec], data[col], label=label, alpha=0.85, color=color, linewidth=lw)
 
-    ax.axhline(y=V1_BEST_MAE,        color="purple", linestyle="--", alpha=0.7, linewidth=1.5,
+    ax.axhline(y=V1_BEST_MAE, color="purple", linestyle="--", alpha=0.7, linewidth=1.5,
                label=f"V1 best ({V1_BEST_MAE:.2f} yr)")
-    ax.axhline(y=RIDGE_BASELINE_MAE, color="red",    linestyle="--", alpha=0.5, linewidth=1.5,
-               label=f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)")
+    if RIDGE_BASELINE_MAE is not None:
+        ax.axhline(y=RIDGE_BASELINE_MAE, color="red", linestyle="--", alpha=0.5, linewidth=1.5,
+                   label=f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)")
 
     if "val/mae" in df.columns:
         val_df = df[df["val/mae"].notna()]
@@ -309,8 +310,9 @@ def plot_mae_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
             if len(data):
                 ax.plot(data[ec], data[col], label=label, alpha=0.85, color=color, linewidth=lw)
 
-    ax.axhline(y=RIDGE_BASELINE_MAE, color="red", linestyle="--", alpha=0.5, linewidth=1.5,
-               label=f"Ridge MAE ({RIDGE_BASELINE_MAE:.2f} yr)")
+    if RIDGE_BASELINE_MAE is not None:
+        ax.axhline(y=RIDGE_BASELINE_MAE, color="red", linestyle="--", alpha=0.5, linewidth=1.5,
+                   label=f"Ridge MAE ({RIDGE_BASELINE_MAE:.2f} yr)")
 
     if "val/medae" in df.columns:
         val_df = df[df["val/medae"].notna()]
@@ -407,8 +409,9 @@ def plot_r2_curves(df: pd.DataFrame, outdir: str, run_name: str) -> str:
                 ax.plot(data[ec], data[col], label=label, alpha=0.8, color=color,
                         linewidth=lw, marker="o", markersize=2)
 
-    ax.axhline(y=RIDGE_BASELINE_R2, color="red", linestyle="--", alpha=0.7,
-               linewidth=1.5, label=f"Ridge Baseline (R²={RIDGE_BASELINE_R2:.2f})")
+    if RIDGE_BASELINE_R2 is not None:
+        ax.axhline(y=RIDGE_BASELINE_R2, color="red", linestyle="--", alpha=0.7,
+                   linewidth=1.5, label=f"Ridge Baseline (R²={RIDGE_BASELINE_R2:.2f})")
     ax.axhline(y=1.0, color="gray", linestyle=":", alpha=0.3)
     ax.axhline(y=0.0, color="gray", linestyle=":", alpha=0.3)
 
@@ -474,10 +477,11 @@ def plot_train_val_gap(df: pd.DataFrame, outdir: str, run_name: str) -> str:
     ax.plot(gap_df["epoch"], gap_df["val_mae"],   label="Val MAE",   color="orange", linewidth=2)
     ax.fill_between(gap_df["epoch"], gap_df["train_mae"], gap_df["val_mae"],
                     alpha=0.15, color="red", label="Gap")
-    ax.axhline(y=V1_BEST_MAE,        color="purple", linestyle="--", alpha=0.5, linewidth=1,
+    ax.axhline(y=V1_BEST_MAE, color="purple", linestyle="--", alpha=0.5, linewidth=1,
                label=f"V1 best ({V1_BEST_MAE:.2f} yr)")
-    ax.axhline(y=RIDGE_BASELINE_MAE, color="red",    linestyle="--", alpha=0.4, linewidth=1,
-               label=f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)")
+    if RIDGE_BASELINE_MAE is not None:
+        ax.axhline(y=RIDGE_BASELINE_MAE, color="red", linestyle="--", alpha=0.4, linewidth=1,
+                   label=f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)")
     ax.set_xlabel("Epoch"); ax.set_ylabel("MAE (years)")
     ax.set_title("Train vs Validation MAE")
     ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
@@ -519,12 +523,14 @@ def plot_convergence(df: pd.DataFrame, outdir: str, run_name: str) -> str:
             epochs = val_df[ec].values
             maes   = val_df[mae_col].values
             ax.plot(epochs, maes, color="orange", linewidth=2, label="Val MAE")
-            for threshold, label, color in [
-                (V1_BEST_MAE,        f"V1 best ({V1_BEST_MAE:.2f} yr)", "purple"),
-                (RIDGE_BASELINE_MAE, f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)", "red"),
+            thresholds = [
+                (V1_BEST_MAE, f"V1 best ({V1_BEST_MAE:.2f} yr)", "purple"),
                 (5.0, "5-year MAE", "blue"),
                 (4.0, "4-year MAE", "green"),
-            ]:
+            ]
+            if RIDGE_BASELINE_MAE is not None:
+                thresholds.insert(1, (RIDGE_BASELINE_MAE, f"Ridge ({RIDGE_BASELINE_MAE:.2f} yr)", "red"))
+            for threshold, label, color in thresholds:
                 ax.axhline(y=threshold, color=color, linestyle="--", alpha=0.4, linewidth=1)
                 below = np.where(maes <= threshold)[0]
                 if len(below):
@@ -590,10 +596,11 @@ def plot_all_metrics_combined(df: pd.DataFrame, outdir: str, run_name: str) -> s
             data = df[df[col].notna()]
             if len(data):
                 ax.plot(data[ec], data[col], label=label, color=color, linewidth=1.5, alpha=0.8)
-    ax.axhline(y=V1_BEST_MAE,        color="purple", linestyle="--", alpha=0.6, linewidth=1,
+    ax.axhline(y=V1_BEST_MAE, color="purple", linestyle="--", alpha=0.6, linewidth=1,
                label=f"V1 ({V1_BEST_MAE:.2f})")
-    ax.axhline(y=RIDGE_BASELINE_MAE, color="red",    linestyle="--", alpha=0.4, linewidth=1,
-               label=f"Ridge ({RIDGE_BASELINE_MAE:.2f})")
+    if RIDGE_BASELINE_MAE is not None:
+        ax.axhline(y=RIDGE_BASELINE_MAE, color="red", linestyle="--", alpha=0.4, linewidth=1,
+                   label=f"Ridge ({RIDGE_BASELINE_MAE:.2f})")
     ax.set_xlabel("Epoch"); ax.set_ylabel("MAE (years)"); ax.set_title("MAE")
     ax.legend(fontsize=7); ax.grid(True, alpha=0.3)
 
@@ -633,8 +640,9 @@ def plot_all_metrics_combined(df: pd.DataFrame, outdir: str, run_name: str) -> s
             if len(data):
                 ax.plot(data[ec], data[col], label=label, color=color, linewidth=1.5, alpha=0.8,
                         marker="o", markersize=2)
-    ax.axhline(y=RIDGE_BASELINE_R2, color="red", linestyle="--", alpha=0.4, linewidth=1,
-               label=f"Ridge ({RIDGE_BASELINE_R2:.2f})")
+    if RIDGE_BASELINE_R2 is not None:
+        ax.axhline(y=RIDGE_BASELINE_R2, color="red", linestyle="--", alpha=0.4, linewidth=1,
+                   label=f"Ridge ({RIDGE_BASELINE_R2:.2f})")
     ax.set_xlabel("Epoch"); ax.set_ylabel("R²"); ax.set_title("R²")
     ax.legend(fontsize=8); ax.grid(True, alpha=0.3); ax.set_ylim(-0.05, 1.05)
 
@@ -687,13 +695,19 @@ def plot_all_metrics_combined(df: pd.DataFrame, outdir: str, run_name: str) -> s
         td = df[df["test/r2"].notna()]
         if len(td): test_r2 = td["test/r2"].iloc[-1]
 
-    x      = np.arange(4)
-    values = [V1_BEST_MAE, RIDGE_BASELINE_MAE, test_mae, test_medae]
-    labels = ["V1\nMAE", "Ridge\nMAE", "V4\ntest MAE", "V4\ntest MedAE"]
-    colors_bar = ["purple", "#e74c3c", "#f39c12", "#27ae60"]
+    if RIDGE_BASELINE_MAE is not None:
+        x      = np.arange(4)
+        values = [V1_BEST_MAE, RIDGE_BASELINE_MAE, test_mae, test_medae]
+        labels = ["V1\nMAE", "Ridge\nMAE", "V4\ntest MAE", "V4\ntest MedAE"]
+        colors_bar = ["purple", "#e74c3c", "#f39c12", "#27ae60"]
+    else:
+        x      = np.arange(3)
+        values = [V1_BEST_MAE, test_mae, test_medae]
+        labels = ["V1\nMAE", "V4\ntest MAE", "V4\ntest MedAE"]
+        colors_bar = ["purple", "#f39c12", "#27ae60"]
     bars = ax.bar(x, values, color=colors_bar, alpha=0.85, edgecolor="black", linewidth=0.5)
     for bar, val in zip(bars, values):
-        if not np.isnan(val):
+        if val is not None and not np.isnan(val):
             ax.text(bar.get_x() + bar.get_width() / 2., bar.get_height() + 0.05,
                     f"{val:.2f}", ha="center", va="bottom", fontweight="bold", fontsize=10)
     ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=9)
@@ -732,7 +746,7 @@ def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -
         if val is None or (isinstance(val, float) and np.isnan(val)): return "N/A"
         return f"{val:.{d}f}"
 
-    ridge_imp = ((RIDGE_BASELINE_MAE - test_mae) / RIDGE_BASELINE_MAE * 100) if test_mae else None
+    ridge_imp = ((RIDGE_BASELINE_MAE - test_mae) / RIDGE_BASELINE_MAE * 100) if (RIDGE_BASELINE_MAE and test_mae) else None
     v1_imp    = ((V1_BEST_MAE - test_mae) / V1_BEST_MAE * 100) if test_mae else None
     mae_med_gap = (test_mae - test_medae) if (test_mae and test_medae) else None
 
@@ -754,11 +768,11 @@ def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -
 
 ## Final Results
 
-| Metric | Train (final) | Best Val | Test | V1 best | Ridge Baseline |
-|--------|--------------|----------|------|---------|----------------|
-| MAE (yr)   | {fmt(train_mae, 2)} | {fmt(best.get('best_mae'), 2)} | {fmt(test_mae, 2)} | {V1_BEST_MAE:.2f} | {RIDGE_BASELINE_MAE:.2f} |
-| MedAE (yr) | — | {fmt(best.get('best_medae'), 2)} | {fmt(test_medae, 2)} | — | — |
-| R²         | — | {fmt(best.get('best_val_r2'), 4)} | {fmt(test_r2, 4)} | 0.862 | {RIDGE_BASELINE_R2:.2f} |
+| Metric | Train (final) | Best Val | Test | V1 best |
+|--------|--------------|----------|------|---------|
+| MAE (yr)   | {fmt(train_mae, 2)} | {fmt(best.get('best_mae'), 2)} | {fmt(test_mae, 2)} | {V1_BEST_MAE:.2f} |
+| MedAE (yr) | — | {fmt(best.get('best_medae'), 2)} | {fmt(test_medae, 2)} | — |
+| R²         | — | {fmt(best.get('best_val_r2'), 4)} | {fmt(test_r2, 4)} | 0.862 |
 
 ## Performance Summary
 
@@ -768,7 +782,6 @@ def generate_report(df: pd.DataFrame, run: wandb.apis.public.Run, outdir: str) -
 - **Test MedAE:**     {fmt(test_medae, 2)} yr
 - **Test MAE−MedAE gap:** {fmt(mae_med_gap, 2)} yr  ← outlier impact on the mean
 - **Test R²:**        {fmt(test_r2, 4)}
-- **vs Ridge baseline:**  {fmt(ridge_imp, 1)}% improvement in MAE
 - **vs V1 (6.81 yr):**    {fmt(v1_imp, 1)}% improvement in MAE
 
 ## Training Details
@@ -900,10 +913,12 @@ def main() -> int:
     if test_r2    is not None: print(f"Test R²:              {test_r2:.4f}")
     print()
     print(f"V1 best MAE:          {V1_BEST_MAE:.2f} yr")
-    print(f"Ridge baseline MAE:   {RIDGE_BASELINE_MAE:.2f} yr")
+    if RIDGE_BASELINE_MAE is not None:
+        print(f"Ridge baseline MAE:   {RIDGE_BASELINE_MAE:.2f} yr")
     if test_mae:
         print(f"Improvement vs V1:    {((V1_BEST_MAE - test_mae)/V1_BEST_MAE*100):+.1f}%")
-        print(f"Improvement vs Ridge: {((RIDGE_BASELINE_MAE - test_mae)/RIDGE_BASELINE_MAE*100):+.1f}%")
+        if RIDGE_BASELINE_MAE is not None:
+            print(f"Improvement vs Ridge: {((RIDGE_BASELINE_MAE - test_mae)/RIDGE_BASELINE_MAE*100):+.1f}%")
     print()
     print(f"Early Stopping:       {'Triggered' if early_s.get('triggered') else 'Not triggered'}")
     print(f"Total Epochs:         {early_s.get('total_epochs', 'N/A')}")
