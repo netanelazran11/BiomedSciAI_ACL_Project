@@ -1,135 +1,191 @@
-# biomed-multi-omic
+# MethylLlama: A Foundation Model for DNA Methylation Age Prediction
 
-Biomedical foundational models for omics data. This package supports the development of foundation models for scRNA or for DNA data.
+**MSc Thesis — Hebrew University of Jerusalem**  
+**Author:** Netanel Azran · [netanelazran11@gmail.com](mailto:netanelazran11@gmail.com)  
+**Supervisor:** Prof. Benjamin Yakir
 
-`biomed-multi-omic` enables development and testing of foundation models for DNA sequences and for RNA expression,
-with modular model and training methods for pretraining and fine-tuning, controllable via a declarative no-code interface.
-`biomed-multi-omic` leverages anndata, HuggingFace Transformers, PyTorchLighting and Hydra.
+---
 
-- 🧬 A single package for DNA and RNA Foundation models. scRNA pretraining on h5ad files or TileDB (eg CellXGene), DNA pretraining on reference human genome (GRCh38/hg38) and also variant imputed genome based on common SNPs available from GWAT catalog and ClinVar datasets.
-- 🚀 Leverages latest open source tools: anndata, HuggingFace transformers and PyTorchLighting
-- 📈 Zero-shot and finetuning support for diverse downstream tasks: (cell type annotation, perturbation prediction for scRNA, promoter prediction task and regulatory regions using Massively parallel reporter assays (MPRAs)
-for DNA sequences)
-- Novel pretraining strategies for scRNA and DNA implemented alongside existing methods to enable experimentation and comparison.
+## Overview
 
+**MethylLlama** adapts a Llama-style Transformer foundation model to predict biological age from DNA methylation (DNAm) profiles. CpG sites are tokenized by identity and β-value, pretrained with a Whole-Cell Expression Decoder (WCED) objective, then fine-tuned for age regression across diverse human tissues.
+
+The project benchmarks against [MethylGPT (Ying et al., 2024)](https://www.biorxiv.org/content/10.1101/2024.10.30.621013v2) and classical regression baselines (Ridge, ElasticNet) on both datasets.
+
+---
+
+## Key Results
+
+### Fine-tuning (V4b — best run, warmstart from WCED pretrain)
+
+| Split | MAE (yr) | MedAE (yr) | R² |
+|-------|----------|------------|-----|
+| Train | ~2.2 | — | ~0.986 |
+| Val   | ~4.4 | ~3.2 | ~0.942 |
+| **Test** | **5.546** | **3.633** | **0.904** |
+
+Dataset: `finetuning_19608_clean_stratified_no_outliers.h5ad`  
+19,608 CpG sites · 10,358 samples after outlier removal · stratified train/val/test split
+
+### Ridge Baseline (grid-searched, same dataset)
+
+| Model | Test MAE (yr) | Test MedAE (yr) | Test R² |
+|-------|--------------|-----------------|---------|
+| Ridge (α=10) | 4.178 | 3.046 | 0.949 |
+| ElasticNet (best params) | 4.668 | — | — |
+
+### MethylGPT Comparison (their 49k dataset, our re-run baseline)
+
+| Model | Test MedAE (yr) | Source |
+|-------|----------------|--------|
+| MethylGPT transformer | 4.59 | Paper (Fig 4e) |
+| ElasticNet (their reported) | 5.10 | Paper (Fig 4e, untuned) |
+| **Ridge (our grid-search, same data)** | **3.199** | **This work** |
+| **ElasticNet (our grid-search, same data)** | **3.498** | **This work** |
+
+> Our tuned Ridge baseline outperforms MethylGPT's transformer on their own dataset and split.
+
+---
+
+## Architecture
+
+```
+Input: N CpG sites per sample
+  ↓  CpG-ID embedding + β-value embedding (element-wise sum)
+  ↓  [CLS] + CpG token sequence
+  ↓  Llama Transformer encoder (6 layers, 8 heads, d=512)
+  ↓  Mean pooling of token embeddings
+  ↓  Regression head (512 → 256 → 128 → 1)
+Output: Predicted biological age (years)
+```
+
+| Parameter | MethylLlama | MethylGPT |
+|-----------|-------------|-----------|
+| Layers | 6 | 6 |
+| Heads | 8 | 4 |
+| Hidden dim | 512 | 64 |
+| Params (encoder) | ~23M | ~2M |
+| CpG subset | 8,000–19,608 | 49,156 |
+| Pretraining | WCED (InfoNCE + reconstruction) | MLM + reconstruction |
+
+---
+
+## Repository Structure
+
+```
+methyl/
+├── bmfm_methylation/          # Core model codebase
+│   ├── llama/                 # Llama-style transformer + fine-tuning
+│   │   ├── configs/           # Hydra configs (pretrain / finetune)
+│   │   ├── finetune_llama.py  # Fine-tuning Lightning module
+│   │   └── pretrain_llama.py  # Pretraining Lightning module
+│   ├── wced/                  # WCED pretraining (InfoNCE + reconstruction)
+│   ├── mlm/                   # MLM pretraining variant
+│   └── shared/                # Tokenizer, data module, dataset
+├── scripts/
+│   ├── llama/                 # SLURM scripts for Llama pretraining/finetuning
+│   ├── wced/                  # SLURM scripts for WCED pretraining
+│   └── utils/                 # Analysis, baseline, and inspection scripts
+│       ├── analyze_finetune.py    # WandB run analysis + plots
+│       ├── baseline_ridge.py      # Ridge/ElasticNet baseline (our dataset)
+│       ├── baseline_ridge_49k.sh  # Ridge/ElasticNet baseline (MethylGPT dataset)
+│       └── create_stratified_split.py
+├── docs/
+│   ├── presentations/         # HTML/PPTX slides and comparison docs
+│   └── images/                # Figures and training curves
+├── wandb_analysis/            # Exported WandB metrics and plots
+├── figures/                   # Architecture sweep results
+├── deprecated/                # Old 21K-CpG pipeline (archived)
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Pretraining
+
+**WCED (Whole-Cell Expression Decoder):**
+- All 49,156 CpG β-values are input (no masking)
+- [CLS] reconstructs the full methylation profile
+- InfoNCE contrastive loss on CLS embeddings
+- Best checkpoint: epoch 190, val_loss=0.1264, test/pcc=0.987
+
+```bash
+sbatch scripts/wced/pretrain_wced.sh
+```
+
+---
+
+## Fine-tuning
+
+```bash
+# V4b warmstart (loads WCED pretrain checkpoint)
+sbatch scripts/llama/finetune_llama_small_v4b.sh
+
+# V4b scratch (no warmstart — ablation)
+WARMSTART_WEIGHTS="" sbatch scripts/llama/finetune_llama_small_v4b.sh
+```
+
+**V4b hyperparameters:**
+- Loss: Huber (δ=5yr / age_std)
+- LR: 1e-4 (head), 2e-5 (encoder), weight decay 0.01
+- Batch: 32, grad accum 4 (eff. 128)
+- Early stopping: patience 100
+- Max epochs: 300
+
+---
+
+## Baselines
+
+```bash
+# Ridge + ElasticNet on our dataset (19k CpGs, clean split)
+sbatch scripts/utils/baseline_ridge.sh
+
+# Ridge + ElasticNet on MethylGPT's dataset (49k CpGs, their split)
+sbatch scripts/utils/baseline_ridge_49k.sh
+```
+
+---
+
+## WandB Runs
+
+| Run | WandB ID | Description |
+|-----|----------|-------------|
+| V4b warmstart | `1w1rk694` | Best fine-tuning run |
+| V4b scratch | `8mjxsoez` | Ablation — no warmstart |
+| V4 (reference) | `bvt444p3` | Earlier run (stopped ep150) |
+| WCED pretrain | job 44450919 | Best pretrain checkpoint |
+
+---
 
 ## Installation
 
-We recommend using [uv](https://github.com/astral-sh/uv) to create your environment due to it's 10-100x speed up over pip, which also can be used for installation.
-
-Install using cloned repo:
-
-```sh
-git clone git@github.com:BiomedSciAI/biomed-multi-omic.git
-cd biomed-multi-omic
-uv venv .venv -p3.12
-source ./.venv/bin/activate
-uv pip install -e .
-```
-
-NB - `biomed-multi-omic` depends on `hic-straw` which requires `curl`. You may need to install `curl` or `libcurl` , for more information please refer to `curl`'s install instructions for your OS.
-
-### Optional dependencies
-
-In addition to the base package there are additional optional dependencies which extends `biomed-multi-omic` capabilities further. These include:
-
-- `bulk_rna`: Extends modules for extracting and preprocessing bulk RNA-seq data
-- `benchmarking`: Installs additional models used benchmark `bmfm-multi-omics` against. These include scib, scib-metrics, pyliger, scanorama and harmony-pytorch.
-- `test`: Unittest suite which is recommended for development use
-
-To install optional dependencies from this GitHub repository you can run from package root:
-
-```sh
-uv pip install ".[bulk_rna,benchmarking,test,notebook]"
-```
-
-## `bmfm-rna` checkpoints
-
-The model's weights can be aquired from [IBM's HuggingFace collection](https://huggingface.co/ibm-research). The following scRNA models are avaliable:
-
-- MLM+RDA: [ibm-research/biomed.rna.bert.110m.mlm.rda.v1](https://huggingface.co/ibm-research/biomed.rna.bert.110m.mlm.rda.v1)
-- MLM+Multitask: [ibm-research/biomed.rna.bert.110m.mlm.multitask.v1](https://huggingface.co/ibm-research/biomed.rna.bert.110m.mlm.multitask.v1)
-- WCED+Multitask: [ibm-research/biomed.rna.bert.110m.wced.multitask.v1](https://huggingface.co/ibm-research/biomed.rna.bert.110m.wced.multitask.v1)
-- WCED 10 pct: [ibm-research/biomed.rna.bert.110m.wced.v1](https://huggingface.co/ibm-research/biomed.rna.bert.110m.wced.v1)
-
-For details on how the models were trained, please refer to [the BMFM-RNA preprint](https://arxiv.org/abs/2506.14861).
-
-To get embeddings and predictions for scRNA data run:
-
 ```bash
-export MY_DATA_FILE=... # path to h5ad file with raw counts and gene symbols
-bmfm-targets-run -cn predict input_file=$MY_DATA_FILE working_dir=/tmp checkpoint=ibm-research/biomed.rna.bert.110m.wced.multitask.v1
+git clone https://github.com/netanelazran11/MethylLlama.git
+cd MethylLlama/methyl
+pip install -r requirements.txt
 ```
 
-For more details tutorial see RNA tutorials. Note to use the notebook you will need to install the `notebook` optional dependencies (see [Installation](#installation)):
+---
 
-- To run inference programmatically, you can see a zero-shot example in this [scRNA zero-shot notebook](tutorials/RNA/1_zero_shot_using_yaml.ipynb).
-- To inspect the resulting embeddings and cell-type predictions use this [scRNA inspect embeddings notebook](tutorials/RNA/2_inference_inspection.ipynb).
+## References
 
-## `bmfm-dna` checkpoints
+1. Ying, K. et al. "MethylGPT: a foundation model for the DNA methylome." *bioRxiv*, 2024.
+2. Touvron, H. et al. "Llama 2: Open foundation and fine-tuned chat models." *arXiv*, 2023.
+3. Horvath, S. "DNA methylation age of human tissues and cell types." *Genome Biology*, 14(10):R115, 2013.
+4. de Lima Camillo, L.P. et al. "AltumAge: A pan-tissue DNA methylation epigenetic clock based on deep learning." *npj Aging*, 8(1):1–15, 2022.
+5. Zou, H. & Hastie, T. "Regularization and variable selection via the elastic net." *J. R. Stat. Soc. B*, 67(2):301–320, 2005.
 
-The model's weights can be aquired from IBM's HuggingFace collection. The following DNA models are avaliable:
-
-- MLM+REF_GENOME: [ibm-research/biomed.dna.ref.modernbert.113m](https://huggingface.co/ibm-research/biomed.dna.ref.modernbert.113m.v1)
-- MLM+REFSNP_GENOME: [ibm-research/biomed.dna.snp.modernbert.113m](https://huggingface.co/ibm-research/biomed.dna.snp.modernbert.113m.v1)
-
-### DNA Inference
-
-For details on how the models were trained, please refer to the [BMFM-DNA preprint](https://arxiv.org/abs/2507.05265).
-
-To get embeddings for DNA sequences run:
-
-```bash
-export INPUT_DIRECTORY=... # path to the three (train/test/dev.csv) files with DNA sequences
-bmfm-targets-run -cn dna_predict input_directory=$INPUT_DIRECTORY working_dir=/tmp checkpoint=ibm-research/biomed.dna.snp.modernbert.113m.v1
-```
-
-For more details tutorial see [DNA tutorials](https://github.com/BiomedSciAI/biomed-multi-omic/tree/main/run#dna-fine-tuning).
-
-## Package Architecture
-
-### RNA Modules
-
-`bmfm-rna` framework diagram schematic shows the modules available for building  Transcriptomics Foundation Model (TFM).
-A novel contribution of our work is the Whole Cell Expression Decoder (WCED), an innovative pretraining method aimed at improving transcriptomic foundation models.
-In WCED, the model’s objective is to reconstruct a full cell expression profile from a partial input's `[CLS]` token representation generated by the transformer encoder.
-By training models to autocomplete the expression profiles, WCED improves the model’s understanding of underlying biological processes, resulting in better generalization and more accurate predictions for downstream tasks.
-
-![bmfm_omics_workflow](docs/images/package_diagram.png)
-
-### DNA Modules
-
-The `bmfm-dna` framework addresses key limitations of existing DNA language models by incorporating natural genomic variations into the pre-training process, rather than relying solely on the reference genome. This allows the model to better capture critical biological properties, especially in regulatory regions where many disease-associated variants reside. As a result, `bmfm-dna` offers a more comprehensive and biologically meaningful representation, advancing the field beyond traditional DNALM strategies.
-
-`bmfm-dna` framework diagram schematic shows the modules available for multiple strategies to encode natural genomic variations; multiple architectures such as BERT, Performer, ModernBERT to build genomic foundation models; fine-tuning and benchmarking of the foundation models on well-established biologically meaningful tasks. In particular, the package incorporates most of the benchmarking datasets from Genomic Understanding and Evaluation (GUE) package released in DNABERT-2. In addition, the package also supports promoter activity prediction on datasets created using Massive Parallel Reporting Assays (MPRA), and SNP-disease association prediction.
-
-![bmfm_dna](./docs/images/dna_fig1.png)
-
-
-For more details, check out the [the BMFM-DNA preprint](https://www.arxiv.org/abs/2507.05265).
+---
 
 ## Citation
 
-To cite the tool for both RNA and DNA, please cite both the following articles:
-
 ```bibtex
-@misc{dandala2025bmfmrnaopenframeworkbuilding,
-      title={BMFM-RNA: An Open Framework for Building and Evaluating Transcriptomic Foundation Models},
-      author={Bharath Dandala and Michael M. Danziger and Ella Barkan and Tanwi Biswas and Viatcheslav Gurev and Jianying Hu and Matthew Madgwick and Akira Koseki and Tal Kozlovski and Michal Rosen-Zvi and Yishai Shimoni and Ching-Huei Tsou},
-      year={2025},
-      eprint={2506.14861},
-      archivePrefix={arXiv},
-      primaryClass={q-bio.GN},
-      url={https://arxiv.org/abs/2506.14861},
-}
-
-@misc{li2025bmfmdnasnpawarednafoundation,
-      title={BMFM-DNA: A SNP-aware DNA foundation model to capture variant effects},
-      author={Hongyang Li and Sanjoy Dey and Bum Chul Kwon and Michael Danziger and Michal Rosen-Tzvi and Jianying Hu and James Kozloski and Ching-Huei Tsou and Bharath Dandala and Pablo Meyer},
-      year={2025},
-      eprint={2507.05265},
-      archivePrefix={arXiv},
-      primaryClass={q-bio.GN},
-      url={https://arxiv.org/abs/2507.05265},
+@mastersthesis{azran2026methylllama,
+  title   = {MethylLlama: A Foundation Model for DNA Methylation Age Prediction},
+  author  = {Azran, Netanel},
+  school  = {Hebrew University of Jerusalem},
+  year    = {2026},
+  url     = {https://github.com/netanelazran11/MethylLlama}
 }
 ```
