@@ -2,7 +2,7 @@
 
 **MSc Thesis — Hebrew University of Jerusalem**  
 **Author:** Netanel Azran · [netanelazran11@gmail.com](mailto:netanelazran11@gmail.com)  
-**Supervisors:** Dr. Michal Rozen-Zvi · Prof. Benjamin Yakir
+**Supervisors:** Prof. Michal Rozen-Zvi · Prof. Benjamin Yakir
 
 ---
 
