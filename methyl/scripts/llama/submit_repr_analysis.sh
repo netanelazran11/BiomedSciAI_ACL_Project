@@ -3,7 +3,7 @@
 # Submit all 4 representation analysis jobs at once.
 # Run from: /sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl
 
-set -euo pipefail
+set -uo pipefail
 
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 cd "${REPO}"
