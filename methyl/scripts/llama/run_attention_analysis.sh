@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=6:00:00
+#SBATCH --time=12:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
@@ -98,6 +98,7 @@ python scripts/repr_analysis/attention_analysis.py \
     --outdir        "${OUTDIR}"         \
     --layer         "${LAYER}"          \
     --batch_size    "${BATCH_SIZE}"     \
+    --max_samples   -1                  \
     --device        cuda                \
     --age_col       age                 \
     --fdr_thresh    0.05                \
