@@ -74,7 +74,7 @@ def extract_cpg_embeddings(checkpoint_path: str, tokenizer_path: str):
         cpg_ids     list[str]   in vocabulary order
     """
     from bmfm_methylation.llama.finetune_llama import load_wced_llama_checkpoint
-    from transformers import PreTrainedTokenizerFast
+    from bmfm_targets.tokenization import MultiFieldTokenizer
 
     log.info(f"Loading checkpoint: {checkpoint_path}")
     module = load_wced_llama_checkpoint(checkpoint_path)
@@ -85,7 +85,7 @@ def extract_cpg_embeddings(checkpoint_path: str, tokenizer_path: str):
     log.info(f"CpG embedding table: {emb_weight.shape}  (vocab × hidden)")
 
     # Map embedding rows back to CpG IDs via tokenizer vocab
-    tok = PreTrainedTokenizerFast.from_pretrained(tokenizer_path)
+    tok = MultiFieldTokenizer.from_pretrained(tokenizer_path)
     vocab = tok.get_vocab()  # {token_str: token_id}
     id2token = {v: k for k, v in vocab.items()}
 
