@@ -483,6 +483,60 @@ def load_wced_llama_checkpoint(checkpoint_path: str) -> WCEDLlamaModule:
     return module
 
 
+def load_finetune_llama_checkpoint(checkpoint_path: str) -> "MethylationAgeRegressorLlama":
+    """Load a MethylationAgeRegressorLlama from checkpoint.
+
+    encoder is excluded from save_hyperparameters (it's a nn.Module argument),
+    so load_from_checkpoint fails. Instead:
+      1. Load raw checkpoint
+      2. Infer MethylLlamaConfig from state_dict shapes (same logic as WCED loader)
+      3. Build encoder
+      4. Construct MethylationAgeRegressorLlama(encoder=encoder, **hparams)
+      5. Load state_dict manually
+    """
+    from .model import MethylLlamaConfig, MethylLlamaModel
+
+    logger.info(f"Loading MethylationAgeRegressorLlama from {checkpoint_path}")
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    hparams = ckpt.get("hyper_parameters", {})
+    sd = ckpt["state_dict"]
+
+    emb_w = sd["encoder.embeddings.cpg_sites_embeddings.weight"]
+    vocab_size, hidden_size = emb_w.shape
+    num_layers = sum(
+        1 for k in sd
+        if k.startswith("encoder.encoder.layers.") and k.endswith(".attn_norm.weight")
+    )
+    intermediate_size = sd["encoder.encoder.layers.0.mlp.gate_proj.weight"].shape[0]
+    n_sin_basis = sd.get(
+        "encoder.embeddings.beta_values_embeddings.basis", torch.zeros(48)
+    ).shape[0]
+    num_attention_heads = 4 if intermediate_size == 320 else 8
+
+    model_config = MethylLlamaConfig(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        num_hidden_layers=num_layers,
+        intermediate_size=intermediate_size,
+        n_sin_basis=n_sin_basis,
+        num_attention_heads=num_attention_heads,
+    )
+    logger.info(
+        f"Inferred config: vocab={vocab_size}, hidden={hidden_size}, "
+        f"layers={num_layers}, intermediate={intermediate_size}, "
+        f"heads={num_attention_heads}"
+    )
+
+    encoder = MethylLlamaModel(model_config)
+    hparams.pop("encoder", None)
+    hparams.pop("decoder", None)
+    module = MethylationAgeRegressorLlama(encoder=encoder, **hparams)
+    module.load_state_dict(sd)
+    module.eval()
+    logger.info("Finetune checkpoint loaded successfully")
+    return module
+
+
 # ---------------------------------------------------------------------------
 # Tokenizer & Data helpers
 # ---------------------------------------------------------------------------

@@ -67,11 +67,9 @@ def parse_args():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_finetune_model(ckpt_path: str):
-    from bmfm_methylation.llama.finetune_llama import MethylationAgeRegressorLlama
+    from bmfm_methylation.llama.finetune_llama import load_finetune_llama_checkpoint
     log.info(f"Loading fine-tuned model: {ckpt_path}")
-    model = MethylationAgeRegressorLlama.load_from_checkpoint(ckpt_path, map_location="cpu")
-    model.eval()
-    return model
+    return load_finetune_llama_checkpoint(ckpt_path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

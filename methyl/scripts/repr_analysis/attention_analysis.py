@@ -136,10 +136,8 @@ def load_encoder(checkpoint_path: str, ckpt_type: str):
         from bmfm_methylation.llama.finetune_llama import load_wced_llama_checkpoint
         module = load_wced_llama_checkpoint(checkpoint_path)
     else:
-        from bmfm_methylation.llama.finetune_llama import MethylationAgeRegressorLlama
-        module = MethylationAgeRegressorLlama.load_from_checkpoint(
-            checkpoint_path, map_location="cpu"
-        )
+        from bmfm_methylation.llama.finetune_llama import load_finetune_llama_checkpoint
+        module = load_finetune_llama_checkpoint(checkpoint_path)
     encoder = module.encoder
     encoder.eval()
     return encoder
