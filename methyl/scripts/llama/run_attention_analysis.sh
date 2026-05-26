@@ -46,7 +46,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 FINETUNE_CKPT="${FINETUNE_CKPT:-$(ls -t ${REPO}/outputs/finetune-llama-small/*/checkpoints/epoch=*.ckpt 2>/dev/null | head -1)}"
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_type3_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 OUTDIR="${REPO}/outputs/repr_analysis/attention_${SLURM_JOB_ID}"
 
