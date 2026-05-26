@@ -92,6 +92,7 @@ fi
 echo ""
 python scripts/repr_analysis/attention_analysis.py \
     --checkpoint    "${FINETUNE_CKPT}"  \
+    --ckpt_type     finetune            \
     --data          "${DATA}"           \
     --tokenizer     "${TOKENIZER}"      \
     --outdir        "${OUTDIR}"         \
