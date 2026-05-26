@@ -197,7 +197,7 @@ def extract_attention_scores(encoder, data_path, tokenizer_path, batch_size,
         vocab_size=len(cpg_sites), input_ratio=1.0, contrastive=False,
     )
     loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collator,
-                        shuffle=False, num_workers=2, pin_memory=False)
+                        shuffle=False, num_workers=0, pin_memory=False)
 
     encoder = encoder.to(device)
 
