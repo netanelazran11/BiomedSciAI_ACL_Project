@@ -84,33 +84,33 @@ def parse_args():
 
 class AttentionCapturer:
     """
-    Monkey-patch MethylLlamaAttention to capture attention weights.
+    Monkey-patch MethylLlamaAttention to capture per-CpG attention scores.
 
-    MethylLlama uses F.scaled_dot_product_attention which does not expose
-    the attention weight matrix. We patch the attn module's forward to
-    recompute Q @ K^T / sqrt(d) → softmax explicitly and store the result,
-    then delegate to the original forward for the actual V-projection output.
+    MethylLlama uses F.scaled_dot_product_attention which never returns the
+    attention weight matrix. We patch attn.forward to recompute Q@K^T/sqrt(d)
+    → softmax, then immediately reduce to [B, L] (column-sum over queries,
+    mean over heads) before discarding the full [B, H, L, L] tensor.
 
-    Layer attribute is `attn` (not `self_attn`) — MethylLlamaLayer uses
-    self.attn = MethylLlamaAttention(...).
+    For L=19609 CpGs, [B, H, L, L] needs ~6 GB even for B=1 — we must
+    aggregate on-GPU and only move the tiny [B, L] result to CPU.
+
+    Layer attribute: self.attn (MethylLlamaLayer uses self.attn, not self_attn).
     """
     def __init__(self, encoder, layer_idx: int = -1):
-        self.attn_weights = []  # list of [B, H, L, L] tensors
+        # Stores per-batch [B, L] column-sum attention (head-averaged, on CPU)
+        self.key_attn = []
 
-        layers = encoder.encoder.layers
+        layers       = encoder.encoder.layers
         target_layer = layers[layer_idx]
-        attn_module   = target_layer.attn      # MethylLlamaAttention
-
-        orig_forward  = attn_module.forward
-        capturer      = self
+        attn_module  = target_layer.attn       # MethylLlamaAttention
+        orig_forward = attn_module.forward
+        capturer     = self
 
         def patched_forward(hidden_states, attention_mask=None):
             B, L, D = hidden_states.shape
 
-            # Recompute Q, K to obtain attention weights
-            q = attn_module.q_proj(hidden_states)
-            k = attn_module.k_proj(hidden_states)
-
+            q  = attn_module.q_proj(hidden_states)
+            k  = attn_module.k_proj(hidden_states)
             H  = attn_module.num_heads
             Dh = attn_module.head_dim
             q  = q.view(B, L, H, Dh).transpose(1, 2)   # [B, H, L, Dh]
@@ -120,23 +120,27 @@ class AttentionCapturer:
             from bmfm_methylation.llama.model import apply_rotary_pos_emb
             q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-            scores = torch.matmul(q, k.transpose(-2, -1)) * (Dh ** -0.5)  # [B, H, L, L]
+            # [B, H, L, L] — large but temporary; stays on GPU
+            scores = torch.matmul(q, k.transpose(-2, -1)) * (Dh ** -0.5)
             if attention_mask is not None:
-                mask = attention_mask.bool().unsqueeze(1).unsqueeze(2)     # [B, 1, 1, L]
+                mask = attention_mask.bool().unsqueeze(1).unsqueeze(2)
                 scores = scores.masked_fill(~mask, float("-inf"))
 
-            weights = torch.softmax(scores, dim=-1)     # [B, H, L, L]
-            capturer.attn_weights.append(weights.detach().cpu())
+            weights  = torch.softmax(scores.float(), dim=-1)   # [B, H, L, L]
+            # Reduce immediately: column-sum over queries → mean over heads → [B, L]
+            col_sum  = weights.sum(dim=-2).mean(dim=1)          # [B, L]
+            capturer.key_attn.append(col_sum.detach().cpu())
+            del weights, scores                                 # free GPU memory
 
             return orig_forward(hidden_states, attention_mask=attention_mask)
 
-        attn_module.forward    = patched_forward
-        self._attn_module      = attn_module
-        self._orig_forward     = orig_forward
-        log.info(f"Attention capturer patched on layer {layer_idx} (attr: attn)")
+        attn_module.forward = patched_forward
+        self._attn_module   = attn_module
+        self._orig_forward  = orig_forward
+        log.info(f"Attention capturer patched on layer {layer_idx} (stores [B,L] column-sum)")
 
     def clear(self):
-        self.attn_weights = []
+        self.key_attn = []
 
     def remove(self):
         self._attn_module.forward = self._orig_forward
@@ -211,25 +215,18 @@ def extract_attention_scores(encoder, data_path, tokenizer_path, batch_size,
         input_ids = torch.stack([cpg_ids_b.float(), beta_values], dim=1)
         _ = encoder(input_ids=input_ids, attention_mask=attn_mask)
 
-        if capturer.attn_weights:
-            # attn: [B, H, L, L]  — L includes CLS at pos 0
-            attn = capturer.attn_weights[0].float().numpy()  # [B, H, L, L]
-            # Key attention (column sum): how much flows INTO each position
-            # Sum over query dim (axis=-2), mean over heads (axis=1)
-            # Result: [B, L]
-            key_attn = attn.sum(axis=-2).mean(axis=1)  # [B, L]
-            key_attn_cpg = key_attn[:, 1:]              # [B, L-1] skip CLS pos
-
-            # Normalize per sample
-            row_sum = key_attn_cpg.sum(axis=1, keepdims=True)
+        if capturer.key_attn:
+            # key_attn: [B, L] — already column-summed and head-averaged on GPU
+            key_attn     = capturer.key_attn[0].float().numpy()  # [B, L]
+            key_attn_cpg = key_attn[:, 1:]                        # [B, L-1] skip CLS
+            row_sum      = key_attn_cpg.sum(axis=1, keepdims=True)
             key_attn_cpg = key_attn_cpg / (row_sum + 1e-12)
             attn_rows.append(key_attn_cpg)
         else:
-            log.warning(f"  Batch {i}: no attention weights captured (model may not expose them)")
-            # Fallback: uniform attention
+            log.warning(f"  Batch {i}: no attention captured — using uniform fallback")
             B = ages.shape[0]
             L = batch["cpg_ids"].shape[1]
-            attn_rows.append(np.ones((B, L)) / L)
+            attn_rows.append(np.ones((B, L - 1)) / (L - 1))
 
         age_rows.append(ages)
 

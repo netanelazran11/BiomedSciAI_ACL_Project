@@ -54,7 +54,7 @@ MANIFEST="${REPO}/outputs/cpg_manifest/cpg_annotations_finetune19k.tsv"
 
 # Last transformer layer (0-indexed); MethylLlama-Small has 4 layers → layer 3
 LAYER="${LAYER:-3}"
-BATCH_SIZE="${BATCH_SIZE:-16}"   # smaller batch to fit attention matrices in VRAM
+BATCH_SIZE="${BATCH_SIZE:-1}"    # [B,H,L,L] for L=19k needs ~6GB even at B=1
 
 echo "============================================================"
 echo " CpG Attention Weight Analysis  (Fig 5)"
