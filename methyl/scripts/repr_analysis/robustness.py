@@ -315,8 +315,8 @@ def main():
 
         for pct in args.mask_levels:
             log.info(f"  Baselines @ {pct}% masking ...")
-            en_pred    = predict_baseline_masked(en,    None,   X_te_raw, pct / 100.0, args.seed)
-            ridge_pred = predict_baseline_masked(ridge, None,   X_te_raw, pct / 100.0, args.seed)
+            en_pred    = predict_baseline_masked(en,    scaler, X_te_raw, pct / 100.0, args.seed)
+            ridge_pred = predict_baseline_masked(ridge, scaler, X_te_raw, pct / 100.0, args.seed)
 
             results["ElasticNet"][pct] = medae(y_te, en_pred)
             results["Ridge"][pct]      = medae(y_te, ridge_pred)
