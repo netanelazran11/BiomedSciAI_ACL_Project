@@ -99,9 +99,8 @@ python scripts/repr_analysis/attention_analysis.py \
     --batch_size    "${BATCH_SIZE}"     \
     --device        cuda                \
     --age_col       age                 \
-    --split_col     split               \
-    --fdr_threshold 0.05                \
-    --log2fc_threshold 0.585            \
+    --fdr_thresh    0.05                \
+    --lfc_thresh    0.585               \
     ${MANIFEST_ARG}
 
 echo ""

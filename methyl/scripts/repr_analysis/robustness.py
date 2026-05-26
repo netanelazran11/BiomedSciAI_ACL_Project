@@ -116,11 +116,11 @@ def predict_with_masking(model, data_path, tokenizer_path, batch_size, device,
                 mask_idx = rng.choice(L - 1, size=n_mask, replace=False) + 1
                 beta_values[b, mask_idx] = 0.0  # zero = "unknown"
 
-        input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)
-        preds = model(input_ids=input_ids, attention_mask=attn_mask)
-        if hasattr(preds, "logits"):
-            preds = preds.logits
-        preds = preds.squeeze(-1).cpu().numpy()
+        # MethylationAgeRegressorLlama has no forward() — use internal methods
+        cls   = model._encode_cls(cpg_ids, beta_values, attn_mask)  # [B, D]
+        preds = model.age_head(cls).squeeze(-1)                      # [B] z-scored
+        # Denormalize from z-score to years
+        preds = (preds * model.age_std + model.age_mean).cpu().numpy()
 
         y_true_list.append(ages)
         y_pred_list.append(preds)
