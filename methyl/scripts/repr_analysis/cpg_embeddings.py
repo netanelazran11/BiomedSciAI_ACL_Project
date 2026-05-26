@@ -83,12 +83,11 @@ def extract_cpg_embeddings(checkpoint_path: str, tokenizer_path: str):
     emb_weight = encoder.embeddings.cpg_sites_embeddings.weight.detach().cpu().numpy()
     log.info(f"CpG embedding table: {emb_weight.shape}  (vocab × hidden)")
 
-    # Map embedding rows back to CpG IDs via vocab.json
-    import json, os
-    vocab_file = os.path.join(tokenizer_path, "vocab.json")
+    # Map embedding rows back to CpG IDs via vocab.txt (one token per line, index = id)
+    import os
+    vocab_file = os.path.join(tokenizer_path, "tokenizers", "cpg_sites", "vocab.txt")
     with open(vocab_file) as f:
-        vocab = json.load(f)  # {token_str: token_id}
-    id2token = {v: k for k, v in vocab.items()}
+        id2token = {i: line.strip() for i, line in enumerate(f)}
 
     cpg_ids = []
     for i in range(emb_weight.shape[0]):
