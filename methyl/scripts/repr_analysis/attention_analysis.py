@@ -84,51 +84,62 @@ def parse_args():
 
 class AttentionCapturer:
     """
-    Hook into MethylLlama transformer layers to capture attention weights.
+    Monkey-patch MethylLlamaAttention to capture attention weights.
 
-    MethylLlama uses a custom self-attention module. We patch its forward
-    method to compute and store the attention weight matrix explicitly.
+    MethylLlama uses F.scaled_dot_product_attention which does not expose
+    the attention weight matrix. We patch the attn module's forward to
+    recompute Q @ K^T / sqrt(d) → softmax explicitly and store the result,
+    then delegate to the original forward for the actual V-projection output.
+
+    Layer attribute is `attn` (not `self_attn`) — MethylLlamaLayer uses
+    self.attn = MethylLlamaAttention(...).
     """
     def __init__(self, encoder, layer_idx: int = -1):
-        self.attn_weights = []  # list of [num_heads, L, L] per batch
-        self._hook = None
+        self.attn_weights = []  # list of [B, H, L, L] tensors
 
         layers = encoder.encoder.layers
         target_layer = layers[layer_idx]
+        attn_module   = target_layer.attn      # MethylLlamaAttention
 
-        # Patch the attention forward to return weights
-        orig_forward = target_layer.forward
+        orig_forward  = attn_module.forward
+        capturer      = self
 
-        def patched_forward(hidden_states, attention_mask=None, **kwargs):
-            # Run original forward but intercept attention
-            # We need to compute attention weights manually since
-            # F.scaled_dot_product_attention doesn't expose them by default
-            out = orig_forward(hidden_states, attention_mask=attention_mask, **kwargs)
-            return out
+        def patched_forward(hidden_states, attention_mask=None):
+            B, L, D = hidden_states.shape
 
-        # Try the hook approach: hook on self_attn submodule
-        self._hook = target_layer.self_attn.register_forward_hook(self._capture_hook)
-        log.info(f"Attention hook registered on layer {layer_idx}")
+            # Recompute Q, K to obtain attention weights
+            q = attn_module.q_proj(hidden_states)
+            k = attn_module.k_proj(hidden_states)
 
-    def _capture_hook(self, module, input, output):
-        """
-        Standard forward hook. Output from self_attn is typically
-        (context, attn_weights) or just context.
-        Handles both cases.
-        """
-        if isinstance(output, tuple) and len(output) >= 2:
-            attn = output[1]  # [B, H, L, L]
-            if attn is not None:
-                self.attn_weights.append(attn.detach().cpu())
-        # If only context is returned, we can't get weights from hook alone
-        # In that case, fall back to gradient-based or skip
+            H  = attn_module.num_heads
+            Dh = attn_module.head_dim
+            q  = q.view(B, L, H, Dh).transpose(1, 2)   # [B, H, L, Dh]
+            k  = k.view(B, L, H, Dh).transpose(1, 2)
+
+            cos, sin = attn_module.rotary_emb(L)
+            from bmfm_methylation.llama.model import apply_rotary_pos_emb
+            q, k = apply_rotary_pos_emb(q, k, cos, sin)
+
+            scores = torch.matmul(q, k.transpose(-2, -1)) * (Dh ** -0.5)  # [B, H, L, L]
+            if attention_mask is not None:
+                mask = attention_mask.bool().unsqueeze(1).unsqueeze(2)     # [B, 1, 1, L]
+                scores = scores.masked_fill(~mask, float("-inf"))
+
+            weights = torch.softmax(scores, dim=-1)     # [B, H, L, L]
+            capturer.attn_weights.append(weights.detach().cpu())
+
+            return orig_forward(hidden_states, attention_mask=attention_mask)
+
+        attn_module.forward    = patched_forward
+        self._attn_module      = attn_module
+        self._orig_forward     = orig_forward
+        log.info(f"Attention capturer patched on layer {layer_idx} (attr: attn)")
 
     def clear(self):
         self.attn_weights = []
 
     def remove(self):
-        if self._hook:
-            self._hook.remove()
+        self._attn_module.forward = self._orig_forward
 
 
 def load_encoder(checkpoint_path: str, ckpt_type: str):
