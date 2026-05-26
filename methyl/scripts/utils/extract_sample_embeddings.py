@@ -117,6 +117,12 @@ def parse_args():
                    help="obs column containing continuous age values")
     p.add_argument("--split_col",   default="split",
                    help="obs column with train/valid/test labels")
+    # External metadata (for pretrain h5ad that has no tissue/age/sex in obs)
+    p.add_argument("--metadata",    default=None,
+                   help="External metadata CSV/CSV.gz to join by obs_names. "
+                        "Used when the h5ad only has sample IDs (e.g. pretrain 169k).")
+    p.add_argument("--metadata_id_col", default="GSM_ID",
+                   help="Column in --metadata that matches the h5ad obs_names (default: GSM_ID)")
     return p.parse_args()
 
 
@@ -242,6 +248,43 @@ def extract_embeddings(
 # AnnData construction
 # ─────────────────────────────────────────────────────────────────────────────
 
+def load_external_metadata(
+    metadata_path: str,
+    id_col: str,
+    obs_names: pd.Index,
+) -> pd.DataFrame:
+    """
+    Load an external metadata CSV/CSV.gz and left-join it onto the h5ad obs_names.
+
+    Returns a DataFrame indexed like obs_names (same order, same length).
+    Samples not found in metadata get NaN for all metadata columns.
+    """
+    logger.info(f"  Loading external metadata: {metadata_path}")
+    meta = pd.read_csv(metadata_path)
+    logger.info(f"  Metadata shape: {meta.shape}  id_col='{id_col}'")
+
+    if id_col not in meta.columns:
+        raise ValueError(
+            f"--metadata_id_col '{id_col}' not found in metadata columns: {list(meta.columns)}"
+        )
+
+    meta = meta.drop_duplicates(subset=id_col).set_index(id_col)
+    obs_df = pd.DataFrame(index=obs_names)
+    obs_df = obs_df.join(meta, how="left")
+
+    n_matched = obs_df.notna().any(axis=1).sum()
+    logger.info(
+        f"  Matched {n_matched:,} / {len(obs_names):,} samples "
+        f"({100*n_matched/len(obs_names):.1f}%) to metadata"
+    )
+    if n_matched == 0:
+        logger.warning(
+            "  !! No samples matched. Check that obs_names are GSM IDs "
+            "and that --metadata_id_col is correct."
+        )
+    return obs_df
+
+
 def make_adata(
     cls_embs:  np.ndarray,
     mean_embs: np.ndarray,
@@ -249,34 +292,45 @@ def make_adata(
     label_cols: list,
     age_col: str,
     split_col: str,
+    external_meta: pd.DataFrame | None = None,
 ) -> sc.AnnData:
     """
     Build output AnnData.
     X = CLS embeddings [N, D].
     obsm["X_cls"]  = CLS (same as X).
     obsm["X_mean"] = mean-pool.
-    obs = all metadata from the source h5ad.
+    obs = metadata from h5ad obs OR external_meta (if provided).
     """
     adata = sc.AnnData(X=cls_embs.copy().astype(np.float32))
     adata.obs_names = ref_adata.obs_names.copy()
     adata.obsm["X_cls"]  = cls_embs.copy().astype(np.float32)
     adata.obsm["X_mean"] = mean_embs.copy().astype(np.float32)
 
-    # Copy metadata columns that exist in the source h5ad
-    want = list(dict.fromkeys([age_col, split_col] + label_cols))  # keep order, deduplicate
-    for col in want:
-        if col in ref_adata.obs.columns:
-            adata.obs[col] = ref_adata.obs[col].values
+    want = list(dict.fromkeys([age_col, split_col] + label_cols))
+
+    if external_meta is not None:
+        # External metadata takes priority; fall back to h5ad obs for any missing cols
+        for col in want:
+            if col in external_meta.columns:
+                adata.obs[col] = external_meta[col].values
+            elif col in ref_adata.obs.columns:
+                adata.obs[col] = ref_adata.obs[col].values
+    else:
+        for col in want:
+            if col in ref_adata.obs.columns:
+                adata.obs[col] = ref_adata.obs[col].values
 
     # Ensure age is numeric
     if age_col in adata.obs.columns:
-        adata.obs[age_col] = adata.obs[age_col].astype(float)
+        adata.obs[age_col] = pd.to_numeric(adata.obs[age_col], errors="coerce")
 
-    # Add age-decade as a categorical column for UMAP coloring
+    # Add age-decade categorical for UMAP coloring
     if age_col in adata.obs.columns:
         ages = adata.obs[age_col].astype(float)
-        adata.obs["age_decade"] = (
-            (ages // 10 * 10).astype(int).astype(str) + "s"
+        valid = ages.notna()
+        adata.obs["age_decade"] = "unknown"
+        adata.obs.loc[valid, "age_decade"] = (
+            (ages[valid] // 10 * 10).astype(int).astype(str) + "s"
         )
 
     logger.info(
@@ -739,7 +793,18 @@ def main():
     logger.info("\n[4/9] Loading h5ad metadata & building AnnData ...")
     ref_adata = sc.read_h5ad(args.data)
     logger.info(f"  Available obs: {list(ref_adata.obs.columns)}")
-    adata = make_adata(cls_embs, mean_embs, ref_adata, args.label_cols, args.age_col, args.split_col)
+
+    external_meta = None
+    if args.metadata:
+        external_meta = load_external_metadata(
+            args.metadata, args.metadata_id_col, ref_adata.obs_names
+        )
+
+    adata = make_adata(
+        cls_embs, mean_embs, ref_adata,
+        args.label_cols, args.age_col, args.split_col,
+        external_meta=external_meta,
+    )
     if rand_cls is not None:
         adata.obsm["X_random_cls"] = rand_cls.astype(np.float32)
 
@@ -783,13 +848,22 @@ def main():
     all_age_results = []
     if args.age_col in adata.obs.columns:
         ages  = adata.obs[args.age_col].values.astype(float)
-        split = (
-            adata.obs[args.split_col].values
-            if args.split_col in adata.obs.columns
-            else np.full(len(ages), "train")
-        )
-        train_mask = np.isin(split, ["train", "valid"])
-        test_mask  = split == "test"
+        if args.split_col in adata.obs.columns:
+            split = adata.obs[args.split_col].values
+            train_mask = np.isin(split, ["train", "valid"])
+            test_mask  = split == "test"
+        else:
+            # No split column (pretrain data): random 80/20 on samples with valid age
+            rng = np.random.default_rng(42)
+            valid_idx = np.where(~np.isnan(ages))[0]
+            n_test = max(1, int(0.2 * len(valid_idx)))
+            test_idx = set(rng.choice(valid_idx, size=n_test, replace=False).tolist())
+            train_mask = np.array([i not in test_idx for i in range(len(ages))])
+            test_mask  = np.array([i in test_idx     for i in range(len(ages))])
+            logger.info(
+                f"  No split_col found — using random 80/20 split "
+                f"(train={train_mask.sum()}, test={test_mask.sum()})"
+            )
 
         probe_targets = [
             (cls_embs,  "pretrained_cls"),
