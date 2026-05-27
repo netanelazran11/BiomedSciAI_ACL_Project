@@ -57,9 +57,9 @@ _ENHANCER_ALIASES = [
     "Regulatory_Feature_Group",
     "DNase_Hypersensitivity_NAME",
 ]
-_CHR_ALIASES = ["CHR", "chr", "Chromosome"]
-_POS_ALIASES = ["MAPINFO", "Start", "Position", "MAPINFO_hg38"]
-_GENE_ALIASES = ["UCSC_RefGene_Name", "Gene_Name", "RefGene_Name"]
+_CHR_ALIASES = ["CHR", "chr", "Chromosome", "CpG_chrm"]
+_POS_ALIASES = ["MAPINFO", "Start", "Position", "MAPINFO_hg38", "CpG_beg"]
+_GENE_ALIASES = ["UCSC_RefGene_Name", "Gene_Name", "RefGene_Name", "gene"]
 
 
 def _find_col(df: pd.DataFrame, aliases: list[str]) -> str | None:
@@ -82,40 +82,44 @@ def _skip_illumina_header(path: str) -> int:
 
 
 def load_manifest(path: str) -> pd.DataFrame:
-    """Load a single Illumina manifest CSV → DataFrame indexed by CpG Name."""
+    """Load a single Illumina manifest (CSV or TSV) → DataFrame indexed by CpG Name."""
     path = str(path)
     log.info(f"Loading manifest: {path}")
 
-    # Illumina manifests sometimes have a metadata block at the top
-    # Try to detect the real header row
-    skip = 0
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for i, line in enumerate(fh):
-            stripped = line.strip()
-            # The real header starts with "IlmnID" or "Name"
-            if stripped.startswith("IlmnID") or stripped.startswith("Name,"):
-                skip = i
-                break
-            # Some manifests wrap meta rows in [Section] headers
-            if stripped.startswith("["):
-                skip = i + 1
+    # Auto-detect separator from extension
+    sep = "\t" if path.endswith(".tsv") or path.endswith(".txt") else ","
 
-    log.info(f"  Skipping {skip} header lines")
+    # For CSV files only: skip Illumina metadata header block
+    skip = 0
+    if sep == ",":
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                stripped = line.strip()
+                if stripped.startswith("IlmnID") or stripped.startswith("Name,"):
+                    skip = i
+                    break
+                if stripped.startswith("["):
+                    skip = i + 1
+
+    log.info(f"  Separator: {'TAB' if sep == chr(9) else 'COMMA'}  skip={skip} lines")
 
     df = pd.read_csv(
         path,
+        sep=sep,
         skiprows=skip,
         low_memory=False,
         encoding="utf-8",
         encoding_errors="replace",
     )
 
-    # Drop trailing Illumina footer rows (lines that start with [Controls] etc.)
-    # These appear when the manifest embeds control probe data after the main table
-    id_col = "Name" if "Name" in df.columns else ("IlmnID" if "IlmnID" in df.columns else None)
+    # Find the CpG ID column
+    id_col = next(
+        (c for c in ["Name", "IlmnID", "probeID"] if c in df.columns),
+        None,
+    )
     if id_col is None:
         raise ValueError(
-            f"Cannot find 'Name' or 'IlmnID' column in {path}.\n"
+            f"Cannot find CpG ID column ('Name', 'IlmnID', or 'probeID') in {path}.\n"
             f"Columns found: {list(df.columns[:20])}"
         )
 
