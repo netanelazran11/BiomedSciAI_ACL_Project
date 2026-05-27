@@ -45,7 +45,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 # Paths — update FINETUNE_CKPT to your best fine-tuned checkpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
-FINETUNE_CKPT="${FINETUNE_CKPT:-$(ls -t ${REPO}/outputs/finetune-llama-small/*/checkpoints/epoch=*.ckpt 2>/dev/null | head -1)}"
+FINETUNE_CKPT="${FINETUNE_CKPT:-${REPO}/outputs/finetune-llama-small/llama-small-ft-v4b-huber-ep300-wu500-scratch-44770333/checkpoints/epoch=121-val_medae=3.6497.ckpt}"
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 OUTDIR="${REPO}/outputs/repr_analysis/robustness_${SLURM_JOB_ID}"
