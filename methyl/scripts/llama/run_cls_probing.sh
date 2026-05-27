@@ -23,14 +23,14 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_pretrain_type3_h5ad/methylgpt_pretrain_type3.h5ad"
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 OUTDIR="${REPO}/outputs/repr_analysis/cls_probing_${SLURM_JOB_ID}"
 
-# Pre-computed embeddings from previous job (skips re-extraction)
-CLS_NPY="${CLS_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_cls.npy}"
-MEAN_NPY="${MEAN_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_mean.npy}"
-RAND_NPY="${RAND_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_random_cls.npy}"
+# Pre-computed embeddings — 169k pretrain run
+CLS_NPY="${CLS_NPY:-${REPO}/outputs/repr_analysis/pretrain_cls_169k_44892802/embeddings_cls.npy}"
+MEAN_NPY="${MEAN_NPY:-${REPO}/outputs/repr_analysis/pretrain_cls_169k_44892802/embeddings_mean.npy}"
+RAND_NPY="${RAND_NPY:-}"  # no random embeddings for 169k run
 
 # External metadata for tissue/sex/disease labels
 METADATA="${REPO}/data/pretrain_metadata.csv.gz"
@@ -71,7 +71,6 @@ python scripts/repr_analysis/cls_probing_analysis.py \
     --tokenizer     "${TOKENIZER}"     \
     --outdir        "${OUTDIR}"        \
     --batch_size    32                 \
-    --compare_random                   \
     --n_pca         50                 \
     --n_neighbors   15                 \
     --label_cols    tissue sex disease dataset \
