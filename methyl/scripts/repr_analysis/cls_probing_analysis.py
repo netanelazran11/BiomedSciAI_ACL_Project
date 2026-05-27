@@ -86,6 +86,10 @@ def parse_args():
     p.add_argument("--age_col",     default="age")
     p.add_argument("--split_col",   default="split")
     p.add_argument("--min_tissue_samples", type=int, default=50)
+    p.add_argument("--metadata",          default=None,
+                   help="External metadata CSV/CSV.gz joined on obs_names (e.g. pretrain_metadata.csv.gz)")
+    p.add_argument("--metadata_id_col",   default="GSM_ID",
+                   help="Column in --metadata that matches h5ad obs_names")
     return p.parse_args()
 
 
@@ -161,16 +165,29 @@ def extract_embeddings(encoder, data_path, tokenizer_path, batch_size, device):
 # Metadata helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_metadata(data_path, label_cols, age_col, split_col) -> pd.DataFrame:
+def load_metadata(data_path, label_cols, age_col, split_col,
+                  metadata_path=None, metadata_id_col="GSM_ID") -> pd.DataFrame:
     adata = sc.read_h5ad(data_path)
     want  = list({age_col, split_col} | set(label_cols))
     meta  = pd.DataFrame(index=adata.obs_names)
     for col in want:
         if col in adata.obs.columns:
             meta[col] = adata.obs[col].values
+
+    # Join external metadata (e.g. tissue/sex/disease from pretrain_metadata.csv.gz)
+    if metadata_path:
+        log.info(f"  Joining external metadata: {metadata_path}")
+        ext = pd.read_csv(metadata_path)
+        if metadata_id_col not in ext.columns:
+            raise ValueError(f"--metadata_id_col '{metadata_id_col}' not in {list(ext.columns)}")
+        ext = ext.drop_duplicates(subset=metadata_id_col).set_index(metadata_id_col)
+        meta = meta.join(ext, how="left")
+        n_matched = meta.notna().any(axis=1).sum()
+        log.info(f"  Matched {n_matched:,} / {len(meta):,} samples to external metadata")
+
     if age_col in meta.columns:
         meta[age_col] = pd.to_numeric(meta[age_col], errors="coerce")
-    log.info(f"  Metadata: {list(meta.columns)}  n={len(meta)}")
+    log.info(f"  Metadata columns: {list(meta.columns)}  n={len(meta)}")
     return meta
 
 
@@ -502,7 +519,8 @@ def main():
 
     # 3. Metadata
     log.info("\n[3/7] Loading metadata ...")
-    meta = load_metadata(args.data, args.label_cols, args.age_col, args.split_col)
+    meta = load_metadata(args.data, args.label_cols, args.age_col, args.split_col,
+                         metadata_path=args.metadata, metadata_id_col=args.metadata_id_col)
     meta.to_csv(outdir / "metadata.csv")
     train_mask, test_mask = get_split_masks(meta, args.split_col)
     log.info(f"  Train={train_mask.sum()}  Test={test_mask.sum()}")

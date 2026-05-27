@@ -27,13 +27,13 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 OUTDIR="${REPO}/outputs/repr_analysis/cls_probing_${SLURM_JOB_ID}"
 
-# If you already have saved embeddings, point to them to skip extraction:
-# CLS_NPY="${REPO}/outputs/repr_analysis/pretrain_cls_169k_XXXXX/embeddings_cls.npy"
-# MEAN_NPY="${REPO}/outputs/repr_analysis/pretrain_cls_169k_XXXXX/embeddings_mean.npy"
-# RAND_NPY="${REPO}/outputs/repr_analysis/pretrain_cls_169k_XXXXX/embeddings_random_cls.npy"
-CLS_NPY="${CLS_NPY:-}"
-MEAN_NPY="${MEAN_NPY:-}"
-RAND_NPY="${RAND_NPY:-}"
+# Pre-computed embeddings from previous job (skips re-extraction)
+CLS_NPY="${CLS_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_cls.npy}"
+MEAN_NPY="${MEAN_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_mean.npy}"
+RAND_NPY="${RAND_NPY:-${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_random_cls.npy}"
+
+# External metadata for tissue/sex/disease labels
+METADATA="${REPO}/data/pretrain_metadata.csv.gz"
 
 echo "============================================================"
 echo " MethylLlama — CLS Probing Analysis"
@@ -56,6 +56,14 @@ if [ -n "${CLS_NPY}" ] && [ -f "${CLS_NPY}" ] && [ -n "${MEAN_NPY}" ] && [ -f "$
     fi
 fi
 
+METADATA_ARG=""
+if [ -f "${METADATA}" ]; then
+    METADATA_ARG="--metadata ${METADATA} --metadata_id_col GSM_ID"
+    echo "  Using metadata: ${METADATA}"
+else
+    echo "  WARNING: metadata not found at ${METADATA} — tissue/sex/disease will be skipped"
+fi
+
 python scripts/repr_analysis/cls_probing_analysis.py \
     --checkpoint    "${PRETRAIN_CKPT}" \
     --ckpt_type     pretrain           \
@@ -70,7 +78,8 @@ python scripts/repr_analysis/cls_probing_analysis.py \
     --age_col       age                \
     --split_col     split              \
     --min_tissue_samples 50            \
-    ${PRECOMP_ARGS}
+    ${PRECOMP_ARGS}                    \
+    ${METADATA_ARG}
 
 echo ""
 echo "============================================================"
