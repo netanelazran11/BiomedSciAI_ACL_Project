@@ -73,13 +73,6 @@ if [ ! -f "${DATA}" ]; then
     exit 1
 fi
 
-METADATA="${REPO}/data/pretrain_metadata.csv.gz"
-METADATA_ARG=""
-if [ -f "${METADATA}" ]; then
-    METADATA_ARG="--metadata ${METADATA} --metadata_id_col GSM_ID"
-    echo " Metadata      : ${METADATA}"
-fi
-
 echo ""
 python scripts/repr_analysis/robustness.py \
     --checkpoint    "${FINETUNE_CKPT}"  \
@@ -90,8 +83,7 @@ python scripts/repr_analysis/robustness.py \
     --device        cuda                \
     --mask_levels   0 10 20 30 40 50 60 70 80 90 \
     --age_col       age                 \
-    --split_col     split               \
-    ${METADATA_ARG}
+    --split_col     split
 
 echo ""
 echo "============================================================"

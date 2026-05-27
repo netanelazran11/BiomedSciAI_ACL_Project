@@ -59,9 +59,6 @@ def parse_args():
     p.add_argument("--age_col",    default="age")
     p.add_argument("--split_col",  default="split")
     p.add_argument("--seed",       type=int, default=42)
-    p.add_argument("--metadata",          default=None,
-                   help="External metadata CSV/CSV.gz for per-tissue analysis")
-    p.add_argument("--metadata_id_col",   default="GSM_ID")
     return p.parse_args()
 
 
@@ -130,14 +127,7 @@ def predict_with_masking(model, data_path, tokenizer_path, batch_size, device,
 
     y_true = np.concatenate(y_true_list)
     y_pred = np.concatenate(y_pred_list)
-    # Get test split sample IDs directly from h5ad
-    import anndata
-    adata = anndata.read_h5ad(data_path, backed="r")
-    if "split" in adata.obs.columns:
-        sample_ids = list(adata.obs_names[adata.obs["split"] == "test"])
-    else:
-        sample_ids = list(adata.obs_names)
-    return y_true, y_pred, sample_ids
+    return y_true, y_pred
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,12 +288,9 @@ def main():
     model = load_finetune_model(args.checkpoint)
 
     results["MethylLlama"] = {}
-    sample_ids_0pct = None
-    preds_0pct      = None
-    y_true_0pct     = None
     for pct in args.mask_levels:
         log.info(f"  Masking {pct}% ...")
-        y_true, y_pred, sample_ids = predict_with_masking(
+        y_true, y_pred = predict_with_masking(
             model, args.data, args.tokenizer,
             args.batch_size, args.device,
             mask_fraction=pct / 100.0,
@@ -312,34 +299,6 @@ def main():
         med = medae(y_true, y_pred)
         results["MethylLlama"][pct] = med
         log.info(f"    MedAE = {med:.2f} yr")
-        if pct == 0:
-            sample_ids_0pct = sample_ids
-            preds_0pct      = y_pred
-            y_true_0pct     = y_true
-
-    # Per-tissue robustness (MethylLlama only, at each masking level)
-    tissue_results = {}
-    if args.metadata and sample_ids_0pct:
-        log.info("\n  Loading metadata for per-tissue analysis ...")
-        meta_df = pd.read_csv(args.metadata)
-        id_col  = args.metadata_id_col
-        if id_col in meta_df.columns and "tissue" in meta_df.columns:
-            meta_df = meta_df.drop_duplicates(subset=id_col).set_index(id_col)
-            sid_series = pd.Series(sample_ids_0pct)
-            tissues = sid_series.map(meta_df["tissue"]).values
-            for tissue in sorted(set(str(t) for t in tissues if str(t) != "nan")):
-                t_mask = np.array([str(t) == tissue for t in tissues])
-                if t_mask.sum() < 10:
-                    continue
-                tissue_results[tissue] = {}
-                for pct in args.mask_levels:
-                    _, y_pred_t, _ = predict_with_masking(
-                        model, args.data, args.tokenizer,
-                        args.batch_size, args.device,
-                        mask_fraction=pct / 100.0, seed=args.seed,
-                    )
-                    tissue_results[tissue][pct] = medae(y_true_0pct[t_mask], y_pred_t[t_mask])
-                log.info(f"    {tissue}: MedAE@0%={tissue_results[tissue][0]:.1f}yr")
 
     # ── Baseline models ───────────────────────────────────────────────────────
     log.info("\n[2] Training baseline models (ElasticNet, Ridge) ...")
@@ -379,41 +338,9 @@ def main():
     log.info("\nGenerating plots ...")
     plot_robustness(results, outdir)
 
-    # Per-tissue robustness plot
-    if tissue_results:
-        fig_dir = outdir / "figures"
-        fig_dir.mkdir(exist_ok=True)
-        mask_levels = sorted(args.mask_levels)
-        palette = plt.cm.get_cmap("tab20", max(len(tissue_results), 1))
-        fig, ax = plt.subplots(figsize=(9, 6))
-        for i, (tissue, data) in enumerate(sorted(tissue_results.items())):
-            x = mask_levels
-            y = [data[m] for m in mask_levels]
-            ax.plot(x, y, label=tissue, color=palette(i), marker="o",
-                    markersize=4, linewidth=1.8)
-        ax.set_xlabel("Input Data Missingness (%)", fontsize=11)
-        ax.set_ylabel("Median Absolute Error (years)", fontsize=11)
-        ax.set_title("MethylLlama Robustness per Tissue Type", fontsize=12, fontweight="bold")
-        ax.set_xticks(mask_levels)
-        ax.legend(fontsize=7, ncol=2, framealpha=0.5)
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        fname = fig_dir / "robustness_per_tissue.png"
-        plt.savefig(fname, dpi=180, bbox_inches="tight")
-        plt.close()
-        log.info(f"  Saved {fname.name}")
-
-        rows_t = []
-        for tissue, data in tissue_results.items():
-            for pct, med in data.items():
-                rows_t.append({"tissue": tissue, "mask_pct": pct, "MedAE_yr": med})
-        pd.DataFrame(rows_t).to_csv(outdir / "robustness_per_tissue.csv", index=False)
-
     log.info(f"\nDone. Outputs → {outdir}/")
     log.info(f"  robustness_results.csv")
     log.info(f"  figures/robustness_missing_data.png")
-    if tissue_results:
-        log.info(f"  figures/robustness_per_tissue.png")
 
 
 if __name__ == "__main__":
