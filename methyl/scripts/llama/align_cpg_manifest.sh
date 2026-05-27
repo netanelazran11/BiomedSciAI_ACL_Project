@@ -1,6 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=align-cpg
-#SBATCH --partition=catfish
+#SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
