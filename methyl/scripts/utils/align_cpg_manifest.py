@@ -107,7 +107,7 @@ def load_manifest(path: str) -> pd.DataFrame:
         skiprows=skip,
         low_memory=False,
         encoding="utf-8",
-        errors="replace",
+        encoding_errors="replace",
     )
 
     # Drop trailing Illumina footer rows (lines that start with [Controls] etc.)
