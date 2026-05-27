@@ -130,11 +130,14 @@ def predict_with_masking(model, data_path, tokenizer_path, batch_size, device,
 
     y_true = np.concatenate(y_true_list)
     y_pred = np.concatenate(y_pred_list)
-    # Return sample IDs from the dataset for metadata joining
-    from bmfm_methylation.shared.data_module import MethylationDataset
-    sample_ids = MethylationDataset(h5ad_path=data_path, split="test",
-                                    normalize_age=False).obs_names
-    return y_true, y_pred, list(sample_ids)
+    # Get test split sample IDs directly from h5ad
+    import anndata
+    adata = anndata.read_h5ad(data_path, backed="r")
+    if "split" in adata.obs.columns:
+        sample_ids = list(adata.obs_names[adata.obs["split"] == "test"])
+    else:
+        sample_ids = list(adata.obs_names)
+    return y_true, y_pred, sample_ids
 
 
 # ─────────────────────────────────────────────────────────────────────────────
