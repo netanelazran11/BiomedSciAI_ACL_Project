@@ -315,7 +315,7 @@ def run_classification_probing(embs, meta, label_col, train_mask, test_mask, tag
 
     # Logistic probe
     clf = LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced",
-                              solver="lbfgs", multi_class="auto", random_state=42)
+                              solver="lbfgs", random_state=42)
     clf.fit(X_tr, y_tr)
     y_pred = clf.predict(X_te)
     y_prob = clf.predict_proba(X_te)
