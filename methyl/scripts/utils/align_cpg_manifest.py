@@ -159,17 +159,16 @@ def load_tokenizer_cpgs(tokenizer_path: str) -> list[str]:
     """Extract CpG site IDs from the tokenizer vocabulary.
     Filters to IDs that look like Illumina CpG names (cg/ch/rs + digits).
     """
-    from transformers import PreTrainedTokenizerFast
+    import os
 
-    log.info(f"Loading tokenizer: {tokenizer_path}")
-    tok = PreTrainedTokenizerFast.from_pretrained(tokenizer_path)
-    vocab = tok.get_vocab()  # {token_str: id}
+    log.info(f"Loading tokenizer vocab: {tokenizer_path}")
+    vocab_file = os.path.join(tokenizer_path, "tokenizers", "cpg_sites", "vocab.txt")
 
-    cpg_ids = sorted(
-        [t for t in vocab if str(t).startswith(("cg", "ch", "rs"))],
-        key=lambda x: vocab[x],
-    )
-    log.info(f"Tokenizer vocab size: {len(vocab):,}  →  CpG tokens: {len(cpg_ids):,}")
+    with open(vocab_file) as f:
+        tokens = [line.strip() for line in f]
+
+    cpg_ids = [t for t in tokens if t.startswith(("cg", "ch", "rs"))]
+    log.info(f"Tokenizer vocab size: {len(tokens):,}  →  CpG tokens: {len(cpg_ids):,}")
     return cpg_ids
 
 
