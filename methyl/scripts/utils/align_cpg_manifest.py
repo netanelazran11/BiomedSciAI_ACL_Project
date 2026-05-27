@@ -103,25 +103,35 @@ def load_manifest(path: str) -> pd.DataFrame:
 
     log.info(f"  Separator: {'TAB' if sep == chr(9) else 'COMMA'}  skip={skip} lines")
 
+    # Peek at the header to determine which columns to load (avoids OOM from probe sequences)
+    header_df = pd.read_csv(path, sep=sep, skiprows=skip, nrows=0, encoding="utf-8")
+    all_cols = list(header_df.columns)
+
+    id_col = next((c for c in ["Name", "IlmnID", "probeID"] if c in all_cols), None)
+    if id_col is None:
+        raise ValueError(
+            f"Cannot find CpG ID column ('Name', 'IlmnID', or 'probeID') in {path}.\n"
+            f"Columns found: {all_cols[:20]}"
+        )
+
+    # Only load columns we will actually use
+    wanted = (
+        [id_col]
+        + [c for aliases in [_ISLAND_ALIASES, _ENHANCER_ALIASES, _CHR_ALIASES, _POS_ALIASES, _GENE_ALIASES]
+           for c in aliases if c in all_cols]
+    )
+    wanted = list(dict.fromkeys(wanted))  # deduplicate, preserve order
+    log.info(f"  Loading {len(wanted)} of {len(all_cols)} columns: {wanted}")
+
     df = pd.read_csv(
         path,
         sep=sep,
         skiprows=skip,
-        low_memory=False,
+        usecols=wanted,
+        low_memory=True,
         encoding="utf-8",
         encoding_errors="replace",
     )
-
-    # Find the CpG ID column
-    id_col = next(
-        (c for c in ["Name", "IlmnID", "probeID"] if c in df.columns),
-        None,
-    )
-    if id_col is None:
-        raise ValueError(
-            f"Cannot find CpG ID column ('Name', 'IlmnID', or 'probeID') in {path}.\n"
-            f"Columns found: {list(df.columns[:20])}"
-        )
 
     # Keep only rows whose ID looks like a CpG (starts with cg/ch/rs)
     mask = df[id_col].astype(str).str.match(r"^(cg|ch|rs)\d+", na=False)
