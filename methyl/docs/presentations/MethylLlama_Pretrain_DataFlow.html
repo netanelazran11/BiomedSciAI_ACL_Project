@@ -1752,75 +1752,152 @@
   <div class="slide-label">12 / 13</div>
   <div class="slide-title">Architecture Comparison — MethylLlama vs MethylGPT</div>
 
-  <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:18px;border-radius:8px;overflow:hidden;">
+  <!-- Table 1: Model Architecture -->
+  <div style="font-size:12px;font-weight:700;color:#3a4a70;margin-top:16px;margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase;">① Model Architecture</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12.5px;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(80,100,160,0.10);">
     <thead>
-      <tr style="background:#1a2535;color:#e0e8f4;">
-        <th style="padding:11px 14px;text-align:left;font-weight:700;width:22%;">Feature</th>
-        <th style="padding:11px 14px;text-align:center;color:#4a9eff;font-weight:700;">MethylLlama<br><span style="font-size:11px;font-weight:400;color:#6a9acc;">(This work)</span></th>
-        <th style="padding:11px 14px;text-align:center;color:#80b8ff;font-weight:700;">MethylGPT Base<br><span style="font-size:11px;font-weight:400;color:#6090b8;">Ying et al., 2024</span></th>
-        <th style="padding:11px 14px;text-align:center;color:#b090ff;font-weight:700;">MethylGPT Medium<br><span style="font-size:11px;font-weight:400;color:#9070cc;">Ying et al., 2024</span></th>
+      <tr style="background:#eef1f8;color:#3a4a70;border-bottom:2px solid #ccd4e8;">
+        <th style="padding:9px 14px;text-align:left;font-weight:700;width:20%;color:#3a4a70;">Feature</th>
+        <th style="padding:9px 14px;text-align:center;color:#2a5ab0;font-weight:700;">MethylLlama<br><span style="font-size:11px;font-weight:400;color:#5070a0;">(This work)</span></th>
+        <th style="padding:9px 14px;text-align:center;color:#4a6090;font-weight:700;">MethylGPT Base<br><span style="font-size:11px;font-weight:400;color:#6070a0;">Ying et al., 2024</span></th>
+        <th style="padding:9px 14px;text-align:center;color:#6040a0;font-weight:700;">MethylGPT Medium<br><span style="font-size:11px;font-weight:400;color:#8060b0;">Ying et al., 2024</span></th>
       </tr>
     </thead>
     <tbody>
-      <tr style="background:#0f1a28;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Architecture</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">Llama Transformer</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">scGPT Transformer</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">scGPT Transformer</td>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Architecture</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">Llama Transformer</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">scGPT Transformer</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">scGPT Transformer</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Layers</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">6</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">6</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">6</td>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Layers</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">4</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">6</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">6</td>
       </tr>
-      <tr style="background:#0f1a28;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Attention Heads</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">8</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">4</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">4</td>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Attention Heads</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">4</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">4</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">4</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Hidden Dim</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">512</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">64</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">256</td>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Hidden Dim</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">256</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">64</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">256</td>
       </tr>
-      <tr style="background:#0f1a28;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Parameters</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">~23M</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">~2M</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">~15M</td>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">FFN Type</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">SwiGLU</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">ReLU</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">ReLU</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">CpG Sites</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">19,608</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">49,156</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">49,156</td>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Normalization</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">RMSNorm (Pre-LN)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">LayerNorm (Post-LN)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">LayerNorm (Post-LN)</td>
       </tr>
-      <tr style="background:#0f1a28;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Pretraining</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">WCED<br><span style="font-size:11px;color:#6a9acc;">InfoNCE + reconstruction</span></td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">MLM + reconstruction</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">MLM + reconstruction</td>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Position Encoding</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">RoPE (relative)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">Absolute learned</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">Absolute learned</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Pretrain Samples</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">154,063</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">226,555</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">226,555</td>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Total Parameters</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">~7.7M</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">~2M</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">~15M</td>
       </tr>
-      <tr style="background:#0f1a28;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Age Prediction Head</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">Mean pooling<br><span style="font-size:11px;color:#6a9acc;">→ MLP (512→256→128→1)</span></td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">CLS token<br><span style="font-size:11px;color:#8090a8;">→ linear layer</span></td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">CLS token<br><span style="font-size:11px;color:#8090a8;">→ linear layer</span></td>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Non-embed Params</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">~2.1M</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">—</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">~9.5M</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:9px 14px;color:#8090a8;font-weight:600;">Fine-tune Loss</td>
-        <td style="padding:9px 14px;text-align:center;color:#4a9eff;font-weight:700;">Huber (δ=5yr/σ)</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">MSE + MAE</td>
-        <td style="padding:9px 14px;text-align:center;color:#d0e0f0;">MSE + MAE</td>
+    </tbody>
+  </table>
+
+  <!-- Table 2: Training & Fine-tuning -->
+  <div style="font-size:12px;font-weight:700;color:#3a4a70;margin-top:14px;margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase;">② Training &amp; Fine-tuning</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12.5px;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(80,100,160,0.10);">
+    <thead>
+      <tr style="background:#eef1f8;color:#3a4a70;border-bottom:2px solid #ccd4e8;">
+        <th style="padding:9px 14px;text-align:left;font-weight:700;width:20%;color:#3a4a70;">Feature</th>
+        <th style="padding:9px 14px;text-align:center;color:#2a5ab0;font-weight:700;">MethylLlama<br><span style="font-size:11px;font-weight:400;color:#5070a0;">(This work)</span></th>
+        <th style="padding:9px 14px;text-align:center;color:#4a6090;font-weight:700;">MethylGPT Base<br><span style="font-size:11px;font-weight:400;color:#6070a0;">Ying et al., 2024</span></th>
+        <th style="padding:9px 14px;text-align:center;color:#6040a0;font-weight:700;">MethylGPT Medium<br><span style="font-size:11px;font-weight:400;color:#8060b0;">Ying et al., 2024</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Pretraining</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">WCED<br><span style="font-size:11px;color:#5070a0;">recon + age + InfoNCE</span></td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">MLM + reconstruction</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">MLM + reconstruction</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Age during Pretrain</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">Yes (multi-task)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">No</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">No</td>
+      </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Pretrain Samples</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">154,063</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">154,063</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">154,063</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">CpG Sites (fine-tune)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">19,608</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">19,608</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">19,608</td>
+      </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Pooling</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">Mean (all tokens)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">Full seq → ResNet1D</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">Full seq → ResNet1D</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Age Head</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">MLP<br><span style="font-size:11px;color:#5070a0;">256→256→128→1</span></td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">ResNet1D (6 blocks)<br><span style="font-size:11px;color:#6070a0;">Conv(256→32) → pool → Linear(32→1)</span></td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">ResNet1D (6 blocks)<br><span style="font-size:11px;color:#6070a0;">Conv(256→32) → pool → Linear(32→1)</span></td>
+      </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Head Dropout</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">0.1</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">0</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">0</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Encoder Freeze</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">Yes (10-epoch warmup)</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">No</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">No</td>
+      </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Encoder LR</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">5e-5</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">1e-4</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">1e-4</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Head LR</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">1e-4</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">1e-3</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">1e-3</td>
+      </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:8px 14px;color:#5a6a8a;font-weight:600;">Fine-tune Loss</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a5ab0;font-weight:700;">MSE</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">MSE</td>
+        <td style="padding:8px 14px;text-align:center;color:#2a3a60;">MSE</td>
       </tr>
     </tbody>
   </table>
@@ -1830,73 +1907,56 @@
   <div class="slide-label">13 / 13</div>
   <div class="slide-title">Results Comparison — Age Prediction Performance</div>
 
-  <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:18px;border-radius:8px;overflow:hidden;">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:18px;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(80,100,160,0.10);">
     <thead>
-      <tr style="background:#1a2535;color:#e0e8f4;">
-        <th style="padding:11px 14px;text-align:left;font-weight:700;width:32%;">Model</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;">Dataset</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;">Test MAE (yr)</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;">Test MedAE (yr)</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;">Test R²</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;">Source</th>
+      <tr style="background:#eef1f8;color:#3a4a70;border-bottom:2px solid #ccd4e8;">
+        <th style="padding:11px 14px;text-align:left;font-weight:700;width:34%;">Model</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Dataset</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val MAE (yr)</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val MedAE (yr)</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val R²</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Source</th>
       </tr>
     </thead>
     <tbody>
-      <tr style="background:#0d1f10;border-left:3px solid #4a9eff;">
-        <td style="padding:10px 14px;color:#4a9eff;font-weight:700;">MethylLlama V4b (warmstart)</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">19k CpGs · 10k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#4a9eff;font-weight:700;">5.546</td>
-        <td style="padding:10px 14px;text-align:center;color:#4a9eff;font-weight:700;">3.633</td>
-        <td style="padding:10px 14px;text-align:center;color:#4a9eff;font-weight:700;">0.904</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">This work</td>
+      <tr style="background:#edf7ff;border-left:3px solid #2a5ab0;">
+        <td style="padding:10px 14px;color:#2a5ab0;font-weight:700;">MethylLlama V4b (warmstart)<br><span style="font-size:11px;font-weight:400;color:#6070a0;">early stopped ep. 250</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">19k CpGs · 10k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">5.673<br><span style="font-size:10px;font-weight:400;color:#8090b0;">best ep. 149</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">3.650<br><span style="font-size:10px;font-weight:400;color:#8090b0;">best ep. 121</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">0.903</td>
+        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:10px 14px;color:#b090ff;font-weight:600;">MethylGPT Medium (our run, ep.3)</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">21k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#b090ff;font-weight:600;">7.557</td>
-        <td style="padding:10px 14px;text-align:center;color:#b090ff;font-weight:600;">5.605</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">This work</td>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:10px 14px;color:#6040a0;font-weight:600;">MethylGPT Medium (our run, ep. 3)</td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">7.557</td>
+        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">5.605</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
-      <tr style="background:#0f1a28;">
-        <td style="padding:10px 14px;color:#80b8ff;font-weight:600;">MethylGPT Base (our run)</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">21k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#80b8ff;">13.521</td>
-        <td style="padding:10px 14px;text-align:center;color:#80b8ff;">9.224</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">This work</td>
+      <tr style="background:#ffffff;">
+        <td style="padding:10px 14px;color:#4a6090;font-weight:600;">MethylGPT Base (our run)</td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#4a6090;">13.521</td>
+        <td style="padding:10px 14px;text-align:center;color:#4a6090;">9.224</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:10px 14px;color:#40c870;font-weight:600;">Ridge Regression (tuned grid search)</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">49k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#40c870;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#40c870;font-weight:600;">3.199</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">This work</td>
-      </tr>
-      <tr style="background:#0f1a28;border-top:1px solid #2a3a4a;">
+      <tr style="background:#f4f6fc;border-top:1px solid #dde3f0;">
         <td style="padding:10px 14px;color:#8090a8;font-weight:600;">MethylGPT Transformer (paper)</td>
         <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">49k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
         <td style="padding:10px 14px;text-align:center;color:#8090a8;">4.59</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">Ying et al., 2024</td>
-      </tr>
-      <tr style="background:#111f30;">
-        <td style="padding:10px 14px;color:#8090a8;font-weight:600;">ElasticNet (paper, untuned)</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">49k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">5.10</td>
-        <td style="padding:10px 14px;text-align:center;color:#8090a8;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#6a9acc;font-size:12px;">Ying et al., 2024</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">Ying et al., 2024</td>
       </tr>
     </tbody>
   </table>
 
-  <div style="margin-top:18px;padding:12px 16px;background:#0d1f10;border-radius:6px;border-left:3px solid #4a9eff;font-size:12px;color:#8090a8;line-height:1.6;">
-    <b style="color:#4a9eff;">Key findings:</b>
-    &nbsp;·&nbsp; MethylLlama achieves the best MedAE (3.633yr) and R² (0.904) on the 19k dataset
-    &nbsp;·&nbsp; Our tuned Ridge baseline (3.199yr MedAE) outperforms MethylGPT transformer (4.59yr) on their own data
+  <div style="margin-top:16px;padding:11px 16px;background:#f0f4ff;border-radius:6px;border-left:3px solid #2a5ab0;font-size:12px;color:#3a4a70;line-height:1.7;">
+    <b style="color:#2a5ab0;">Key findings:</b>
+    &nbsp;·&nbsp; MethylLlama achieves best val/MedAE (3.650yr) and R² (0.903) on the 19k dataset (val set, early stopped ep. 250)
     &nbsp;·&nbsp; MethylGPT Medium improves substantially over Base (5.6yr vs 9.2yr MedAE) on the 21k subset
     &nbsp;·&nbsp; Direct comparison requires matched datasets — results across datasets are indicative only
   </div>

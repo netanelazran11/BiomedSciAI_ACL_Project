@@ -49,7 +49,7 @@ finetune:
   freeze_encoder: true
   unfreeze_encoder_epoch: 10   # unfreeze encoder after head warmup
   recon_weight: 0.0            # disabled: input_ratio=1.0, no held-out CpGs
-  pooling: mean                # mean pooling over all tokens (v1); v2 uses cls
+  pooling: cls                 # CLS pooler_output — matches WCED pretraining objective
   loss_type: mse              # mse or huber (if huber: delta must be in z-score space)
 
 finetune_epochs: 150
