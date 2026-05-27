@@ -52,7 +52,7 @@ OUTDIR="${REPO}/outputs/cpg_manifest"
 
 # Set these to wherever your manifest files live on the cluster.
 # Leave empty ("") to skip a manifest (e.g. if you only have EPIC).
-MANIFEST_450K="${MANIFEST_450K:-}"
+MANIFEST_450K="${MANIFEST_450K:-/sci/labs/benjamin.yakir/netanel.azran/data/manifests/HM450.hg38.manifest.tsv}"
 MANIFEST_EPIC="${MANIFEST_EPIC:-}"
 
 echo "============================================================"
