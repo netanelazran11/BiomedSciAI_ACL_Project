@@ -90,6 +90,12 @@ else
 fi
 
 echo ""
+METADATA="${REPO}/data/pretrain_metadata.csv.gz"
+METADATA_ARG=""
+if [ -f "${METADATA}" ]; then
+    METADATA_ARG="--metadata ${METADATA} --metadata_id_col GSM_ID"
+fi
+
 python scripts/repr_analysis/attention_analysis.py \
     --checkpoint    "${FINETUNE_CKPT}"  \
     --ckpt_type     finetune            \
@@ -103,7 +109,8 @@ python scripts/repr_analysis/attention_analysis.py \
     --age_col       age                 \
     --fdr_thresh    0.05                \
     --lfc_thresh    0.585               \
-    ${MANIFEST_ARG}
+    ${MANIFEST_ARG}                     \
+    ${METADATA_ARG}
 
 echo ""
 echo "============================================================"

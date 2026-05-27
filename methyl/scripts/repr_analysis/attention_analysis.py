@@ -459,17 +459,48 @@ def main():
     np.save(outdir / "cpg_attention.npy", cpg_attention)
     np.save(outdir / "ages.npy", ages)
 
-    # Load external metadata ages if available and h5ad doesn't have them
-    if args.metadata and np.isnan(ages).mean() > 0.5:
-        log.info("Loading ages from external metadata ...")
-        meta = pd.read_csv(args.metadata)
-        # ages already loaded from dataset; this is a fallback
-        log.info(f"  External metadata has {meta['age'].notna().sum():,} valid ages")
+    # Load external metadata — tissue/sex/disease + age fallback
+    tissue_labels = None
+    if args.metadata:
+        log.info("Loading external metadata (tissue/sex/disease) ...")
+        import anndata
+        ref_obs = anndata.read_h5ad(args.data, backed="r").obs_names
+        meta_df = pd.read_csv(args.metadata)
+        id_col  = args.metadata_id_col
+        if id_col in meta_df.columns:
+            meta_df = meta_df.drop_duplicates(subset=id_col).set_index(id_col)
+            meta_df = pd.DataFrame(index=ref_obs).join(meta_df, how="left")
+            if "tissue" in meta_df.columns:
+                tissue_labels = meta_df["tissue"].values
+                log.info(f"  Tissue labels: {pd.Series(tissue_labels).notna().sum():,} non-null")
+            # Patch ages from metadata if h5ad has no age
+            if np.isnan(ages).mean() > 0.5 and "age" in meta_df.columns:
+                ext_ages = pd.to_numeric(meta_df["age"], errors="coerce").values
+                ages = np.where(np.isnan(ages), ext_ages, ages)
+                log.info(f"  Patched ages from metadata: {(~np.isnan(ages)).sum():,} valid")
+            meta_df.to_csv(outdir / "sample_metadata.csv")
 
-    # 3. Differential attention analysis
+    # 3. Differential attention analysis — global + per tissue
     log.info("[3/5] Computing differential attention (young vs old) ...")
     valid = ~np.isnan(ages)
     diff_df, group_attn = differential_attention(cpg_attention[valid], ages[valid])
+
+    # Within-tissue differential attention (tissues with >=50 valid-age samples)
+    if tissue_labels is not None:
+        tissues = np.array(tissue_labels, dtype=str)
+        for tissue in sorted(np.unique(tissues[valid])):
+            t_mask = valid & (tissues == tissue)
+            if t_mask.sum() < 50:
+                continue
+            log.info(f"  Within-tissue: {tissue}  (n={t_mask.sum()})")
+            t_diff, _ = differential_attention(cpg_attention[t_mask], ages[t_mask])
+            t_diff["cpg_id"] = [cpg_ids[i] if i < len(cpg_ids) else f"cpg_{i}"
+                                for i in t_diff["cpg_idx"]]
+            t_name = tissue.replace(" ", "_").replace("/", "-")
+            t_diff.to_csv(outdir / f"differential_attention_{t_name}.csv", index=False)
+            n_sig = ((t_diff["padj"] < args.fdr_thresh) &
+                     (t_diff["log2FC"].abs() > args.lfc_thresh)).sum()
+            log.info(f"    Differential CpGs in {tissue}: {n_sig}")
     diff_df["cpg_id"] = [cpg_ids[i] if i < len(cpg_ids) else f"cpg_{i}"
                          for i in diff_df["cpg_idx"]]
 
