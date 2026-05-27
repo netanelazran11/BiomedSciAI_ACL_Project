@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=align-cpg
-#SBATCH --partition=salmon
+#SBATCH --partition=catfish
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
