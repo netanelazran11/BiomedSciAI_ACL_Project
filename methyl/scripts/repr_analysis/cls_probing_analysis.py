@@ -90,6 +90,8 @@ def parse_args():
                    help="External metadata CSV/CSV.gz joined on obs_names (e.g. pretrain_metadata.csv.gz)")
     p.add_argument("--metadata_id_col",   default="GSM_ID",
                    help="Column in --metadata that matches h5ad obs_names")
+    p.add_argument("--skip_probing",      action="store_true",
+                   help="Only run UMAP, skip age/classification probing (use for pretrain data)")
     return p.parse_args()
 
 
@@ -535,6 +537,11 @@ def main():
     for tag, embs in probe_targets:
         run_and_plot_umap(embs, meta, label_cols, args.age_col,
                           outdir, tag, args.n_pca, args.n_neighbors)
+
+    if args.skip_probing:
+        log.info("\n[5-7/7] Skipping probing (--skip_probing set — pretrain data)")
+        log.info(f"\nAll done → {outdir}/")
+        return
 
     # 5. Age probing
     log.info("\n[5/7] Age probing ...")
