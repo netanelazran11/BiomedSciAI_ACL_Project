@@ -167,14 +167,47 @@ def extract_embeddings(encoder, data_path, tokenizer_path, batch_size, device):
 # Metadata helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _read_h5ad_obs(data_path):
+    """Read obs names and obs columns safely, falling back to h5py if anndata fails."""
+    try:
+        import h5py
+        with h5py.File(data_path, "r") as f:
+            obs_grp = f["obs"]
+            if "_index" in obs_grp:
+                raw = obs_grp["_index"][:]
+            elif "__categories" in obs_grp:
+                raw = list(obs_grp.keys())
+                raw = obs_grp[raw[0]][:]
+            else:
+                raw = np.arange(f["X"].shape[0] if "X" in f else f["raw/X"].shape[0])
+            obs_names = [s.decode() if isinstance(s, bytes) else str(s) for s in raw]
+            obs_cols = {}
+            for col in obs_grp.keys():
+                if col.startswith("_"):
+                    continue
+                try:
+                    vals = obs_grp[col][:]
+                    if hasattr(obs_grp[col], "attrs") and "categories" in obs_grp[col].attrs:
+                        cats = obs_grp[col].attrs["categories"]
+                        vals = [cats[i] if i < len(cats) else None for i in vals]
+                    obs_cols[col] = [v.decode() if isinstance(v, bytes) else v for v in vals]
+                except Exception:
+                    pass
+        return obs_names, obs_cols
+    except Exception as e:
+        log.warning(f"h5py obs read failed ({e}), falling back to anndata backed mode")
+        adata = sc.read_h5ad(data_path, backed="r")
+        return list(adata.obs_names), {c: adata.obs[c].values.tolist() for c in adata.obs.columns}
+
+
 def load_metadata(data_path, label_cols, age_col, split_col,
                   metadata_path=None, metadata_id_col="GSM_ID") -> pd.DataFrame:
-    adata = sc.read_h5ad(data_path)
+    obs_names, obs_cols = _read_h5ad_obs(data_path)
     want  = list({age_col, split_col} | set(label_cols))
-    meta  = pd.DataFrame(index=adata.obs_names)
+    meta  = pd.DataFrame(index=obs_names)
     for col in want:
-        if col in adata.obs.columns:
-            meta[col] = adata.obs[col].values
+        if col in obs_cols:
+            meta[col] = obs_cols[col]
 
     # Join external metadata (e.g. tissue/sex/disease from pretrain_metadata.csv.gz)
     if metadata_path:
