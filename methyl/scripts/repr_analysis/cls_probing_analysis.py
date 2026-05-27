@@ -218,17 +218,11 @@ def run_age_probing(embs, meta, train_mask, test_mask, age_col, tag):
     results, scatter_data = [], {}
 
     # Linear probe
-    from sklearn.linear_model import LinearRegression, RidgeCV
+    from sklearn.linear_model import LinearRegression
     lr = LinearRegression().fit(X_tr, y_tr)
     p  = lr.predict(X_te)
     results.append(_age_metrics(y_te, p, f"{tag}/linear_probe"))
     scatter_data["linear_probe"] = (y_te, p)
-
-    # Ridge probe (simple linear — just a stronger regularised version of linear probe)
-    rc = RidgeCV(alphas=[0.1, 1, 10, 100, 1000], cv=5).fit(X_tr, y_tr)
-    p  = rc.predict(X_te)
-    results.append(_age_metrics(y_te, p, f"{tag}/ridge_probe"))
-    scatter_data["ridge_probe"] = (y_te, p)
 
     # MLP probe
     mlp = MLPRegressor(hidden_layer_sizes=(128, 64), max_iter=500,
@@ -297,7 +291,7 @@ def run_within_tissue_age(embs, meta, train_mask, test_mask,
                            age_col, tissue_col, tag, min_samples=50):
     if age_col not in meta.columns or tissue_col not in meta.columns:
         return []
-    from sklearn.linear_model import RidgeCV
+    from sklearn.linear_model import LinearRegression
     ages    = meta[age_col].values.astype(float)
     tissues = meta[tissue_col].astype(str).values
     results = []
@@ -310,8 +304,8 @@ def run_within_tissue_age(embs, meta, train_mask, test_mask,
         scaler = StandardScaler()
         X_tr = scaler.fit_transform(embs[tr])
         X_te = scaler.transform(embs[te])
-        rc = RidgeCV(alphas=[0.1, 1, 10, 100, 1000], cv=min(5, int(tr.sum()))).fit(X_tr, ages[tr])
-        p  = rc.predict(X_te)
+        lr = LinearRegression().fit(X_tr, ages[tr])
+        p  = lr.predict(X_te)
         r  = _age_metrics(ages[te], p, f"{tag}/{tissue}")
         r["tissue"] = tissue
         results.append(r)
