@@ -77,7 +77,6 @@ python scripts/repr_analysis/cls_probing_analysis.py \
     --age_col       age                \
     --split_col     split              \
     --min_tissue_samples 50            \
-    --skip_probing                     \
     ${PRECOMP_ARGS}                    \
     ${METADATA_ARG}
 
