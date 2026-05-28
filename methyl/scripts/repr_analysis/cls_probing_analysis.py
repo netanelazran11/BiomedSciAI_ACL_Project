@@ -303,7 +303,8 @@ def run_classification_probing(embs, meta, label_col, train_mask, test_mask, tag
         return {}
 
     le = LabelEncoder()
-    y_tr = le.fit_transform(labels[tr])
+    le.fit(labels[valid])   # fit on all valid labels so test-only classes don't crash
+    y_tr = le.transform(labels[tr])
     y_te = le.transform(labels[te])
     n_cls = len(le.classes_)
     if n_cls < 2:
