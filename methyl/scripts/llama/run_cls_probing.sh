@@ -19,7 +19,7 @@ cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"

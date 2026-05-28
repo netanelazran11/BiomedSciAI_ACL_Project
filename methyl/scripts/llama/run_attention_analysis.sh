@@ -39,7 +39,7 @@ cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths — update FINETUNE_CKPT to your best fine-tuned checkpoint
