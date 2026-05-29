@@ -1912,35 +1912,27 @@
       <tr style="background:#eef1f8;color:#3a4a70;border-bottom:2px solid #ccd4e8;">
         <th style="padding:11px 14px;text-align:left;font-weight:700;width:34%;">Model</th>
         <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Dataset</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val MAE (yr)</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val MedAE (yr)</th>
-        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Val R²</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">MAE (yr)</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">MedAE (yr)</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">R²</th>
         <th style="padding:11px 14px;text-align:center;font-weight:700;color:#3a4a70;">Source</th>
       </tr>
     </thead>
     <tbody>
-      <tr style="background:#edf7ff;border-left:3px solid #2a5ab0;">
-        <td style="padding:10px 14px;color:#2a5ab0;font-weight:700;">MethylLlama V4b (warmstart)<br><span style="font-size:11px;font-weight:400;color:#6070a0;">early stopped ep. 250</span></td>
+      <tr style="background:#e8f4ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 14px;color:#1a4ab0;font-weight:700;">MethylLlama V5 ⭐<br><span style="font-size:11px;font-weight:400;color:#4060a0;">CLS pooling · scratch · best ep. 127</span></td>
         <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">19k CpGs · 10k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">5.673<br><span style="font-size:10px;font-weight:400;color:#8090b0;">best ep. 149</span></td>
-        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">3.650<br><span style="font-size:10px;font-weight:400;color:#8090b0;">best ep. 121</span></td>
-        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:700;">0.903</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">5.46<br><span style="font-size:10px;font-weight:400;color:#8090b0;">test</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">3.56<br><span style="font-size:10px;font-weight:400;color:#8090b0;">val best · test 3.65</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">0.905</td>
         <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
-      <tr style="background:#f4f6fc;">
-        <td style="padding:10px 14px;color:#6040a0;font-weight:600;">MethylGPT Medium (our run, ep. 3)</td>
-        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">7.557</td>
-        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">5.605</td>
-        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
-        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
-      </tr>
-      <tr style="background:#ffffff;">
-        <td style="padding:10px 14px;color:#4a6090;font-weight:600;">MethylGPT Base (our run)</td>
-        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#4a6090;">13.521</td>
-        <td style="padding:10px 14px;text-align:center;color:#4a6090;">9.224</td>
-        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+      <tr style="background:#edf7ff;border-left:3px solid #2a5ab0;">
+        <td style="padding:10px 14px;color:#2a5ab0;font-weight:600;">MethylLlama V4b<br><span style="font-size:11px;font-weight:400;color:#6070a0;">mean pooling · warmstart · best ep. 121</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">19k CpGs · 10k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:600;">5.673<br><span style="font-size:10px;font-weight:400;color:#8090b0;">val</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:600;">3.650<br><span style="font-size:10px;font-weight:400;color:#8090b0;">val</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#2a5ab0;font-weight:600;">0.903</td>
         <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
       <tr style="background:#f4f6fc;border-top:1px solid #dde3f0;">
@@ -1951,13 +1943,30 @@
         <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
         <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">Ying et al., 2024</td>
       </tr>
+      <tr style="background:#ffffff;">
+        <td style="padding:10px 14px;color:#6040a0;font-weight:600;">MethylGPT Medium (our run, ep. 3)</td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">7.557</td>
+        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">5.605</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
+      </tr>
+      <tr style="background:#f4f6fc;">
+        <td style="padding:10px 14px;color:#4a6090;font-weight:600;">MethylGPT Base (our run)</td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#4a6090;">13.521</td>
+        <td style="padding:10px 14px;text-align:center;color:#4a6090;">9.224</td>
+        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+        <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
+      </tr>
     </tbody>
   </table>
 
-  <div style="margin-top:16px;padding:11px 16px;background:#f0f4ff;border-radius:6px;border-left:3px solid #2a5ab0;font-size:12px;color:#3a4a70;line-height:1.7;">
-    <b style="color:#2a5ab0;">Key findings:</b>
-    &nbsp;·&nbsp; MethylLlama achieves best val/MedAE (3.650yr) and R² (0.903) on the 19k dataset (val set, early stopped ep. 250)
-    &nbsp;·&nbsp; MethylGPT Medium improves substantially over Base (5.6yr vs 9.2yr MedAE) on the 21k subset
+  <div style="margin-top:16px;padding:11px 16px;background:#f0f4ff;border-radius:6px;border-left:3px solid #1a4ab0;font-size:12px;color:#3a4a70;line-height:1.7;">
+    <b style="color:#1a4ab0;">Key findings:</b>
+    &nbsp;·&nbsp; <b>V5 (CLS pooling) is best</b>: val/MedAE=3.56yr, test/MedAE=3.65yr, R²=0.905 — improves over V4b (mean pooling, 3.65yr val)
+    &nbsp;·&nbsp; CLS pooling matches WCED pretraining readout → better than mean pooling over all tokens
+    &nbsp;·&nbsp; MethylLlama V5 approaches MethylGPT paper (4.59yr MedAE) despite using 3× fewer CpGs (19k vs 49k)
     &nbsp;·&nbsp; Direct comparison requires matched datasets — results across datasets are indicative only
   </div>
 </div>
