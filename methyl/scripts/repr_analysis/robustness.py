@@ -228,14 +228,10 @@ def plot_robustness(results: dict, outdir: Path):
 
     colors = {
         "MethylLlama": "#4DBBD5",
-        "ElasticNet":  "#E64B35",
-        "Ridge":       "#F39B7F",
         "Null":        "#ADB6B6",
     }
     linestyles = {
         "MethylLlama": "-",
-        "ElasticNet":  "--",
-        "Ridge":       "-.",
         "Null":        ":",
     }
 
@@ -300,29 +296,13 @@ def main():
         results["MethylLlama"][pct] = med
         log.info(f"    MedAE = {med:.2f} yr")
 
-    # ── Baseline models ───────────────────────────────────────────────────────
-    log.info("\n[2] Training baseline models (ElasticNet, Ridge) ...")
-    try:
-        en, ridge, scaler, X_te_raw, y_te = train_baseline(
-            args.data, args.age_col, args.split_col
-        )
-
-        results["ElasticNet"] = {}
-        results["Ridge"]      = {}
-        results["Null"]       = {}
-
-        null_pred = np.full_like(y_te, y_te.mean())
-
-        for pct in args.mask_levels:
-            log.info(f"  Baselines @ {pct}% masking ...")
-            en_pred    = predict_baseline_masked(en,    scaler, X_te_raw, pct / 100.0, args.seed)
-            ridge_pred = predict_baseline_masked(ridge, scaler, X_te_raw, pct / 100.0, args.seed)
-
-            results["ElasticNet"][pct] = medae(y_te, en_pred)
-            results["Ridge"][pct]      = medae(y_te, ridge_pred)
-            results["Null"][pct]       = medae(y_te, null_pred)
-    except Exception as e:
-        log.warning(f"Baseline training failed: {e} — skipping baselines")
+    # ── Null baseline ─────────────────────────────────────────────────────────
+    import anndata
+    adata = anndata.read_h5ad(args.data, backed="r")
+    test_mask = adata.obs["split"] == "test" if "split" in adata.obs.columns else slice(None)
+    y_te = adata.obs.loc[test_mask, args.age_col].values.astype(float)
+    null_pred = np.full_like(y_te, float(y_te.mean()))
+    results["Null"] = {pct: medae(y_te, null_pred) for pct in args.mask_levels}
 
     # ── Save results table ────────────────────────────────────────────────────
     rows = []
