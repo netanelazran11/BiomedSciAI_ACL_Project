@@ -397,6 +397,99 @@ def plot_volcano(diff_df, lfc_thresh, fdr_thresh, outdir: Path):
     return sig_young, sig_old
 
 
+def plot_attention_histogram(cpg_attention: np.ndarray, outdir: Path):
+    """
+    Histogram of all per-CpG attention scores across all samples.
+    Reference line at 1/n_cpg = perfectly uniform attention.
+    If the distribution is narrow and centred on 1/n_cpg the model
+    does NOT rely on a sparse set of CpG biomarkers.
+    """
+    fig_dir = outdir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    n_cpg       = cpg_attention.shape[1]
+    uniform_ref = 1.0 / n_cpg
+    flat_attn   = cpg_attention.flatten()
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(flat_attn, bins=200, color="#4DBBD5", alpha=0.8, density=True,
+            label="Per-CpG attention scores")
+    ax.axvline(uniform_ref, color="#E64B35", linewidth=2.5, linestyle="--",
+               label=f"Uniform = 1/{n_cpg:,}  =  {uniform_ref:.2e}")
+
+    ax.set_xlabel("Attention score", fontsize=12)
+    ax.set_ylabel("Density", fontsize=12)
+    ax.set_title("Distribution of CpG Attention Scores\n"
+                 "(narrow peak at uniform line = no dominant CpG sites)",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=10, framealpha=0.6)
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    out = fig_dir / "attention_histogram.png"
+    plt.savefig(out, dpi=180, bbox_inches="tight")
+    plt.close()
+    log.info(f"  Saved {out.name}")
+
+    # Print summary stats
+    log.info(f"  Attention score stats: mean={flat_attn.mean():.2e}  "
+             f"std={flat_attn.std():.2e}  "
+             f"max={flat_attn.max():.2e}  "
+             f"uniform_ref={uniform_ref:.2e}")
+    return out
+
+
+def plot_topk_bar(cpg_attention: np.ndarray, cpg_ids: list, outdir: Path,
+                   top_k: int = 20):
+    """
+    Bar chart of top-k most-attended CpG sites vs the uniform baseline.
+    If even the top CpGs are close to 1/n_cpg the model uses all sites equally.
+    """
+    fig_dir = outdir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    n_cpg       = cpg_attention.shape[1]
+    uniform_ref = 1.0 / n_cpg
+    mean_attn   = cpg_attention.mean(axis=0)   # [n_cpg]
+    global_mean = float(mean_attn.mean())
+
+    top_idx    = np.argsort(mean_attn)[::-1][:top_k]
+    top_scores = mean_attn[top_idx]
+    labels     = [cpg_ids[i][:14] if i < len(cpg_ids) else f"CpG_{i}"
+                  for i in top_idx]
+
+    fig, ax = plt.subplots(figsize=(max(12, top_k * 0.7), 5))
+    ax.bar(range(top_k), top_scores, color="#4DBBD5", alpha=0.85,
+           label="Top-k CpG attention")
+    ax.axhline(uniform_ref, color="#E64B35", linewidth=2, linestyle="--",
+               label=f"Uniform baseline = 1/{n_cpg:,} = {uniform_ref:.2e}")
+    ax.axhline(global_mean, color="#9B59B6", linewidth=1.5, linestyle=":",
+               label=f"Global mean = {global_mean:.2e}")
+
+    ax.set_xticks(range(top_k))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("CpG site (ranked by mean attention)", fontsize=12)
+    ax.set_ylabel("Mean attention score", fontsize=12)
+    ax.set_title(f"Top {top_k} Most-Attended CpGs vs Uniform Baseline\n"
+                 "(bars near the dashed line = no dominant sites)",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=10, framealpha=0.6)
+    ax.grid(axis="y", alpha=0.3)
+
+    # Annotate fold-change over uniform
+    fc = top_scores[0] / uniform_ref
+    ax.text(0, top_scores[0] * 1.01,
+            f"  ×{fc:.1f}", fontsize=8, color="#E64B35", va="bottom")
+
+    plt.tight_layout()
+    out = fig_dir / "attention_topk_bar.png"
+    plt.savefig(out, dpi=180, bbox_inches="tight")
+    plt.close()
+    log.info(f"  Saved {out.name}")
+    log.info(f"  Top CpG fold-change over uniform: {fc:.2f}x")
+    return out
+
+
 def plot_top_cpg_heatmap(diff_df, group_attn_dict, cpg_ids, top_n, outdir: Path,
                           manifest_df=None):
     """Fig 5d: Heatmap of mean attention for top young-/old-important CpGs."""
@@ -530,6 +623,8 @@ def main():
     plot_attention_matrices(group_attn, cpg_ids, outdir)
     plot_volcano(diff_df, lfc_thresh, args.fdr_thresh, outdir)
     plot_top_cpg_heatmap(diff_df, group_attn, cpg_ids, args.top_n_cpgs, outdir, manifest_df)
+    plot_attention_histogram(cpg_attention, outdir)
+    plot_topk_bar(cpg_attention, cpg_ids, outdir, top_k=20)
 
     # 5. Report
     log.info("[5/5] Writing report ...")
@@ -559,6 +654,8 @@ def main():
     log.info(f"  figures/attention_matrices.png")
     log.info(f"  figures/attention_volcano.png")
     log.info(f"  figures/attention_top_cpg_heatmap.png")
+    log.info(f"  figures/attention_histogram.png    ← distribution of all attention scores")
+    log.info(f"  figures/attention_topk_bar.png     ← top-20 CpGs vs uniform baseline")
 
 
 if __name__ == "__main__":
