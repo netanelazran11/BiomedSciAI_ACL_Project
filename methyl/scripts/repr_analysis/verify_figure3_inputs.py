@@ -336,38 +336,23 @@ section("6. h5ad raw methylation matrix")
 h5ad_obs = None
 if H5AD.exists():
     try:
-        import h5py
-        with h5py.File(H5AD, "r") as f:
-            print(f"  h5ad keys: {list(f.keys())}")
-
-            # Get obs names
-            obs_grp = f["obs"]
-            if "_index" in obs_grp:
-                raw_ids = obs_grp["_index"][:]
-            else:
-                raw_ids = list(obs_grp.keys())
-            h5ad_obs = [s.decode() if isinstance(s, bytes) else str(s) for s in raw_ids]
-            print(f"  obs_names count : {len(h5ad_obs):,}")
-            print(f"  obs_names sample: {h5ad_obs[:3]}")
-
-            # X shape
-            if "X" in f:
-                x_shape = f["X"].shape
-                print(f"  X shape: {x_shape}")
-                ok(f"X matrix: {x_shape[0]:,} samples × {x_shape[1]:,} CpGs")
-            elif "raw" in f and "X" in f["raw"]:
-                x_shape = f["raw"]["X"].shape
-                print(f"  raw/X shape: {x_shape}")
-                warn("X is under 'raw/X' — code may need adjustment")
+        import anndata
+        adata = anndata.read_h5ad(str(H5AD), backed="r")
+        h5ad_obs = list(adata.obs_names)
+        x_shape  = adata.shape
+        print(f"  obs_names count : {len(h5ad_obs):,}")
+        print(f"  obs_names sample: {h5ad_obs[:3]}")
+        print(f"  X shape         : {x_shape}")
+        ok(f"X matrix: {x_shape[0]:,} samples × {x_shape[1]:,} CpGs")
 
         # Check obs_names format
         sample_id = h5ad_obs[0]
-        if sample_id.startswith("GSM"):
-            ok(f"h5ad obs_names look like GSM IDs ('{sample_id}')")
+        if sample_id.startswith("GSM") or sample_id.startswith("TCGA"):
+            ok(f"obs_names format recognized ('{sample_id}')")
         else:
-            warn(f"h5ad obs_names do NOT look like GSM IDs: '{sample_id}'")
+            warn(f"Unexpected obs_names format: '{sample_id}'")
 
-        # Check alignment with metadata
+        # Alignment with metadata
         if meta is not None:
             meta_set  = set(meta.index)
             h5ad_set  = set(h5ad_obs)
@@ -383,11 +368,20 @@ if H5AD.exists():
 
             pct = 100 * len(overlap) / len(meta_set)
             if pct >= 99:
-                ok(f"h5ad ↔ metadata alignment: {pct:.1f}% match — perfect")
+                ok(f"h5ad ↔ metadata alignment: {pct:.1f}% — perfect")
             elif pct >= 90:
-                warn(f"h5ad ↔ metadata alignment: {pct:.1f}% match")
+                warn(f"h5ad ↔ metadata alignment: {pct:.1f}%")
             else:
                 fail(f"h5ad ↔ metadata alignment only {pct:.1f}% — check obs_names format")
+
+            # Show obs_names types breakdown
+            n_gsm  = sum(1 for s in meta_set if str(s).startswith("GSM"))
+            n_tcga = sum(1 for s in meta_set if str(s).startswith("TCGA"))
+            n_other = len(meta_set) - n_gsm - n_tcga
+            print(f"\n  metadata ID breakdown:")
+            print(f"    GSM  IDs : {n_gsm:,}  (can join to pretrain_metadata)")
+            print(f"    TCGA IDs : {n_tcga:,}  (no GSM_ID match — will show as 'unknown')")
+            print(f"    Other    : {n_other:,}")
 
     except Exception as e:
         fail(f"Could not read h5ad: {e}")
