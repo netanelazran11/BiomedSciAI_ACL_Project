@@ -74,25 +74,41 @@ def parse_args():
 # ─────────────────────────────────────────────────────────────────────────────
 
 TISSUE_COLORS = {
-    "Whole Blood":   "#E64B35",
-    "Blood":         "#E64B35",
-    "Brain":         "#4DBBD5",
-    "Liver":         "#3C5488",
-    "Skin":          "#8491B4",
-    "Breast":        "#F39B7F",
-    "Lung":          "#91D1C2",
-    "Colon":         "#DC0000",
-    "Prostate":      "#7E6148",
-    "Muscle":        "#00A087",
-    "Adipose":       "#B09C85",
-    "Kidney":        "#F4A460",
-    "Cervix":        "#DDA0DD",
-    "Placenta":      "#20B2AA",
-    "Ovary":         "#FF69B4",
-    "Thyroid":       "#9370DB",
-    "Heart":         "#CD5C5C",
-    "Spleen":        "#6B8E23",
-    "Other":         "#AAAAAA",
+    # ── major categories (high N → need most distinct colors) ─────────────────
+    "Whole Blood":        "#E64B35",   # vivid red
+    "Brain":              "#4DBBD5",   # sky blue
+    "Other":              "#AAAAAA",   # neutral gray
+    "Cells":              "#9B59B6",   # purple
+    "Breast":             "#F39B7F",   # salmon
+    "Lung":               "#91D1C2",   # mint green
+    "Colon":              "#C0392B",   # dark red
+    "Liver":              "#3C5488",   # navy
+    "Prostate":           "#7E6148",   # brown
+    "Skin":               "#8491B4",   # slate blue
+    "Testis":             "#27AE60",   # emerald
+    "Ovary":              "#FF69B4",   # hot pink
+    "Stomach":            "#E67E22",   # orange
+    "Muscle":             "#00A087",   # teal
+    "Kidney":             "#F4A460",   # sandy
+    "Esophagus":          "#808000",   # olive
+    "Pancreas":           "#F1C40F",   # gold
+    "Adipose":            "#B09C85",   # warm beige
+    "Bladder":            "#FA8072",   # coral
+    "Uterus":             "#C39BD3",   # light purple
+    "Cervix":             "#DDA0DD",   # plum
+    "Thyroid":            "#5B2C6F",   # deep violet
+    "Adrenal Gland":      "#D35400",   # burnt orange
+    "Nerve":              "#F7DC6F",   # pale yellow
+    "Small Intestine":    "#7DCEA0",   # sage
+    "Heart":              "#922B21",   # crimson
+    "Minor Salivary Gland": "#708090", # slate gray
+    "Artery":             "#FF4500",   # orange-red
+    "Pituitary":          "#98FB98",   # mint
+    "Fallopian Tube":     "#FF91A4",   # rose
+    "Spleen":             "#6B8E23",   # olive green
+    "Vagina":             "#FFDAB9",   # peach
+    # alias
+    "Blood":              "#E64B35",
 }
 
 SEX_COLORS   = {"M": "#4DBBD5", "F": "#E64B35", "m": "#4DBBD5", "f": "#E64B35",
