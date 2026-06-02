@@ -19,10 +19,12 @@ source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-CLS_NPY="${REPO}/outputs/repr_analysis/pretrain_cls_169k_44892802/embeddings_cls.npy"
-MEAN_NPY="${REPO}/outputs/repr_analysis/pretrain_cls_169k_44892802/embeddings_mean.npy"
-RANDOM_NPY="${REPO}/outputs/repr_analysis/cls_probing_44905909/embeddings_random_cls.npy"
-METADATA="${REPO}/outputs/repr_analysis/cls_probing_44931911/metadata.csv"
+# Option B: 19k finetune dataset — WCED + random on same samples (fair comparison)
+BASE_19K="${REPO}/outputs/repr_analysis/cls_probing_44905909"
+CLS_NPY="${BASE_19K}/embeddings_cls.npy"
+MEAN_NPY="${BASE_19K}/embeddings_mean.npy"
+RANDOM_NPY="${BASE_19K}/embeddings_random_cls.npy"
+METADATA="${BASE_19K}/metadata.csv"
 OUTDIR="${REPO}/outputs/repr_analysis/avg_bio_${SLURM_JOB_ID}"
 
 echo "============================================================"
