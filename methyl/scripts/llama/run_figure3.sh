@@ -40,6 +40,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
 
 BASE_19K="${REPO}/outputs/repr_analysis/cls_probing_44905909"
 CLS_NPY="${BASE_19K}/embeddings_cls.npy"
+RANDOM_NPY="${BASE_19K}/embeddings_random_cls.npy"
 METADATA="${BASE_19K}/metadata.csv"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
@@ -52,6 +53,7 @@ echo " Figure 3: MethylLlama CLS vs Raw Methylation (UMAP)"
 echo " Job : ${SLURM_JOB_ID}  Host: $(hostname)  Time: $(date)"
 echo "============================================================"
 echo " CLS npy    : ${CLS_NPY}"
+echo " Random npy : ${RANDOM_NPY}"
 echo " Raw h5ad   : ${DATA}"
 echo " Metadata   : ${METADATA}"
 echo " Ext meta   : ${EXT_META}"
@@ -75,8 +77,17 @@ else
 fi
 
 echo ""
+RANDOM_ARG=""
+if [ -f "${RANDOM_NPY}" ]; then
+    RANDOM_ARG="--random_npy ${RANDOM_NPY}"
+    echo "  Random embeddings found — will include as third row"
+else
+    echo "  WARNING: random embeddings not found — figure will have 2 rows only"
+fi
+
 python scripts/repr_analysis/figure3_comparison.py \
     --cls_npy      "${CLS_NPY}"      \
+    ${RANDOM_ARG}                    \
     --data         "${DATA}"         \
     --metadata_csv "${METADATA}"     \
     ${EXT_ARG}                       \

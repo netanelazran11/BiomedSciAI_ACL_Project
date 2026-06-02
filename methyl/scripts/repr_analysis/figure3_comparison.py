@@ -51,6 +51,8 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--cls_npy",      required=True,
                    help="Pre-computed CLS embeddings .npy [N, 256]")
+    p.add_argument("--random_npy",   default=None,
+                   help="Random-init CLS embeddings .npy [N, 256] (ablation)")
     p.add_argument("--data",         required=True,
                    help="h5ad file (finetune 19k) for raw methylation matrix")
     p.add_argument("--metadata_csv", required=True,
@@ -175,11 +177,23 @@ def load_data(args) -> dict:
 
     log.info(f"  Aligned: {cls_aligned.shape[0]:,} samples")
 
+    # ── Random embeddings (optional) ─────────────────────────────────────────
+    random_aligned = None
+    if args.random_npy and Path(args.random_npy).exists():
+        log.info(f"Loading random CLS embeddings: {args.random_npy}")
+        rnd = np.load(args.random_npy).astype(np.float32)
+        log.info(f"  shape: {rnd.shape}")
+        if rnd.shape[0] != len(meta):
+            raise ValueError(f"random_npy rows ({rnd.shape[0]}) ≠ metadata rows ({len(meta)})")
+        random_aligned = rnd[cls_mask]
+        log.info(f"  Random CLS aligned: {random_aligned.shape}")
+
     return {
-        "cls":  cls_aligned,
-        "raw":  raw_aligned,
-        "meta": meta_aligned,
-        "n":    cls_aligned.shape[0],
+        "cls":    cls_aligned,
+        "random": random_aligned,
+        "raw":    raw_aligned,
+        "meta":   meta_aligned,
+        "n":      cls_aligned.shape[0],
     }
 
 
@@ -315,64 +329,71 @@ def _scatter(ax, coords: np.ndarray, labels, palette: dict,
 
 
 def plot_embedding_panels(cls_coords: np.ndarray, raw_coords: np.ndarray,
-                          meta: pd.DataFrame, outdir: Path, dpi: int = 200):
-    """Create the full 6-panel Fig 3 equivalent."""
+                          meta: pd.DataFrame, outdir: Path, dpi: int = 200,
+                          random_coords: np.ndarray = None):
+    """Create the full comparison figure (2 or 3 rows × 2 cols: tissue | sex)."""
     fig_dir = outdir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     # Resolve labels
-    tissue_col  = "tissue"   if "tissue"  in meta.columns else None
-    sex_col     = "sex"      if "sex"     in meta.columns else None
-    batch_col   = "dataset"  if "dataset" in meta.columns else None
+    tissue_labels = (meta["tissue"].fillna("unknown").tolist()
+                     if "tissue" in meta.columns else ["unknown"] * len(meta))
+    sex_labels    = (meta["sex"].fillna("unknown").tolist()
+                     if "sex" in meta.columns else ["unknown"] * len(meta))
 
-    tissue_labels  = meta[tissue_col].fillna("unknown").tolist()  if tissue_col  else ["unknown"] * len(meta)
-    sex_labels     = meta[sex_col].fillna("unknown").tolist()     if sex_col     else ["unknown"] * len(meta)
-    dataset_labels = meta[batch_col].fillna("unknown").tolist()   if batch_col   else ["unknown"] * len(meta)
+    tissue_pal = _tissue_palette(tissue_labels)
+    sex_pal    = {**SEX_COLORS, **{k: "#AAAAAA" for k in set(sex_labels)
+                                   if k not in SEX_COLORS}}
 
-    tissue_pal  = _tissue_palette(tissue_labels)
-    sex_pal     = {**SEX_COLORS, **{k: "#AAAAAA" for k in set(sex_labels)
-                                    if k not in SEX_COLORS}}
-    dataset_pal = _dataset_palette(dataset_labels)
+    # Build rows: pretrained CLS | (optional) random CLS | raw methylation
+    rows = [
+        ("MethylLlama CLS embedding space",  cls_coords),
+    ]
+    if random_coords is not None:
+        rows.append(("Random-init CLS (baseline)",        random_coords))
+    rows.append(("Raw DNA methylation space",             raw_coords))
 
-    # ── 6-panel figure ────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(18, 11))
+    n_rows = len(rows)
+    fig_h  = 5.5 * n_rows
+    fig = plt.figure(figsize=(14, fig_h))
     fig.patch.set_facecolor("white")
 
-    # Row titles
-    row_titles = [
-        "MethylLlama CLS embedding sample space",
-        "Raw DNA methylation sample space",
-    ]
-    row_coords = [cls_coords, raw_coords]
-    gs = fig.add_gridspec(2, 3, hspace=0.38, wspace=0.12,
-                          left=0.04, right=0.98, top=0.90, bottom=0.05)
+    top_margin    = 0.97
+    bottom_margin = 0.03
+    row_gap       = 0.06
+    usable        = top_margin - bottom_margin
+    row_h         = (usable - row_gap * (n_rows - 1)) / n_rows
 
-    panel_configs = [
-        # (row, col, coords_key, labels, palette, subtitle)
-        (0, 0, 0, tissue_labels,  tissue_pal,  "a  |  Tissue type"),
-        (0, 1, 0, dataset_labels, dataset_pal, "b  |  Dataset (batch)"),
-        (0, 2, 0, sex_labels,     sex_pal,     "c  |  Sex"),
-        (1, 0, 1, tissue_labels,  tissue_pal,  "d  |  Tissue type"),
-        (1, 1, 1, dataset_labels, dataset_pal, "e  |  Dataset (batch)"),
-        (1, 2, 1, sex_labels,     sex_pal,     "f  |  Sex"),
-    ]
+    for r_idx, (row_title, coords) in enumerate(rows):
+        top    = top_margin - r_idx * (row_h + row_gap)
+        bottom = top - row_h
+        label_top = top + 0.005
 
-    for row, col, coords_idx, labels, palette, subtitle in panel_configs:
-        ax = fig.add_subplot(gs[row, col])
-        coords = row_coords[coords_idx]
-        _scatter(ax, coords, labels, palette, subtitle)
-
-    # Row title text
-    for i, title in enumerate(row_titles):
-        y_pos = 0.935 if i == 0 else 0.470
-        fig.text(0.51, y_pos, title,
-                 ha="center", va="center", fontsize=13, fontweight="bold",
+        # Row label
+        fig.text(0.5, label_top, row_title,
+                 ha="center", va="bottom", fontsize=12, fontweight="bold",
                  color="#1E3A5F")
-        # Underline
-        line_y = y_pos - 0.018
-        fig.add_artist(plt.Line2D([0.04, 0.98], [line_y, line_y],
+        fig.add_artist(plt.Line2D([0.04, 0.96], [label_top - 0.005, label_top - 0.005],
                                   transform=fig.transFigure,
-                                  color="#1E3A5F", linewidth=1.2, alpha=0.5))
+                                  color="#1E3A5F", linewidth=1.0, alpha=0.4))
+
+        inner_top    = label_top - 0.022
+        inner_bottom = bottom
+        inner_h      = inner_top - inner_bottom
+        panel_h      = inner_h
+        gap_w        = 0.04
+
+        # Tissue panel (left)
+        ax_t = fig.add_axes([0.04, inner_bottom, 0.44, panel_h])
+        panel_letter = chr(ord('a') + r_idx * 2)
+        _scatter(ax_t, coords, tissue_labels, tissue_pal,
+                 f"{panel_letter}  |  Tissue type")
+
+        # Sex panel (right)
+        ax_s = fig.add_axes([0.52, inner_bottom, 0.44, panel_h])
+        panel_letter = chr(ord('a') + r_idx * 2 + 1)
+        _scatter(ax_s, coords, sex_labels, sex_pal,
+                 f"{panel_letter}  |  Sex", max_legend=5)
 
     # Save PNG + PDF
     for ext in ["png", "pdf"]:
@@ -382,23 +403,24 @@ def plot_embedding_panels(cls_coords: np.ndarray, raw_coords: np.ndarray,
         log.info(f"  Saved → {out}")
     plt.close()
 
-    # ── Individual panels for presentation use ────────────────────────────────
-    _save_individual(cls_coords, raw_coords,
-                     tissue_labels, sex_labels, dataset_labels,
-                     tissue_pal, sex_pal, dataset_pal,
-                     fig_dir, dpi)
+    # ── Individual panels ─────────────────────────────────────────────────────
+    _save_individual(cls_coords, raw_coords, tissue_labels, sex_labels,
+                     tissue_pal, sex_pal, fig_dir, dpi, random_coords)
 
 
-def _save_individual(cls_c, raw_c, tissue_l, sex_l, dataset_l,
-                     t_pal, s_pal, d_pal, fig_dir, dpi):
+def _save_individual(cls_c, raw_c, tissue_l, sex_l,
+                     t_pal, s_pal, fig_dir, dpi, random_c=None):
     configs = [
-        ("cls_tissue",   cls_c, tissue_l,  t_pal, "MethylLlama CLS | Tissue"),
-        ("cls_sex",      cls_c, sex_l,     s_pal, "MethylLlama CLS | Sex"),
-        ("cls_dataset",  cls_c, dataset_l, d_pal, "MethylLlama CLS | Dataset"),
-        ("raw_tissue",   raw_c, tissue_l,  t_pal, "Raw Methylation | Tissue"),
-        ("raw_sex",      raw_c, sex_l,     s_pal, "Raw Methylation | Sex"),
-        ("raw_dataset",  raw_c, dataset_l, d_pal, "Raw Methylation | Dataset"),
+        ("cls_tissue",    cls_c,    tissue_l, t_pal, "MethylLlama CLS | Tissue"),
+        ("cls_sex",       cls_c,    sex_l,    s_pal, "MethylLlama CLS | Sex"),
+        ("raw_tissue",    raw_c,    tissue_l, t_pal, "Raw Methylation | Tissue"),
+        ("raw_sex",       raw_c,    sex_l,    s_pal, "Raw Methylation | Sex"),
     ]
+    if random_c is not None:
+        configs += [
+            ("random_tissue", random_c, tissue_l, t_pal, "Random-init CLS | Tissue"),
+            ("random_sex",    random_c, sex_l,    s_pal, "Random-init CLS | Sex"),
+        ]
     for fname, coords, labels, palette, title in configs:
         fig, ax = plt.subplots(figsize=(7, 6))
         _scatter(ax, coords, labels, palette, title, s=3, alpha=0.5)
@@ -422,39 +444,53 @@ def main():
     log.info("=" * 60)
     data = load_data(args)
 
-    cls_emb = data["cls"]    # [N, 256]
-    raw_mat = data["raw"]    # [N, n_cpg]
-    meta    = data["meta"]
+    cls_emb    = data["cls"]     # [N, 256]
+    random_emb = data["random"]  # [N, 256] or None
+    raw_mat    = data["raw"]     # [N, n_cpg]
+    meta       = data["meta"]
 
     log.info(f"\nAligned dataset: {data['n']:,} samples")
-    log.info(f"  CLS: {cls_emb.shape}")
-    log.info(f"  Raw: {raw_mat.shape}")
+    log.info(f"  CLS   : {cls_emb.shape}")
+    log.info(f"  Random: {random_emb.shape if random_emb is not None else 'not loaded'}")
+    log.info(f"  Raw   : {raw_mat.shape}")
 
     # 2. Preprocess raw methylation
     log.info("\n[2/4] Preprocessing raw methylation ...")
     raw_clean = preprocess_raw_methylation(raw_mat, max_nan_frac=args.max_nan_frac)
 
     # 3. Compute UMAPs
-    log.info("\n[3/4] Computing UMAPs ...")
+    n_umaps = 3 if random_emb is not None else 2
+    log.info(f"\n[3/4] Computing {n_umaps} UMAPs ...")
+
     cls_umap = compute_umap(cls_emb, name="CLS",
                             n_pca=args.n_pca, n_neighbors=args.n_neighbors,
                             min_dist=args.min_dist, seed=args.seed,
-                            run_pca=False)   # CLS is already 256D — skip PCA
+                            run_pca=False)   # 256D — skip PCA
+
+    random_umap = None
+    if random_emb is not None:
+        random_umap = compute_umap(random_emb, name="Random",
+                                   n_pca=args.n_pca, n_neighbors=args.n_neighbors,
+                                   min_dist=args.min_dist, seed=args.seed,
+                                   run_pca=False)   # same 256D — skip PCA
 
     raw_umap = compute_umap(raw_clean, name="Raw",
                             n_pca=args.n_pca, n_neighbors=args.n_neighbors,
                             min_dist=args.min_dist, seed=args.seed,
-                            run_pca=True)    # Raw is high-dim — PCA first
+                            run_pca=True)    # high-dim — PCA first
 
     # Save coords
     np.save(outdir / "cls_umap_coords.npy", cls_umap)
     np.save(outdir / "raw_umap_coords.npy", raw_umap)
+    if random_umap is not None:
+        np.save(outdir / "random_umap_coords.npy", random_umap)
     meta.to_csv(outdir / "aligned_metadata.csv", index=False)
     log.info(f"  Saved UMAP coordinates and metadata")
 
     # 4. Plot
     log.info("\n[4/4] Generating figure ...")
-    plot_embedding_panels(cls_umap, raw_umap, meta, outdir, dpi=args.dpi)
+    plot_embedding_panels(cls_umap, raw_umap, meta, outdir,
+                          dpi=args.dpi, random_coords=random_umap)
 
     log.info("\n" + "=" * 60)
     log.info(f" DONE  →  {outdir}/figures/figure3_comparison.png")
