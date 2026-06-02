@@ -72,12 +72,19 @@ def compute_avg_bio(name: str, emb: np.ndarray, labels: np.ndarray,
     adata = sc.AnnData(X=emb.astype(np.float32))
     adata.obs["label"] = labels
 
-    # PCA → neighbors → Leiden
+    # PCA → neighbors → clustering
     sc.pp.pca(adata, n_comps=min(n_pca, emb.shape[1] - 1))
     sc.pp.neighbors(adata, use_rep="X_pca", n_neighbors=15)
-    sc.tl.leiden(adata, resolution=leiden_res, key_added="leiden", random_state=0)
+    try:
+        sc.tl.leiden(adata, resolution=leiden_res, key_added="leiden", random_state=0)
+        cluster_key = "leiden"
+    except ImportError:
+        log.warning("leidenalg not installed — falling back to louvain")
+        sc.tl.louvain(adata, resolution=leiden_res, key_added="louvain",
+                      random_state=0, flavor="igraph")
+        cluster_key = "louvain"
 
-    clusters = adata.obs["leiden"].values
+    clusters = adata.obs[cluster_key].values
     labs     = adata.obs["label"].values
 
     nmi = normalized_mutual_info_score(labs, clusters)
