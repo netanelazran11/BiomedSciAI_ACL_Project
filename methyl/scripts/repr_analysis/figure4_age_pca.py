@@ -2,34 +2,35 @@
 """
 figure4_age_pca.py
 ==================
-PCA visualization of CLS embedding space colored by age — before and after fine-tuning.
+PCA visualization: CLS embedding space colored by age — before vs after fine-tuning.
 
-Data flow (explicit):
-  BEFORE FINE-TUNING:
-    Model    : WCED pretrained checkpoint (frozen encoder)
-    Data     : 19k finetune h5ad (same samples used for finetune)
-    Embedding: --pretrained_npy  (pre-computed, from cls_probing run)
+EXACT DATA / MODEL MAPPING
+---------------------------
+BEFORE fine-tuning:
+  Model    : WCED pretrained checkpoint  (trained on 169k pretrain data)
+  Data     : 19k finetune h5ad           (inference only — model never trained on this)
+  Embedding: --pretrained_npy            (row-aligned to --pretrained_meta)
 
-  AFTER FINE-TUNING:
-    Model    : MethylationAgeRegressorLlama checkpoint (encoder updated from epoch 10)
-    Data     : Same 19k finetune h5ad
-    Embedding: --finetuned_npy   (pre-computed, from finetune extract run)
+AFTER fine-tuning:
+  Model    : MethylationAgeRegressorLlama (encoder unfrozen at epoch 10, updated 127 epochs)
+  Data     : same 19k finetune h5ad      (same samples, same h5ad file)
+  Embedding: --finetuned_npy             (row-aligned to --finetuned_meta)
 
-Both embedding files must be row-aligned to --metadata_csv.
+The two embedding files likely have DIFFERENT row counts / orderings.
+This script aligns them by SAMPLE ID (index of metadata CSVs) — safe and correct.
 
-Panels (2 rows × 2 cols):
-  a: Pretrained CLS — by age (continuous)
-  b: Pretrained CLS — by tissue
-  c: Fine-tuned CLS  — by age (continuous)
-  d: Fine-tuned CLS  — by tissue
+Output: 2-row × 2-col figure
+  Row 1: Pretrained CLS — a: age (continuous)  b: tissue
+  Row 2: Fine-tuned CLS — c: age (continuous)  d: tissue
 
 Usage:
   python scripts/repr_analysis/figure4_age_pca.py \\
-      --pretrained_npy  outputs/repr_analysis/cls_probing_44905909/embeddings_cls.npy \\
-      --finetuned_npy   outputs/repr_analysis/finetune_extract_JOBID/embeddings_cls.npy \\
-      --metadata_csv    outputs/repr_analysis/cls_probing_44905909/metadata.csv \\
-      --ext_metadata    data/pretrain_metadata.csv.gz \\
-      --outdir          outputs/repr_analysis/figure4
+      --pretrained_npy   outputs/repr_analysis/cls_probing_44905909/embeddings_cls.npy \\
+      --pretrained_meta  outputs/repr_analysis/cls_probing_44905909/metadata.csv \\
+      --finetuned_npy    outputs/repr_analysis/cls_probing_finetune_JOBID/embeddings_cls.npy \\
+      --finetuned_meta   outputs/repr_analysis/cls_probing_finetune_JOBID/metadata.csv \\
+      --ext_metadata     data/pretrain_metadata.csv.gz \\
+      --outdir           outputs/repr_analysis/figure4
 """
 
 import argparse
@@ -40,7 +41,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
@@ -52,9 +52,6 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tissue palette (same as figure3)
-# ─────────────────────────────────────────────────────────────────────────────
 TISSUE_COLORS = {
     "Whole Blood":          "#E64B35",
     "Brain":                "#4DBBD5",
@@ -97,124 +94,154 @@ TISSUE_COLORS = {
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser()
+    # Pretrained embeddings + their own metadata
     p.add_argument("--pretrained_npy",  required=True,
-                   help="CLS embeddings from WCED pretrained model [N, 256]")
+                   help="CLS from WCED pretrained model [N_pre, 256]")
+    p.add_argument("--pretrained_meta", required=True,
+                   help="metadata.csv for pretrained_npy (index = sample IDs)")
+    # Fine-tuned embeddings + their own metadata
     p.add_argument("--finetuned_npy",   required=True,
-                   help="CLS embeddings from fine-tuned model [N, 256]")
-    p.add_argument("--metadata_csv",    required=True,
-                   help="metadata.csv aligned to pretrained_npy (index = sample IDs)")
+                   help="CLS from fine-tuned model [N_ft, 256]")
+    p.add_argument("--finetuned_meta",  required=True,
+                   help="metadata.csv for finetuned_npy (index = sample IDs)")
+    # Labels
     p.add_argument("--ext_metadata",    default=None,
-                   help="External metadata CSV.gz for tissue labels")
+                   help="External metadata CSV.gz for tissue labels (joined on sample ID)")
     p.add_argument("--ext_id_col",      default="GSM_ID")
     p.add_argument("--age_col",         default="age")
+    # Output
     p.add_argument("--outdir",          default="outputs/repr_analysis/figure4")
-    p.add_argument("--n_components",    type=int, default=2)
     p.add_argument("--dpi",             type=int, default=200)
     return p.parse_args()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data loading
+# Load one embedding set with its metadata → DataFrame indexed by sample ID
 # ─────────────────────────────────────────────────────────────────────────────
-def load_inputs(args):
-    # ── Metadata ─────────────────────────────────────────────────────────────
-    log.info(f"Loading metadata: {args.metadata_csv}")
-    meta = pd.read_csv(args.metadata_csv, index_col=0)
-    log.info(f"  {meta.shape}  columns: {list(meta.columns)}")
+def _load_one(npy_path: str, meta_path: str, label: str) -> tuple:
+    log.info(f"\n[{label}]")
+    log.info(f"  npy  : {npy_path}")
+    log.info(f"  meta : {meta_path}")
 
-    # Join tissue/sex from external metadata if needed
-    if args.ext_metadata and Path(args.ext_metadata).exists():
-        log.info(f"  Joining external metadata: {args.ext_metadata}")
-        ext = pd.read_csv(args.ext_metadata)
-        ext = ext.drop_duplicates(subset=args.ext_id_col).set_index(args.ext_id_col)
-        join_cols = [c for c in ["tissue", "sex"] if c in ext.columns]
-        meta = meta.join(ext[join_cols], how="left")
-        for col in join_cols:
-            n = meta[col].notna().sum()
-            log.info(f"    {col}: {n:,}/{len(meta):,} matched")
+    emb  = np.load(npy_path).astype(np.float32)
+    meta = pd.read_csv(meta_path, index_col=0)
 
-    # ── Age labels ────────────────────────────────────────────────────────────
-    if args.age_col not in meta.columns:
-        raise ValueError(f"age column '{args.age_col}' not in metadata: {list(meta.columns)}")
-    ages = pd.to_numeric(meta[args.age_col], errors="coerce").values
-    n_valid = (~np.isnan(ages)).sum()
-    log.info(f"  Age labels: {n_valid:,}/{len(ages):,} valid")
+    log.info(f"  emb shape : {emb.shape}")
+    log.info(f"  meta shape: {meta.shape}  columns: {list(meta.columns)}")
+    log.info(f"  index sample: {list(meta.index[:3])}")
 
-    # ── Pretrained embeddings (WCED pretrained model on finetune data) ────────
-    log.info(f"\nLoading pretrained CLS: {args.pretrained_npy}")
-    pre_emb = np.load(args.pretrained_npy).astype(np.float32)
-    log.info(f"  Shape: {pre_emb.shape}")
-    if pre_emb.shape[0] != len(meta):
+    if emb.shape[0] != len(meta):
         raise ValueError(
-            f"pretrained_npy rows ({pre_emb.shape[0]}) ≠ metadata rows ({len(meta)})\n"
-            f"Ensure pretrained_npy was extracted on the SAME data as metadata_csv."
+            f"[{label}] embedding rows ({emb.shape[0]}) ≠ metadata rows ({len(meta)}). "
+            f"The npy and metadata.csv must come from the SAME extraction run."
         )
 
-    # ── Fine-tuned embeddings (fine-tuned model on same finetune data) ────────
-    log.info(f"Loading fine-tuned CLS: {args.finetuned_npy}")
-    ft_emb = np.load(args.finetuned_npy).astype(np.float32)
-    log.info(f"  Shape: {ft_emb.shape}")
-    if ft_emb.shape[0] != len(meta):
+    return emb, meta
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Join tissue labels from external metadata
+# ─────────────────────────────────────────────────────────────────────────────
+def _join_tissue(meta: pd.DataFrame, ext_meta_path: str, ext_id_col: str) -> pd.DataFrame:
+    if "tissue" in meta.columns:
+        return meta
+    if not ext_meta_path or not Path(ext_meta_path).exists():
+        log.warning("  No ext_metadata — tissue labels unavailable")
+        meta["tissue"] = "unknown"
+        return meta
+    ext = pd.read_csv(ext_meta_path)
+    ext = ext.drop_duplicates(subset=ext_id_col).set_index(ext_id_col)
+    cols = [c for c in ["tissue", "sex"] if c in ext.columns]
+    meta = meta.join(ext[cols], how="left")
+    n = meta["tissue"].notna().sum() if "tissue" in meta.columns else 0
+    log.info(f"  tissue labels joined: {n:,}/{len(meta):,}")
+    return meta
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Align two embedding sets by common sample IDs
+# ─────────────────────────────────────────────────────────────────────────────
+def align_by_sample_id(pre_emb, pre_meta, ft_emb, ft_meta):
+    pre_ids = set(pre_meta.index)
+    ft_ids  = set(ft_meta.index)
+    common  = sorted(pre_ids & ft_ids)   # sorted for reproducibility
+
+    log.info(f"\nAlignment by sample ID:")
+    log.info(f"  Pretrained samples : {len(pre_ids):,}")
+    log.info(f"  Fine-tuned samples : {len(ft_ids):,}")
+    log.info(f"  Common samples     : {len(common):,}")
+    log.info(f"  Only in pretrained : {len(pre_ids - ft_ids):,}")
+    log.info(f"  Only in fine-tuned : {len(ft_ids - pre_ids):,}")
+
+    if len(common) < 100:
         raise ValueError(
-            f"finetuned_npy rows ({ft_emb.shape[0]}) ≠ metadata rows ({len(meta)})\n"
-            f"Ensure finetuned_npy was extracted on the SAME data and in the SAME ORDER."
+            f"Only {len(common)} common samples between pretrained and fine-tuned metadata. "
+            f"Check that both runs used the same h5ad file."
         )
 
-    log.info(f"\nSanity check — same samples, same order:")
-    log.info(f"  pretrained shape : {pre_emb.shape}")
-    log.info(f"  fine-tuned shape : {ft_emb.shape}")
-    log.info(f"  metadata rows    : {len(meta)}")
+    # Build positional index maps
+    pre_id2row = {sid: i for i, sid in enumerate(pre_meta.index)}
+    ft_id2row  = {sid: i for i, sid in enumerate(ft_meta.index)}
 
-    return pre_emb, ft_emb, meta, ages
+    pre_idx = np.array([pre_id2row[sid] for sid in common])
+    ft_idx  = np.array([ft_id2row[sid]  for sid in common])
+
+    pre_emb_aligned  = pre_emb[pre_idx]
+    ft_emb_aligned   = ft_emb[ft_idx]
+    pre_meta_aligned = pre_meta.iloc[pre_idx].copy()
+
+    log.info(f"  Aligned shapes — pretrained: {pre_emb_aligned.shape}  fine-tuned: {ft_emb_aligned.shape}")
+    return pre_emb_aligned, ft_emb_aligned, pre_meta_aligned
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PCA
 # ─────────────────────────────────────────────────────────────────────────────
-def run_pca(emb: np.ndarray, name: str, n_components: int = 2) -> np.ndarray:
-    log.info(f"[{name}] PCA {emb.shape} → {n_components}D ...")
+def run_pca(emb: np.ndarray, name: str) -> tuple:
+    log.info(f"[{name}] PCA {emb.shape} → 2D ...")
     X = StandardScaler().fit_transform(emb)
-    pca = PCA(n_components=n_components, random_state=42)
+    pca = PCA(n_components=2, random_state=42)
     coords = pca.fit_transform(X).astype(np.float32)
     var = pca.explained_variance_ratio_
-    log.info(f"  PC1={var[0]*100:.1f}%  PC2={var[1]*100:.1f}%  "
-             f"total={sum(var)*100:.1f}%")
+    log.info(f"  PC1={var[0]*100:.1f}%  PC2={var[1]*100:.1f}%  total={sum(var)*100:.1f}%")
     return coords, var
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Plotting helpers
+# Plot helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def _scatter_age(ax, coords, ages, var, title, panel_letter):
+def _scatter_age(ax, coords, ages, var, title):
     valid = ~np.isnan(ages)
     sc = ax.scatter(coords[valid, 0], coords[valid, 1],
-                    c=ages[valid], cmap="plasma",
-                    s=3, alpha=0.5, linewidths=0, rasterized=True)
-    if invalid := (~valid).sum():
+                    c=ages[valid], cmap="plasma", vmin=np.nanpercentile(ages, 2),
+                    vmax=np.nanpercentile(ages, 98),
+                    s=4, alpha=0.55, linewidths=0, rasterized=True)
+    if (~valid).sum() > 0:
         ax.scatter(coords[~valid, 0], coords[~valid, 1],
-                   c="#CCCCCC", s=2, alpha=0.3, linewidths=0, rasterized=True)
-    ax.set_title(f"{panel_letter}  |  {title} — by Age", fontsize=11, fontweight="bold", pad=5)
+                   c="#CCCCCC", s=2, alpha=0.25, linewidths=0, rasterized=True)
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
     ax.set_xlabel(f"PC1 ({var[0]*100:.1f}%)", fontsize=9)
     ax.set_ylabel(f"PC2 ({var[1]*100:.1f}%)", fontsize=9)
     ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
+    for sp in ax.spines.values():
+        sp.set_linewidth(0.5)
     return sc
 
 
-def _scatter_tissue(ax, coords, tissue_labels, title, panel_letter):
-    cats = [t for t in dict.fromkeys(tissue_labels) if t not in ("unknown", "nan", "None")]
+def _scatter_tissue(ax, coords, tissue_labels, title):
+    cats = [t for t in dict.fromkeys(tissue_labels)
+            if t not in ("unknown", "nan", "None", float("nan"))]
     for cat in cats:
-        mask = np.array([t == cat for t in tissue_labels])
+        mask  = np.array([str(t) == str(cat) for t in tissue_labels])
         color = TISSUE_COLORS.get(cat, "#AAAAAA")
         ax.scatter(coords[mask, 0], coords[mask, 1],
-                   c=color, s=3, alpha=0.5, linewidths=0, rasterized=True)
-    ax.set_title(f"{panel_letter}  |  {title} — by Tissue", fontsize=11, fontweight="bold", pad=5)
+                   c=color, s=4, alpha=0.55, linewidths=0, rasterized=True)
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
     ax.set_xlabel("PC1", fontsize=9)
     ax.set_ylabel("PC2", fontsize=9)
     ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
+    for sp in ax.spines.values():
+        sp.set_linewidth(0.5)
     handles = [mpatches.Patch(color=TISSUE_COLORS.get(c, "#AAAAAA"), label=c)
                for c in cats if c in TISSUE_COLORS]
     if handles:
@@ -227,35 +254,30 @@ def _scatter_tissue(ax, coords, tissue_labels, title, panel_letter):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main figure
 # ─────────────────────────────────────────────────────────────────────────────
-def plot_figure4(pre_coords, pre_var, ft_coords, ft_var,
-                 ages, tissue_labels, outdir: Path, dpi: int):
+def make_figure(pre_coords, pre_var, ft_coords, ft_var,
+                ages, tissue_labels, outdir: Path, dpi: int):
     fig_dir = outdir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     fig = plt.figure(figsize=(14, 11))
     fig.patch.set_facecolor("white")
 
-    # Row labels
-    row_info = [
-        ("Pretrained CLS  (before fine-tuning)",  pre_coords, pre_var),
-        ("Fine-tuned CLS  (after fine-tuning)",   ft_coords,  ft_var),
+    rows = [
+        ("Pretrained CLS  (before fine-tuning)", pre_coords, pre_var),
+        ("Fine-tuned CLS  (after fine-tuning)",  ft_coords,  ft_var),
     ]
 
-    top_margin    = 0.96
-    bottom_margin = 0.08
-    row_gap       = 0.08
-    n_rows        = 2
-    usable        = top_margin - bottom_margin
-    row_h         = (usable - row_gap * (n_rows - 1)) / n_rows
+    top_m, bot_m, gap = 0.96, 0.08, 0.07
+    row_h = (top_m - bot_m - gap) / 2
 
-    # Colorbar axis (shared for age panels)
-    cbar_ax = fig.add_axes([0.47, bottom_margin, 0.015, usable])
+    cbar_ax = fig.add_axes([0.47, bot_m, 0.015, top_m - bot_m])
+    age_sc  = None
 
-    age_sc = None
-    for r, (row_title, coords, var) in enumerate(row_info):
-        top    = top_margin - r * (row_h + row_gap)
+    for r, (row_title, coords, var) in enumerate(rows):
+        top    = top_m - r * (row_h + gap)
         bottom = top - row_h
-        inner_top = top - 0.025
+        inner  = top - 0.025
+        h      = inner - bottom
 
         fig.text(0.5, top + 0.005, row_title,
                  ha="center", va="bottom", fontsize=12, fontweight="bold",
@@ -264,21 +286,18 @@ def plot_figure4(pre_coords, pre_var, ft_coords, ft_var,
                                   transform=fig.transFigure,
                                   color="#1E3A5F", linewidth=1.0, alpha=0.4))
 
-        panel_h = inner_top - bottom
-
-        # Left: age
-        ax_age = fig.add_axes([0.05, bottom, 0.40, panel_h])
-        letter_age = chr(ord('a') + r * 2)
-        sc = _scatter_age(ax_age, coords, ages, var, row_title.split("(")[0].strip(), letter_age)
+        ax_age = fig.add_axes([0.05, bottom, 0.39, h])
+        letter = chr(ord('a') + r * 2)
+        sc = _scatter_age(ax_age, coords, ages, var,
+                          f"{letter}  |  by Age (years)")
         if r == 0:
-            age_sc = sc  # use first row's scatter for shared colorbar
+            age_sc = sc
 
-        # Right: tissue
-        ax_tis = fig.add_axes([0.52, bottom, 0.44, panel_h])
-        letter_tis = chr(ord('a') + r * 2 + 1)
-        _scatter_tissue(ax_tis, coords, tissue_labels, row_title.split("(")[0].strip(), letter_tis)
+        ax_tis = fig.add_axes([0.52, bottom, 0.44, h])
+        letter = chr(ord('a') + r * 2 + 1)
+        _scatter_tissue(ax_tis, coords, tissue_labels,
+                        f"{letter}  |  by Tissue")
 
-    # Shared age colorbar
     if age_sc is not None:
         cbar = fig.colorbar(age_sc, cax=cbar_ax)
         cbar.set_label("Age (years)", fontsize=9)
@@ -292,29 +311,21 @@ def plot_figure4(pre_coords, pre_var, ft_coords, ft_var,
     plt.close()
 
     # Individual panels
-    _save_individual_panels(pre_coords, pre_var, ft_coords, ft_var,
-                            ages, tissue_labels, fig_dir, dpi)
-
-
-def _save_individual_panels(pre_c, pre_v, ft_c, ft_v, ages, tissue_l, fig_dir, dpi):
-    configs = [
-        ("pretrained_age",    pre_c, pre_v, "age"),
-        ("pretrained_tissue", pre_c, pre_v, "tissue"),
-        ("finetuned_age",     ft_c,  ft_v,  "age"),
-        ("finetuned_tissue",  ft_c,  ft_v,  "tissue"),
-    ]
-    tissue_labels = tissue_l
-    for fname, coords, var, mode in configs:
-        fig, ax = plt.subplots(figsize=(7, 6))
+    for fname, coords, var, mode in [
+        ("pretrained_age",    pre_coords, pre_var, "age"),
+        ("pretrained_tissue", pre_coords, pre_var, "tissue"),
+        ("finetuned_age",     ft_coords,  ft_var,  "age"),
+        ("finetuned_tissue",  ft_coords,  ft_var,  "tissue"),
+    ]:
+        fig2, ax2 = plt.subplots(figsize=(7, 6))
         if mode == "age":
-            sc = _scatter_age(ax, coords, ages, var, fname.replace("_", " ").title(), "")
-            plt.colorbar(sc, ax=ax, label="Age (years)")
+            sc2 = _scatter_age(ax2, coords, ages, var, fname.replace("_", " ").title())
+            plt.colorbar(sc2, ax=ax2, label="Age (years)")
         else:
-            _scatter_tissue(ax, coords, tissue_labels, fname.replace("_", " ").title(), "")
+            _scatter_tissue(ax2, coords, tissue_labels, fname.replace("_", " ").title())
         plt.tight_layout()
-        fig.savefig(fig_dir / f"{fname}.png", dpi=dpi, bbox_inches="tight")
+        fig2.savefig(fig_dir / f"{fname}.png", dpi=dpi, bbox_inches="tight")
         plt.close()
-        log.info(f"  Saved panel → {fig_dir / fname}.png")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -326,33 +337,53 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     log.info("=" * 60)
-    log.info(" Figure 4: CLS Embedding Space — Before vs After Fine-tuning")
+    log.info(" Figure 4: CLS Space — Before vs After Fine-tuning")
     log.info("=" * 60)
-    log.info(f" Pretrained embeddings : {args.pretrained_npy}")
-    log.info(f" Fine-tuned embeddings : {args.finetuned_npy}")
-    log.info(f" Metadata              : {args.metadata_csv}")
+    log.info(f" BEFORE FT: {args.pretrained_npy}")
+    log.info(f"            meta: {args.pretrained_meta}")
+    log.info(f" AFTER  FT: {args.finetuned_npy}")
+    log.info(f"            meta: {args.finetuned_meta}")
     log.info("=" * 60)
 
-    # 1. Load
-    pre_emb, ft_emb, meta, ages = load_inputs(args)
+    # 1. Load each embedding with its OWN metadata
+    pre_emb, pre_meta = _load_one(args.pretrained_npy, args.pretrained_meta, "PRETRAINED")
+    ft_emb,  ft_meta  = _load_one(args.finetuned_npy,  args.finetuned_meta,  "FINE-TUNED")
 
-    tissue_labels = (meta["tissue"].fillna("unknown").tolist()
-                     if "tissue" in meta.columns else ["unknown"] * len(meta))
+    # 2. Join tissue labels
+    pre_meta = _join_tissue(pre_meta, args.ext_metadata, args.ext_id_col)
+    ft_meta  = _join_tissue(ft_meta,  args.ext_metadata, args.ext_id_col)
 
-    # 2. PCA — separately for each embedding
+    # 3. Align by common sample IDs — safe regardless of row order or count
+    pre_emb, ft_emb, meta_aligned = align_by_sample_id(pre_emb, pre_meta, ft_emb, ft_meta)
+
+    # 4. Extract labels from aligned metadata
+    ages = pd.to_numeric(
+        meta_aligned[args.age_col] if args.age_col in meta_aligned.columns
+        else pd.Series([float("nan")] * len(meta_aligned)),
+        errors="coerce"
+    ).values
+    tissue_labels = (meta_aligned["tissue"].fillna("unknown").tolist()
+                     if "tissue" in meta_aligned.columns
+                     else ["unknown"] * len(meta_aligned))
+
+    n_age = (~np.isnan(ages)).sum()
+    log.info(f"\nFinal dataset: {len(meta_aligned):,} aligned samples")
+    log.info(f"  Age labels   : {n_age:,} valid")
+    log.info(f"  Tissue labels: {sum(1 for t in tissue_labels if t != 'unknown'):,} valid")
+
+    # 5. PCA — independent for each embedding
     log.info("\n[2/3] Running PCA ...")
-    pre_coords, pre_var = run_pca(pre_emb, "Pretrained", args.n_components)
-    ft_coords,  ft_var  = run_pca(ft_emb,  "Fine-tuned", args.n_components)
+    pre_coords, pre_var = run_pca(pre_emb,  "Pretrained")
+    ft_coords,  ft_var  = run_pca(ft_emb,   "Fine-tuned")
 
-    # Save coords
     np.save(outdir / "pretrained_pca_coords.npy", pre_coords)
     np.save(outdir / "finetuned_pca_coords.npy",  ft_coords)
-    meta.to_csv(outdir / "metadata.csv")
+    meta_aligned.to_csv(outdir / "aligned_metadata.csv")
 
-    # 3. Plot
+    # 6. Figure
     log.info("\n[3/3] Generating figure ...")
-    plot_figure4(pre_coords, pre_var, ft_coords, ft_var,
-                 ages, tissue_labels, outdir, dpi=args.dpi)
+    make_figure(pre_coords, pre_var, ft_coords, ft_var,
+                ages, tissue_labels, outdir, args.dpi)
 
     log.info("\n" + "=" * 60)
     log.info(f" DONE → {outdir}/figures/figure4_age_pca.png")
