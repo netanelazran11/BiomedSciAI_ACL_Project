@@ -54,6 +54,10 @@ def parse_args():
                    help="metadata.csv saved by cls_probing_analysis (rows aligned to embeddings)")
     p.add_argument("--label_col",    default="tissue",
                    help="Column in metadata to use as biological label")
+    p.add_argument("--ext_metadata", default=None,
+                   help="External metadata CSV/CSV.gz to join on index (e.g. pretrain_metadata.csv.gz)")
+    p.add_argument("--ext_id_col",   default="GSM_ID",
+                   help="Column in ext_metadata that matches metadata index (sample IDs)")
     p.add_argument("--min_samples",  type=int, default=10,
                    help="Drop labels with fewer than this many samples")
     p.add_argument("--n_pca",        type=int, default=50)
@@ -134,8 +138,22 @@ def main():
     meta = pd.read_csv(args.metadata_csv, index_col=0)
     log.info(f"  {len(meta):,} rows, columns: {list(meta.columns)}")
 
+    # Join external metadata if label_col is missing
     if args.label_col not in meta.columns:
-        raise ValueError(f"--label_col '{args.label_col}' not in metadata columns: {list(meta.columns)}")
+        if args.ext_metadata and Path(args.ext_metadata).exists():
+            log.info(f"  '{args.label_col}' not in metadata — joining from {args.ext_metadata}")
+            ext = pd.read_csv(args.ext_metadata)
+            ext = ext.drop_duplicates(subset=args.ext_id_col).set_index(args.ext_id_col)
+            if args.label_col not in ext.columns:
+                raise ValueError(f"'{args.label_col}' not found in ext_metadata columns: {list(ext.columns)}")
+            meta = meta.join(ext[[args.label_col]], how="left")
+            n_matched = meta[args.label_col].notna().sum()
+            log.info(f"  Matched {n_matched:,} / {len(meta):,} samples with tissue labels")
+        else:
+            raise ValueError(
+                f"--label_col '{args.label_col}' not in metadata columns: {list(meta.columns)}\n"
+                f"Pass --ext_metadata to join tissue labels from an external file."
+            )
 
     labels_raw = meta[args.label_col].fillna("unknown").values
 

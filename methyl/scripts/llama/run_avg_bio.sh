@@ -56,14 +56,16 @@ else
 fi
 
 python scripts/repr_analysis/avg_bio_eval.py \
-    --cls_npy      "${CLS_NPY}"   \
-    --mean_npy     "${MEAN_NPY}"  \
-    ${RANDOM_ARG}                 \
-    --metadata_csv "${METADATA}"  \
-    --label_col    tissue         \
-    --min_samples  10             \
-    --n_pca        50             \
-    --leiden_res   0.6            \
+    --cls_npy      "${CLS_NPY}"                    \
+    --mean_npy     "${MEAN_NPY}"                   \
+    ${RANDOM_ARG}                                  \
+    --metadata_csv "${METADATA}"                   \
+    --ext_metadata "${REPO}/data/pretrain_metadata.csv.gz" \
+    --ext_id_col   GSM_ID                          \
+    --label_col    tissue                          \
+    --min_samples  10                              \
+    --n_pca        50                              \
+    --leiden_res   0.6                             \
     --outdir       "${OUTDIR}"
 
 echo ""
