@@ -246,6 +246,89 @@ if EXT_META.exists() and meta is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 5b. Tissue palette coverage check
+# ─────────────────────────────────────────────────────────────────────────────
+section("5b. Tissue palette coverage")
+
+# Exact palette defined in figure3_comparison.py
+TISSUE_COLORS = {
+    "Whole Blood":          "#E64B35",
+    "Brain":                "#4DBBD5",
+    "Other":                "#AAAAAA",
+    "Cells":                "#9B59B6",
+    "Breast":               "#F39B7F",
+    "Lung":                 "#91D1C2",
+    "Colon":                "#C0392B",
+    "Liver":                "#3C5488",
+    "Prostate":             "#7E6148",
+    "Skin":                 "#8491B4",
+    "Testis":               "#27AE60",
+    "Ovary":                "#FF69B4",
+    "Stomach":              "#E67E22",
+    "Muscle":               "#00A087",
+    "Kidney":               "#F4A460",
+    "Esophagus":            "#808000",
+    "Pancreas":             "#F1C40F",
+    "Adipose":              "#B09C85",
+    "Bladder":              "#FA8072",
+    "Uterus":               "#C39BD3",
+    "Cervix":               "#DDA0DD",
+    "Thyroid":              "#5B2C6F",
+    "Adrenal Gland":        "#D35400",
+    "Nerve":                "#F7DC6F",
+    "Small Intestine":      "#7DCEA0",
+    "Heart":                "#922B21",
+    "Minor Salivary Gland": "#708090",
+    "Artery":               "#FF4500",
+    "Pituitary":            "#98FB98",
+    "Fallopian Tube":       "#FF91A4",
+    "Spleen":               "#6B8E23",
+    "Vagina":               "#FFDAB9",
+    "Blood":                "#E64B35",  # alias
+}
+
+if EXT_META.exists() and meta is not None:
+    ext = pd.read_csv(EXT_META)
+    ext_indexed = ext.drop_duplicates(subset="GSM_ID").set_index("GSM_ID")
+    joined = meta.join(ext_indexed[["tissue"]], how="left")
+
+    # All tissue values that actually appear in the 19k dataset
+    actual_tissues = set(joined["tissue"].dropna().unique())
+    palette_tissues = set(TISSUE_COLORS.keys())
+
+    print(f"  Tissue types in the 19k dataset : {len(actual_tissues)}")
+    print(f"  Tissue types in TISSUE_COLORS   : {len(palette_tissues)}")
+
+    # In data but NOT in palette → will fall back to auto tab20 color
+    missing_from_palette = actual_tissues - palette_tissues
+    # In palette but NOT in data → dead palette entries (harmless)
+    not_in_data = palette_tissues - actual_tissues
+
+    if not missing_from_palette:
+        ok("All tissue types in data are covered by TISSUE_COLORS palette")
+    else:
+        fail(f"{len(missing_from_palette)} tissue type(s) in data have NO palette color (will get auto-color):")
+        for t in sorted(missing_from_palette):
+            n = (joined["tissue"] == t).sum()
+            print(f"    MISSING  '{t}'  ({n:,} samples)")
+
+    if not_in_data:
+        print(f"\n  Palette entries not in this dataset (harmless):")
+        for t in sorted(not_in_data):
+            print(f"    unused   '{t}'")
+
+    # Print full tissue breakdown with palette status
+    print(f"\n  Full tissue breakdown (data count + palette color):")
+    vc = joined["tissue"].value_counts()
+    for tissue, count in vc.items():
+        color = TISSUE_COLORS.get(tissue, "AUTO (no explicit color)")
+        status = "OK " if tissue in palette_tissues else "MISSING"
+        print(f"    [{status}]  {count:5d}  {tissue:<25s}  {color}")
+else:
+    warn("Cannot check palette — ext_metadata not found")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 6. h5ad raw methylation check
 # ─────────────────────────────────────────────────────────────────────────────
 section("6. h5ad raw methylation matrix")
