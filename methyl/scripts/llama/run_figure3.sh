@@ -12,7 +12,7 @@
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
 
 # ─────────────────────────────────────────────────────────────────────────────
-# run_figure3.sh  —  MethylGPT Fig 3 equivalent: CLS space vs Raw methylation
+# run_figure3.sh  —  Embedding space comparison: CLS vs Raw methylation
 #
 # Generates a publication-quality 6-panel UMAP figure:
 #   Top row    : MethylLlama CLS embedding (256D, WCED pretrained)

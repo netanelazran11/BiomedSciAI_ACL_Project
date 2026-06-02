@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-figure3_comparison.py  —  MethylGPT Fig 3 equivalent
-=====================================================
-Publication-quality 6-panel figure comparing:
+figure3_comparison.py
+=====================
+Publication-quality 6-panel UMAP figure comparing:
   Top row    : MethylLlama CLS embedding sample space
   Bottom row : Raw DNA methylation sample space
 
@@ -402,7 +402,7 @@ def main():
 
     # 1. Load + align all data
     log.info("=" * 60)
-    log.info(" Figure 3 Comparison: MethylLlama CLS vs Raw Methylation")
+    log.info(" Embedding Space Comparison: MethylLlama CLS vs Raw Methylation")
     log.info("=" * 60)
     data = load_data(args)
 
