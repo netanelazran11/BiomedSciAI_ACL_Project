@@ -210,45 +210,49 @@ def run_pca(emb: np.ndarray, name: str) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 # Plot helpers
 # ─────────────────────────────────────────────────────────────────────────────
+def _style_ax(ax):
+    ax.set_facecolor("#F7F7F7")
+    ax.grid(True, color="white", linewidth=0.8, alpha=1.0, zorder=0)
+    for sp in ax.spines.values():
+        sp.set_linewidth(0.6)
+        sp.set_color("#AAAAAA")
+    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+
 def _scatter_age(ax, coords, ages, var, title):
+    _style_ax(ax)
     valid = ~np.isnan(ages)
     sc = ax.scatter(coords[valid, 0], coords[valid, 1],
-                    c=ages[valid], cmap="plasma", vmin=np.nanpercentile(ages, 2),
-                    vmax=np.nanpercentile(ages, 98),
-                    s=4, alpha=0.55, linewidths=0, rasterized=True)
+                    c=ages[valid], cmap="coolwarm", vmin=0, vmax=100,
+                    s=9, alpha=0.70, linewidths=0, rasterized=True, zorder=2)
     if (~valid).sum() > 0:
         ax.scatter(coords[~valid, 0], coords[~valid, 1],
-                   c="#CCCCCC", s=2, alpha=0.25, linewidths=0, rasterized=True)
+                   c="#CCCCCC", s=4, alpha=0.25, linewidths=0, rasterized=True, zorder=1)
     ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
     ax.set_xlabel(f"PC1 ({var[0]*100:.1f}%)", fontsize=9)
     ax.set_ylabel(f"PC2 ({var[1]*100:.1f}%)", fontsize=9)
-    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    for sp in ax.spines.values():
-        sp.set_linewidth(0.5)
     return sc
 
 
 def _scatter_tissue(ax, coords, tissue_labels, title):
+    _style_ax(ax)
     cats = [t for t in dict.fromkeys(tissue_labels)
             if t not in ("unknown", "nan", "None", float("nan"))]
     for cat in cats:
         mask  = np.array([str(t) == str(cat) for t in tissue_labels])
         color = TISSUE_COLORS.get(cat, "#AAAAAA")
         ax.scatter(coords[mask, 0], coords[mask, 1],
-                   c=color, s=4, alpha=0.55, linewidths=0, rasterized=True)
+                   c=color, s=9, alpha=0.70, linewidths=0, rasterized=True, zorder=2)
     ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
     ax.set_xlabel("PC1", fontsize=9)
     ax.set_ylabel("PC2", fontsize=9)
-    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    for sp in ax.spines.values():
-        sp.set_linewidth(0.5)
     handles = [mpatches.Patch(color=TISSUE_COLORS.get(c, "#AAAAAA"), label=c)
                for c in cats if c in TISSUE_COLORS]
     if handles:
         ncol = 1 if len(handles) <= 12 else 2
         ax.legend(handles=handles, fontsize=6.5, loc="lower right",
-                  framealpha=0.6, ncol=ncol, handlelength=1.2,
-                  borderpad=0.4, labelspacing=0.25)
+                  framealpha=0.75, ncol=ncol, handlelength=1.2,
+                  borderpad=0.4, labelspacing=0.25, edgecolor="#CCCCCC")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -299,9 +303,10 @@ def make_figure(pre_coords, pre_var, ft_coords, ft_var,
                         f"{letter}  |  by Tissue")
 
     if age_sc is not None:
-        cbar = fig.colorbar(age_sc, cax=cbar_ax)
+        cbar = fig.colorbar(age_sc, cax=cbar_ax, ticks=[0, 25, 50, 75, 100])
         cbar.set_label("Age (years)", fontsize=9)
         cbar.ax.tick_params(labelsize=8)
+        cbar.ax.set_yticklabels(["0", "25", "50", "75", "100"])
 
     for ext in ["png", "pdf"]:
         out = fig_dir / f"figure4_age_pca.{ext}"
