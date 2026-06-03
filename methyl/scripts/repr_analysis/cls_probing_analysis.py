@@ -216,7 +216,8 @@ def load_metadata(data_path, label_cols, age_col, split_col,
         if metadata_id_col not in ext.columns:
             raise ValueError(f"--metadata_id_col '{metadata_id_col}' not in {list(ext.columns)}")
         ext = ext.drop_duplicates(subset=metadata_id_col).set_index(metadata_id_col)
-        meta = meta.join(ext, how="left")
+        new_cols = [c for c in ext.columns if c not in meta.columns]
+        meta = meta.join(ext[new_cols], how="left")
         n_matched = meta.notna().any(axis=1).sum()
         log.info(f"  Matched {n_matched:,} / {len(meta):,} samples to external metadata")
 

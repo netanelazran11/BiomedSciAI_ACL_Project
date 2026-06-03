@@ -61,7 +61,14 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 EXT_META="${REPO}/data/pretrain_metadata.csv.gz"
 
-EXTRACT_OUTDIR="${REPO}/outputs/repr_analysis/finetune_extract_${SLURM_JOB_ID}"
+# Reuse previous extraction dir if embeddings already exist (e.g. from job 44944545)
+PREV_EXTRACT="${REPO}/outputs/repr_analysis/finetune_extract_44944545"
+if [ -f "${PREV_EXTRACT}/embeddings_cls.npy" ]; then
+    EXTRACT_OUTDIR="${PREV_EXTRACT}"
+    echo "  Reusing existing extraction from: ${EXTRACT_OUTDIR}"
+else
+    EXTRACT_OUTDIR="${REPO}/outputs/repr_analysis/finetune_extract_${SLURM_JOB_ID}"
+fi
 FINETUNED_NPY="${EXTRACT_OUTDIR}/embeddings_cls.npy"
 FINETUNED_META="${EXTRACT_OUTDIR}/metadata.csv"
 
@@ -101,6 +108,15 @@ echo "         Data  : ${DATA}"
 echo "============================================================"
 mkdir -p "${EXTRACT_OUTDIR}"
 
+# If embeddings already extracted (e.g. from a previous failed run), skip re-extraction
+PRECOMP_ARGS=""
+if [ -f "${FINETUNED_NPY}" ]; then
+    echo "  Found pre-computed embeddings — skipping GPU extraction"
+    PRECOMP_ARGS="--cls_embeddings ${FINETUNED_NPY}"
+else
+    echo "  No pre-computed embeddings — will extract from checkpoint"
+fi
+
 python scripts/repr_analysis/cls_probing_analysis.py \
     --checkpoint      "${FINETUNE_CKPT}"   \
     --ckpt_type       finetune             \
@@ -114,7 +130,8 @@ python scripts/repr_analysis/cls_probing_analysis.py \
     --skip_probing                         \
     --label_cols      tissue sex dataset   \
     --age_col         age                  \
-    --split_col       split
+    --split_col       split                \
+    ${PRECOMP_ARGS}
 
 if [ ! -f "${FINETUNED_NPY}" ]; then
     echo "ERROR: fine-tuned embeddings not created: ${FINETUNED_NPY}"
