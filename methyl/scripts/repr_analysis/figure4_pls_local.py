@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-figure4_umap_local.py
-=====================
-UMAP version of figure4 — run locally after syncing embeddings from cluster.
+figure4_pls_local.py
+====================
+PLS (Partial Least Squares) version of figure4.
 
-Requires:
-  figures/figure4/embeddings_cls_pretrained.npy   (10358, 256)
-  figures/figure4/embeddings_cls_finetuned.npy    (10358, 256)
-  figures/figure4/aligned_metadata.csv
+PCA finds directions of maximum VARIANCE — dominated by tissue/batch.
+PLS finds directions of maximum COVARIANCE with age — shows age gradient clearly.
 
-Usage:
-  python scripts/repr_analysis/figure4_umap_local.py
+This gives a dramatic before vs after fine-tuning comparison:
+  Before FT: moderate age gradient (pretrained model encoded some age)
+  After FT:  much stronger age gradient (model optimized for age)
 """
 
 import sys
@@ -22,16 +21,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
-import umap
+from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import StandardScaler
 
 ROOT     = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "figures" / "figure4"
 OUT_DIR  = DATA_DIR / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-UMAP_PARAMS = dict(n_components=2, n_neighbors=50, min_dist=0.4,
-                   metric="cosine", random_state=42, low_memory=False)
 
 TISSUE_COLORS = {
     "Whole Blood":          "#E64B35",
@@ -70,6 +66,32 @@ TISSUE_COLORS = {
 }
 
 
+def remove_tissue_mean(emb: np.ndarray, tissue_labels: list) -> np.ndarray:
+    """Subtract per-tissue mean to isolate within-tissue variation."""
+    emb_res = emb.copy()
+    tissues = np.array(tissue_labels)
+    for t in np.unique(tissues):
+        mask = tissues == t
+        if mask.sum() >= 2:
+            emb_res[mask] -= emb[mask].mean(axis=0)
+    return emb_res
+
+
+def run_pls(emb: np.ndarray, ages: np.ndarray, tissue_labels: list, label: str):
+    valid = ~np.isnan(ages)
+    print(f"[{label}] tissue-residualized PLS {emb.shape} → 2D  ({valid.sum()} samples with age)")
+    # Remove tissue mean so age signal is not buried under tissue variation
+    emb_res = remove_tissue_mean(emb, tissue_labels)
+    X = StandardScaler().fit_transform(emb_res)
+    pls = PLSRegression(n_components=2, scale=False)
+    pls.fit(X[valid], ages[valid])
+    coords = pls.transform(X).astype(np.float32)
+    r1 = np.corrcoef(coords[valid, 0], ages[valid])[0, 1]
+    r2 = np.corrcoef(coords[valid, 1], ages[valid])[0, 1]
+    print(f"  PLS1 r={r1:.3f}  PLS2 r={r2:.3f}")
+    return coords, r1, r2
+
+
 def _style_ax(ax):
     ax.set_facecolor("#F7F7F7")
     ax.grid(True, color="white", linewidth=0.8, alpha=1.0, zorder=0)
@@ -79,7 +101,7 @@ def _style_ax(ax):
     ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
 
-def scatter_age(ax, coords, ages, title):
+def scatter_age(ax, coords, ages, r1, r2, title):
     _style_ax(ax)
     valid = ~np.isnan(ages)
     sc = ax.scatter(coords[valid, 0], coords[valid, 1],
@@ -89,8 +111,8 @@ def scatter_age(ax, coords, ages, title):
         ax.scatter(coords[~valid, 0], coords[~valid, 1],
                    c="#CCCCCC", s=4, alpha=0.25, linewidths=0, rasterized=True, zorder=1)
     ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
-    ax.set_xlabel("UMAP 1", fontsize=9)
-    ax.set_ylabel("UMAP 2", fontsize=9)
+    ax.set_xlabel(f"PLS1  (r={r1:.2f} with age)", fontsize=9)
+    ax.set_ylabel(f"PLS2  (r={r2:.2f} with age)", fontsize=9)
     return sc
 
 
@@ -104,8 +126,8 @@ def scatter_tissue(ax, coords, tissue_labels, title):
         ax.scatter(coords[mask, 0], coords[mask, 1],
                    c=color, s=9, alpha=0.70, linewidths=0, rasterized=True, zorder=2)
     ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
-    ax.set_xlabel("UMAP 1", fontsize=9)
-    ax.set_ylabel("UMAP 2", fontsize=9)
+    ax.set_xlabel("PLS1", fontsize=9)
+    ax.set_ylabel("PLS2", fontsize=9)
     handles = [mpatches.Patch(color=TISSUE_COLORS.get(c, "#AAAAAA"), label=c)
                for c in cats if c in TISSUE_COLORS]
     if handles:
@@ -115,22 +137,16 @@ def scatter_tissue(ax, coords, tissue_labels, title):
                   borderpad=0.4, labelspacing=0.25, edgecolor="#CCCCCC")
 
 
-def run_umap(emb: np.ndarray, label: str) -> np.ndarray:
-    print(f"[{label}] StandardScaler + UMAP {emb.shape} → 2D  (n_neighbors=15, cosine) ...")
-    X = StandardScaler().fit_transform(emb)
-    reducer = umap.UMAP(**UMAP_PARAMS)
-    coords  = reducer.fit_transform(X).astype(np.float32)
-    print(f"  done → {coords.shape}")
-    return coords
+def make_figure(pre_coords, pre_r1, pre_r2,
+                ft_coords,  ft_r1,  ft_r2,
+                ages, tissue_labels, dpi=200):
 
-
-def make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200):
     fig = plt.figure(figsize=(14, 11))
     fig.patch.set_facecolor("white")
 
     rows = [
-        ("Pretrained CLS  (before fine-tuning)", pre_coords),
-        ("Fine-tuned CLS  (after fine-tuning)",  ft_coords),
+        ("Pretrained CLS  (before fine-tuning)", pre_coords, pre_r1, pre_r2),
+        ("Fine-tuned CLS  (after fine-tuning)",  ft_coords,  ft_r1,  ft_r2),
     ]
 
     top_m, bot_m, gap = 0.96, 0.08, 0.07
@@ -138,7 +154,7 @@ def make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200):
     cbar_ax = fig.add_axes([0.47, bot_m, 0.015, top_m - bot_m])
     age_sc  = None
 
-    for r, (row_title, coords) in enumerate(rows):
+    for r, (row_title, coords, r1, r2) in enumerate(rows):
         top    = top_m - r * (row_h + gap)
         bottom = top - row_h
         inner  = top - 0.025
@@ -153,7 +169,8 @@ def make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200):
 
         ax_age = fig.add_axes([0.05, bottom, 0.39, h])
         letter = chr(ord('a') + r * 2)
-        sc = scatter_age(ax_age, coords, ages, f"{letter}  |  by Age (years)")
+        sc = scatter_age(ax_age, coords, ages, r1, r2,
+                         f"{letter}  |  by Age (years)")
         if r == 0:
             age_sc = sc
 
@@ -168,7 +185,7 @@ def make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200):
         cbar.ax.set_yticklabels(["0", "25", "50", "75", "100"])
 
     for ext in ["png", "pdf"]:
-        out = OUT_DIR / f"figure4_umap.{ext}"
+        out = OUT_DIR / f"figure4_pls.{ext}"
         fig.savefig(out, dpi=dpi if ext == "png" else 72,
                     bbox_inches="tight", facecolor="white")
         print(f"  Saved → {out}")
@@ -176,53 +193,26 @@ def make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200):
 
 
 def main():
-    pre_path = DATA_DIR / "embeddings_cls_pretrained.npy"
-    ft_path  = DATA_DIR / "embeddings_cls_finetuned.npy"
+    pre_path  = DATA_DIR / "embeddings_cls_pretrained.npy"
+    ft_path   = DATA_DIR / "embeddings_cls_finetuned.npy"
     meta_path = DATA_DIR / "aligned_metadata.csv"
-
-    if not pre_path.exists() or not ft_path.exists():
-        print("ERROR: embedding files not found. Sync from cluster first:")
-        print()
-        print("  rsync -av netanel.azran@moriah:/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/repr_analysis/cls_probing_44905909/embeddings_cls.npy \\")
-        print(f"    {DATA_DIR}/embeddings_cls_pretrained.npy")
-        print()
-        print("  rsync -av netanel.azran@moriah:/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/repr_analysis/finetune_extract_44944545/embeddings_cls.npy \\")
-        print(f"    {DATA_DIR}/embeddings_cls_finetuned.npy")
-        return
 
     print("Loading embeddings...")
     pre_emb = np.load(pre_path).astype(np.float32)
     ft_emb  = np.load(ft_path).astype(np.float32)
     meta    = pd.read_csv(meta_path, index_col=0)
 
-    # Both are already row-aligned (same order, saved by align_by_sample_id)
-    assert pre_emb.shape[0] == ft_emb.shape[0] == len(meta), \
-        f"Row count mismatch: pre={pre_emb.shape[0]}, ft={ft_emb.shape[0]}, meta={len(meta)}"
-
     ages          = pd.to_numeric(meta["age"], errors="coerce").values
     tissue_labels = meta["tissue"].fillna("unknown").tolist()
 
-    # Cache UMAP coords so re-running is fast
-    pre_umap_path = DATA_DIR / "pretrained_umap_coords.npy"
-    ft_umap_path  = DATA_DIR / "finetuned_umap_coords.npy"
-
-    if pre_umap_path.exists():
-        print("Loading cached pretrained UMAP coords...")
-        pre_coords = np.load(pre_umap_path)
-    else:
-        pre_coords = run_umap(pre_emb, "Pretrained")
-        np.save(pre_umap_path, pre_coords)
-
-    if ft_umap_path.exists():
-        print("Loading cached fine-tuned UMAP coords...")
-        ft_coords = np.load(ft_umap_path)
-    else:
-        ft_coords = run_umap(ft_emb, "Fine-tuned")
-        np.save(ft_umap_path, ft_coords)
+    pre_coords, pre_r1, pre_r2 = run_pls(pre_emb, ages, tissue_labels, "Pretrained")
+    ft_coords,  ft_r1,  ft_r2  = run_pls(ft_emb,  ages, tissue_labels, "Fine-tuned")
 
     print("\nGenerating figure...")
-    make_figure(pre_coords, ft_coords, ages, tissue_labels, dpi=200)
-    print("\nDone.")
+    make_figure(pre_coords, pre_r1, pre_r2,
+                ft_coords,  ft_r1,  ft_r2,
+                ages, tissue_labels, dpi=200)
+    print("Done.")
 
 
 if __name__ == "__main__":
