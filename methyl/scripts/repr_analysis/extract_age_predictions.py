@@ -2,23 +2,23 @@
 """
 extract_age_predictions.py
 ==========================
-Run the full fine-tuned MethylationAgeRegressorLlama model on the 19k finetune
-dataset and save per-sample predicted age.
+Run the full fine-tuned MethylationAgeRegressorLlama model on the 19k
+finetune dataset and save per-sample predicted age to CSV.
 
-Output: <outdir>/age_predictions.csv  with columns:
-  sample_id, actual_age, predicted_age, split, tissue
+Output: <outdir>/age_predictions.csv
+  columns: sample_id, actual_age, predicted_age, split, tissue
 
-Usage (on cluster):
+Usage (cluster):
   python scripts/repr_analysis/extract_age_predictions.py \
       --checkpoint  outputs/finetune-llama-small/.../epoch=127-val_medae=3.5625.ckpt \
       --data        /path/to/finetuning_19608.h5ad \
       --tokenizer   tokenizer_llama_pretrain49k \
       --outdir      outputs/repr_analysis/age_predictions_JOBID \
-      --batch_size  64 \
-      --device      cuda
+      --batch_size  64 --device cuda
 """
 
-import argparse, logging
+import argparse
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -34,28 +34,15 @@ log = logging.getLogger(__name__)
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint",  required=True)
-    p.add_argument("--data",        required=True)
-    p.add_argument("--tokenizer",   required=True)
-    p.add_argument("--outdir",      default="outputs/repr_analysis/age_predictions")
-    p.add_argument("--batch_size",  type=int, default=64)
-    p.add_argument("--device",      default="cuda")
-    p.add_argument("--metadata",    default=None,
-                   help="External metadata CSV.gz for tissue labels")
+    p.add_argument("--checkpoint",      required=True)
+    p.add_argument("--data",            required=True)
+    p.add_argument("--tokenizer",       required=True)
+    p.add_argument("--outdir",          default="outputs/repr_analysis/age_predictions")
+    p.add_argument("--batch_size",      type=int, default=64)
+    p.add_argument("--device",          default="cuda")
+    p.add_argument("--metadata",        default=None)
     p.add_argument("--metadata_id_col", default="GSM_ID")
     return p.parse_args()
-
-
-def load_model(ckpt_path: str, device: str):
-    from bmfm_methylation.llama.finetune_llama import MethylationAgeRegressorLlama
-    log.info(f"Loading fine-tuned model from {ckpt_path}")
-    model = MethylationAgeRegressorLlama.load_from_checkpoint(
-        ckpt_path, map_location=device, strict=False
-    )
-    model.eval()
-    model.to(device)
-    log.info(f"  age_mean={model.age_mean:.2f}  age_std={model.age_std:.2f}")
-    return model
 
 
 def main():
@@ -65,83 +52,85 @@ def main():
     device = args.device if torch.cuda.is_available() else "cpu"
     log.info(f"Device: {device}")
 
-    # Load model
-    model = load_model(args.checkpoint, device)
+    # ── Load model ────────────────────────────────────────────────────────────
+    from bmfm_methylation.llama.finetune_llama import load_finetune_llama_checkpoint
+    model = load_finetune_llama_checkpoint(args.checkpoint)
+    model.eval()
+    model.to(device)
+    log.info(f"age_mean={model.age_mean:.2f}  age_std={model.age_std:.2f}")
 
-    # Load data module
-    from bmfm_methylation.llama.finetune_llama import MethylLlamaDataModule
-    dm = MethylLlamaDataModule(
-        data_path=args.data,
-        tokenizer_path=args.tokenizer,
-        batch_size=args.batch_size,
-        num_workers=4,
-        subset_k=8000,
-        max_length=8002,
+    # ── Build dataloader (same pattern as cls_probing_analysis.py) ────────────
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    from bmfm_methylation.shared.data_module import MethylationDataset, WCEDCollator
+
+    tokenizer = MultiFieldTokenizer.from_pretrained(args.tokenizer)
+    dataset   = MethylationDataset(h5ad_path=args.data, split=None, normalize_age=False)
+    cpg_sites = dataset.cpg_sites
+    log.info(f"Dataset: {len(dataset)} samples × {len(cpg_sites)} CpGs")
+
+    collator = WCEDCollator(
+        tokenizer=tokenizer, cpg_sites=cpg_sites,
+        vocab_size=len(cpg_sites), input_ratio=1.0, contrastive=False,
     )
-    dm.setup("predict")
+    loader = DataLoader(dataset, batch_size=args.batch_size, collate_fn=collator,
+                        shuffle=False, num_workers=4,
+                        pin_memory=(device == "cuda"))
 
-    # Full dataset (train + val + test)
-    from bmfm_methylation.llama.finetune_llama import MethylLlamaDataset
-    import anndata
-    adata = anndata.read_h5ad(args.data)
-    log.info(f"h5ad: {adata.shape[0]} samples × {adata.shape[1]} CpGs")
+    # ── Inference ─────────────────────────────────────────────────────────────
+    all_sample_ids, all_actual, all_predicted = [], [], []
 
-    # Use the predict dataloader if available, else iterate train+val+test
-    all_sample_ids = []
-    all_actual     = []
-    all_predicted  = []
-    all_splits     = []
+    with torch.no_grad():
+        for i, batch in enumerate(loader):
+            cpg_ids     = batch["cpg_ids"].to(device)
+            beta_values = batch["beta_values"].to(device)
+            attn_mask   = batch["attention_mask"].to(device)
+            input_ids   = torch.stack([cpg_ids.float(), beta_values], dim=1)
 
-    for split_name in ["train", "val", "test"]:
-        try:
-            if split_name == "train":
-                loader = dm.train_dataloader()
-            elif split_name == "val":
-                loader = dm.val_dataloader()
+            # Forward through encoder
+            out = model.encoder(input_ids=input_ids, attention_mask=attn_mask)
+            cls = out.pooler_output  # [B, hidden_size]
+
+            # Age head: z-score → years
+            age_pred_norm = model.age_head(cls).squeeze(-1)
+            age_pred_yr   = (age_pred_norm * model.age_std + model.age_mean).cpu().numpy()
+
+            # Actual age (raw, not normalized)
+            actual_age = batch.get("age", None)
+            if actual_age is not None:
+                actual_yr = actual_age.float().numpy()
             else:
-                loader = dm.test_dataloader()
-        except Exception:
-            continue
+                actual_yr = np.full(len(age_pred_yr), float("nan"))
 
-        log.info(f"  Running {split_name} split ({len(loader)} batches)...")
-        with torch.no_grad():
-            for batch in loader:
-                input_ids = batch["input_ids"].to(device)
-                attn_mask = batch.get("attention_mask")
-                if attn_mask is not None:
-                    attn_mask = attn_mask.to(device)
-                ages_batch = batch.get("age", batch.get("labels"))
+            sample_ids = batch.get("sample_id", [f"sample_{i*args.batch_size+j}"
+                                                   for j in range(len(age_pred_yr))])
+            if not isinstance(sample_ids, list):
+                sample_ids = sample_ids.tolist()
 
-                out = model(input_ids=input_ids,
-                            attention_mask=attn_mask)
+            all_sample_ids.extend(sample_ids)
+            all_predicted.extend(age_pred_yr.tolist())
+            all_actual.extend(actual_yr.tolist())
 
-                # out is the dict from validation_step's shared_step
-                # Actually call the shared forward
-                cls = model._encode(input_ids, attn_mask)
-                age_pred_norm = model.age_head(cls).squeeze(-1)
-                age_pred_yr   = age_pred_norm.detach().cpu() * model.age_std + model.age_mean
+            if (i + 1) % 20 == 0:
+                log.info(f"  batch {i+1}/{len(loader)}")
 
-                sample_ids = batch.get("sample_id", [f"{split_name}_{i}"
-                                                       for i in range(len(age_pred_yr))])
-                actual_yr  = (ages_batch.float() * model.age_std + model.age_mean
-                              if ages_batch is not None
-                              else torch.full_like(age_pred_yr, float("nan")))
+    log.info(f"Inference done — {len(all_predicted)} samples")
 
-                all_sample_ids.extend(sample_ids if isinstance(sample_ids, list)
-                                      else sample_ids.tolist())
-                all_predicted.extend(age_pred_yr.numpy().tolist())
-                all_actual.extend(actual_yr.numpy().tolist())
-                all_splits.extend([split_name] * len(age_pred_yr))
-
+    # ── Build output dataframe ────────────────────────────────────────────────
     df = pd.DataFrame({
-        "sample_id":    all_sample_ids,
-        "actual_age":   all_actual,
+        "sample_id":     all_sample_ids,
+        "actual_age":    all_actual,
         "predicted_age": all_predicted,
-        "split":        all_splits,
     })
 
-    # Join tissue if external metadata provided
-    if args.metadata and Path(args.metadata).exists():
+    # Join split + tissue from h5ad obs
+    import anndata
+    adata = anndata.read_h5ad(args.data, backed="r")
+    obs   = adata.obs[["split"] + [c for c in ["tissue", "age"] if c in adata.obs.columns]].copy()
+    obs.index.name = "sample_id"
+    df = df.set_index("sample_id").join(obs, how="left").reset_index()
+
+    # Join tissue from external metadata if not in h5ad
+    if "tissue" not in df.columns and args.metadata and Path(args.metadata).exists():
         ext = pd.read_csv(args.metadata)
         ext = ext.drop_duplicates(subset=args.metadata_id_col).set_index(args.metadata_id_col)
         if "tissue" in ext.columns:
@@ -149,16 +138,24 @@ def main():
 
     out_path = outdir / "age_predictions.csv"
     df.to_csv(out_path, index=False)
-    log.info(f"Saved {len(df)} predictions → {out_path}")
+    log.info(f"Saved → {out_path}  ({len(df)} rows)")
 
-    # Quick metrics
-    for split_name in ["train", "val", "test"]:
-        mask = (df["split"] == split_name) & df["actual_age"].notna()
-        if mask.sum() > 0:
-            from sklearn.metrics import r2_score, median_absolute_error
-            r2    = r2_score(df.loc[mask, "actual_age"], df.loc[mask, "predicted_age"])
-            medae = median_absolute_error(df.loc[mask, "actual_age"], df.loc[mask, "predicted_age"])
-            log.info(f"  [{split_name:5s}] R²={r2:.3f}  MedAE={medae:.2f} yr  n={mask.sum()}")
+    # ── Quick metrics ─────────────────────────────────────────────────────────
+    from sklearn.metrics import r2_score, median_absolute_error
+    for split_name in ["train", "val", "test", None]:
+        if split_name is None:
+            mask = df["actual_age"].notna()
+            label = "all"
+        else:
+            mask = (df["split"] == split_name) & df["actual_age"].notna()
+            label = split_name
+        if mask.sum() < 10:
+            continue
+        r2    = r2_score(df.loc[mask, "actual_age"], df.loc[mask, "predicted_age"])
+        medae = median_absolute_error(df.loc[mask, "actual_age"], df.loc[mask, "predicted_age"])
+        log.info(f"  [{label:5s}]  R²={r2:.3f}  MedAE={medae:.2f} yr  n={mask.sum()}")
+
+    log.info("Done.")
 
 
 if __name__ == "__main__":
