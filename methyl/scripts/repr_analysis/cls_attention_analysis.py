@@ -130,10 +130,11 @@ class CLSAttentionHook:
             q = q.view(B, L, H, Dh).transpose(1, 2)
             k = k.view(B, L, H, Dh).transpose(1, 2)
 
-            # Apply RoPE if present (needed for correctness)
+            # Apply RoPE — rotary_emb takes seq_len int, returns [L, Dh] cos/sin tables
             if hasattr(m, "rotary_emb"):
-                cos, sin = m.rotary_emb(q, seq_len=L)
-                q, k = apply_rotary_pos_emb(q, k, cos, sin)
+                from bmfm_methylation.llama.model import apply_rotary_pos_emb as _rope
+                cos, sin = m.rotary_emb(L)
+                q, k = _rope(q, k, cos, sin)
 
             # CLS query row only: [B, H, 1, Dh]
             q_cls = q[:, :, 0:1, :]
@@ -157,21 +158,6 @@ class CLSAttentionHook:
 
     def remove(self):
         self.module.forward = self._orig_forward
-
-
-def apply_rotary_pos_emb(q, k, cos, sin):
-    """Apply rotary position embedding — mirrors MethylLlamaRotaryEmbedding usage."""
-    def rotate_half(x):
-        x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
-        return torch.cat((-x2, x1), dim=-1)
-
-    # cos/sin shape: [1, 1, L, Dh] or [L, Dh] — broadcast over B, H
-    if cos.dim() == 2:
-        cos = cos.unsqueeze(0).unsqueeze(0)
-        sin = sin.unsqueeze(0).unsqueeze(0)
-    q_rot = (q * cos) + (rotate_half(q) * sin)
-    k_rot = (k * cos) + (rotate_half(k) * sin)
-    return q_rot, k_rot
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +190,8 @@ def extract_cls_attention(encoder, loader, device, n_batches=0, max_samples=2000
     layers = encoder.encoder.layers
     n_layers = len(layers)
 
-    # Install hooks on every attention layer
-    hooks = [CLSAttentionHook(layer.self_attn) for layer in layers]
+    # Install hooks on every attention layer (attribute is 'attn', not 'self_attn')
+    hooks = [CLSAttentionHook(layer.attn) for layer in layers]
 
     attn_accum = None   # (n_layers, n_heads, n_cpg) running sum
     attn_count = 0
