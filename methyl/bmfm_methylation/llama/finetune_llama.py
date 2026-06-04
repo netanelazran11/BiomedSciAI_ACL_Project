@@ -116,6 +116,7 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         pooling: str = "mean",
         loss_type: str = "mse",
         beta_noise: float = 0.0,
+        freeze_cpg_embeddings: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["encoder", "decoder"])
@@ -127,10 +128,12 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         self.recon_weight = recon_weight
         self.pooling = pooling
 
-        # Freeze CpG embedding table always — well-trained over all 49k tokens in pretraining;
-        # weight decay during fine-tuning would shrink the 29k never-accessed rows toward zero.
-        for p in self.encoder.embeddings.cpg_sites_embeddings.parameters():
-            p.requires_grad = False
+        # For random-init baseline, CpG embeddings are randomly initialised and must train.
+        # For pretrained encoder, freeze them — well-trained over all 49k tokens; weight
+        # decay during fine-tuning would shrink the 29k never-accessed rows toward zero.
+        if freeze_cpg_embeddings:
+            for p in self.encoder.embeddings.cpg_sites_embeddings.parameters():
+                p.requires_grad = False
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -674,15 +677,35 @@ def main(cfg: DictConfig):
     age_std  = data_module.age_std
     logger.info(f"Age normalization (from training data): mean={age_mean:.2f}, std={age_std:.2f}")
 
-    # Load pretrained checkpoint
-    checkpoint_path = cfg.get("checkpoint_path")
-    if not checkpoint_path:
-        raise ValueError("checkpoint_path is required for fine-tuning")
-
-    pretrained = load_wced_llama_checkpoint(checkpoint_path)
-    encoder = pretrained.encoder
-    # Decoder not used: recon_weight=0.0 and input_ratio=1.0 leave no held-out CpGs.
-    # Passing it would waste ~25MB VRAM (12.7M frozen params on GPU doing nothing).
+    # Encoder initialization — pretrained WCED checkpoint or fresh random-init (ablation)
+    init_mode = cfg.get("init_mode", "pretrained")
+    if init_mode == "random":
+        # Random-init ablation: build fresh MethylLlamaModel without any pretraining.
+        # Measures how much WCED pretraining contributes over same-architecture training
+        # from scratch. Uses identical hyperparameters and same seed as the pretrained run.
+        arch = cfg.get("model_arch", {})
+        model_config = MethylLlamaConfig(
+            vocab_size=arch.get("vocab_size", 49161),
+            hidden_size=arch.get("hidden_size", 256),
+            num_hidden_layers=arch.get("num_hidden_layers", 4),
+            intermediate_size=arch.get("intermediate_size", 320),
+            n_sin_basis=arch.get("n_sin_basis", 48),
+            num_attention_heads=arch.get("num_attention_heads", 4),
+        )
+        encoder = MethylLlamaModel(model_config)
+        logger.info(
+            f"Random-init encoder: hidden={model_config.hidden_size}, "
+            f"layers={model_config.num_hidden_layers}, "
+            f"intermediate={model_config.intermediate_size}"
+        )
+    else:
+        checkpoint_path = cfg.get("checkpoint_path")
+        if not checkpoint_path:
+            raise ValueError("checkpoint_path is required when init_mode=pretrained")
+        pretrained = load_wced_llama_checkpoint(checkpoint_path)
+        encoder = pretrained.encoder
+        # Decoder not used: recon_weight=0.0 and input_ratio=1.0 leave no held-out CpGs.
+        # Passing it would waste ~25MB VRAM (12.7M frozen params on GPU doing nothing).
 
     # Fine-tuning module
     ft_cfg = cfg.get("finetune", {})
@@ -713,6 +736,7 @@ def main(cfg: DictConfig):
         pooling=ft_cfg.get("pooling", "mean"),
         loss_type=ft_cfg.get("loss_type", "mse"),
         beta_noise=ft_cfg.get("beta_noise", 0.0),
+        freeze_cpg_embeddings=(init_mode != "random"),
     )
 
     # Warmstart: load weights from a previous fine-tune checkpoint without restoring
