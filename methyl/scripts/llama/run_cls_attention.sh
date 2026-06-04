@@ -73,6 +73,7 @@ source bmfm_methyl_env/bin/activate
 
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
 python scripts/repr_analysis/cls_attention_analysis.py \
     --pretrained  "${PRETRAINED}" \
