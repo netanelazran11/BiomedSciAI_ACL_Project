@@ -11,9 +11,23 @@
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
 data_path: ???           # finetuning_19608_clean.h5ad
-checkpoint_path: ???     # epoch=98-val_loss=0.0059.ckpt
+checkpoint_path: null    # required for init_mode=pretrained; omit for init_mode=random
 output_directory: ./outputs/finetune-llama-small
 tokenizer_path: ./tokenizer_llama_pretrain49k
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoder initialization
+# ─────────────────────────────────────────────────────────────────────────────
+init_mode: pretrained    # "pretrained": load WCED checkpoint | "random": train from scratch
+
+# Architecture params — only used when init_mode=random (pretrained infers from ckpt)
+model_arch:
+  vocab_size: 49161
+  hidden_size: 256
+  num_hidden_layers: 4
+  intermediate_size: 320
+  num_attention_heads: 4
+  n_sin_basis: 48
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data module

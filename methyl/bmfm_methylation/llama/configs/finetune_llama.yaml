@@ -10,9 +10,23 @@
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
 data_path: ???                              # Required
-checkpoint_path: ???                        # Required: WCED pretrained checkpoint
+checkpoint_path: null                       # Required for init_mode=pretrained; omit for random
 output_directory: ./outputs/llama_finetune
 tokenizer_path: ./tokenizer
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoder initialization
+# ─────────────────────────────────────────────────────────────────────────────
+init_mode: pretrained    # "pretrained": load WCED checkpoint | "random": train from scratch
+
+# Architecture params — only used when init_mode=random (pretrained infers from ckpt)
+model_arch:
+  vocab_size: 49161
+  hidden_size: 256
+  num_hidden_layers: 4
+  intermediate_size: 320
+  num_attention_heads: 4
+  n_sin_basis: 48
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data module
