@@ -399,14 +399,15 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
                 else:
                     enc_decay.append(param)
 
-        # Pre-register both groups so the scheduler sees them from step 0.
-        # Encoder starts with lr=0 (frozen); activated in on_train_epoch_start.
+        # Encoder groups: start at 0 when frozen (activated later in on_train_epoch_start),
+        # or at encoder_lr immediately when freeze_encoder=False (random-init baseline).
+        enc_init_lr = 0.0 if self.hparams.freeze_encoder else self.hparams.encoder_lr
         optimizer = torch.optim.AdamW(
             [
                 {"params": head_decay,    "lr": self.hparams.learning_rate, "weight_decay": self.hparams.weight_decay},
                 {"params": head_no_decay, "lr": self.hparams.learning_rate, "weight_decay": 0.0},
-                {"params": enc_decay,     "lr": 0.0,                        "weight_decay": self.hparams.weight_decay},
-                {"params": enc_no_decay,  "lr": 0.0,                        "weight_decay": 0.0},
+                {"params": enc_decay,     "lr": enc_init_lr,                "weight_decay": self.hparams.weight_decay},
+                {"params": enc_no_decay,  "lr": enc_init_lr,                "weight_decay": 0.0},
             ],
         )
 
