@@ -266,7 +266,7 @@ def analyze_gpt(parquet_dir: str, gpt_h5ad_fallback: str) -> dict:
         cpg_ids     = _load_parquet_cpg_ids(parquet_dir)
         nan_profile = _sample_parquet_nan_profile(parquet_dir, n_rows=500)
 
-        # Also get schema to know n_cpgs
+        # Get schema to know n_cpgs
         import pyarrow.parquet as pq
         pf     = pq.ParquetFile(p / "train.parquet")
         schema = pf.schema_arrow
@@ -275,6 +275,36 @@ def analyze_gpt(parquet_dir: str, gpt_h5ad_fallback: str) -> dict:
             dtype = schema.field("data").type
             if hasattr(dtype, "list_size"):
                 n_cpgs = dtype.list_size
+            elif hasattr(dtype, "value_type"):
+                # variable-size list: read one row to get length
+                try:
+                    row = next(pf.iter_batches(batch_size=1, columns=["data"]))
+                    n_cpgs = len(row.column("data")[0].as_py())
+                except Exception:
+                    pass
+
+        # If CpG IDs not in parquet, try loading var names from h5ad (no X loaded)
+        if cpg_ids is None and gpt_h5ad_fallback and Path(gpt_h5ad_fallback).exists():
+            print(f"  CpG IDs not in parquet — loading var names from {gpt_h5ad_fallback}")
+            try:
+                import h5py
+                with h5py.File(gpt_h5ad_fallback, "r") as f:
+                    if "var" in f:
+                        var_grp = f["var"]
+                        idx_key = "_index" if "_index" in var_grp else (
+                            list(var_grp.keys())[0] if var_grp.keys() else None)
+                        if idx_key:
+                            cpg_ids = [x.decode() if isinstance(x, bytes) else str(x)
+                                       for x in f["var"][idx_key][:]]
+                            if n_cpgs is None:
+                                n_cpgs = len(cpg_ids)
+                            print(f"  Loaded {len(cpg_ids):,} CpG var names from h5ad")
+            except Exception as e:
+                print(f"  [WARN] could not load var names from h5ad: {e}")
+
+        print(f"  n_cpgs detected: {n_cpgs}")
+        print(f"  CpG IDs available: {len(cpg_ids):,}" if cpg_ids else "  CpG IDs: NOT available — CpG overlap will be skipped")
+        print(f"  NaN profile: {'computed (' + str(len(nan_profile)) + ' positions)' if nan_profile is not None else 'NOT available'}")
 
         per_split = {}
         for sp, df in splits_meta.items():
@@ -1119,6 +1149,24 @@ def main():
     llama = analyze_llama(args.llama_h5ad)
     gpt   = analyze_gpt(args.gpt_parquet, args.gpt_h5ad)
     cmp   = compare(llama, gpt)
+
+    # Print comparison coverage summary
+    print("\n--- Comparison coverage ---")
+    print(f"  MethylLlama : {llama['n_samples']:,} samples × {llama['n_cpgs']:,} CpGs  "
+          f"({'CpG IDs: YES' if llama.get('cpg_ids') else 'CpG IDs: NO'})")
+    print(f"  MethylGPT   : {gpt['n_samples']:,} samples × {gpt['n_cpgs'] or '?'} CpGs  "
+          f"({'CpG IDs: YES (' + str(len(gpt['cpg_ids'])) + ')' if gpt.get('cpg_ids') else 'CpG IDs: NO'})")
+    cpg_cmp = cmp.get("cpg_overlap", {})
+    so      = cmp.get("sample_overlap", {})
+    print(f"  CpG overlap  : {'shared=' + str(cpg_cmp.get('shared_n', '?')) if cpg_cmp.get('shared_n') is not None else 'SKIPPED (no CpG IDs for GPT)'}")
+    for sp in ("valid", "test"):
+        d = so.get(sp, {})
+        if d.get("shared_n") is not None:
+            print(f"  {sp} overlap : shared={d['shared_n']:,} / LL={d['llama_n']:,} / GPT={d['gpt_n']:,}")
+        else:
+            print(f"  {sp} overlap : SKIPPED (no sample IDs)")
+    ne = cmp.get("nan_extension", {})
+    print(f"  NaN extension: {'computed' if ne.get('supported') else 'SKIPPED (no NaN profile)'}")
 
     render_html(llama, gpt, cmp, out / "dataset_comparison_report.html")
     render_txt(llama, gpt, cmp, out / "dataset_comparison_summary.txt")
