@@ -135,8 +135,8 @@ def _load_parquet_meta(parquet_dir: str):
 
 def _load_parquet_cpg_ids(parquet_dir: str):
     """
-    Try to read CpG IDs from the cpg_mapping/ directory inside parquet_dir.
-    Returns list of CpG ID strings, or None if not found.
+    Try to read CpG IDs (probe names like cg...) from the cpg_mapping/ directory.
+    Returns list of string probe IDs, or None if not found / only integers.
     """
     import pyarrow.parquet as pq
     mapping_dir = Path(parquet_dir) / "cpg_mapping"
@@ -148,14 +148,27 @@ def _load_parquet_cpg_ids(parquet_dir: str):
                 df = pd.read_csv(fname)
                 for col in ("cpg_id", "probe_id", "CpG", "id", "cpg"):
                     if col in df.columns:
-                        return df[col].tolist()
-                return df.iloc[:, 0].tolist()
+                        ids = df[col].tolist()
+                        break
+                else:
+                    ids = df.iloc[:, 0].tolist()
             elif fname.suffix == ".parquet":
                 df = pq.read_table(fname).to_pandas()
                 for col in ("cpg_id", "probe_id", "CpG", "id", "cpg"):
                     if col in df.columns:
-                        return df[col].tolist()
-                return df.iloc[:, 0].tolist()
+                        ids = df[col].tolist()
+                        break
+                else:
+                    ids = df.iloc[:, 0].tolist()
+            else:
+                continue
+            # Reject if IDs are just integers (positional indices, not probe names)
+            sample = [x for x in ids[:20] if x is not None]
+            if sample and all(isinstance(x, (int, np.integer)) or
+                              (isinstance(x, str) and x.isdigit()) for x in sample):
+                print(f"  [WARN] cpg_mapping contains integer indices, not probe names — ignoring")
+                return None
+            return [str(x) for x in ids]
         except Exception as e:
             print(f"  [WARN] cpg_mapping read error {fname}: {e}")
     return None
@@ -419,17 +432,38 @@ def compare(llama: dict, gpt: dict) -> dict:
     # ── 2. Sample overlap per split ─────────────────────────────────────────
     result["sample_overlap"] = {}
     _printed_sample_diag = False
+    # Detect if MethylGPT uses artificial IDs (sample_NNN scheme)
+    _gpt_artificial_ids = False
+    for _sp0 in ("valid", "test", "train"):
+        _gp0 = gpt["per_split"].get(_sp0, {}).get("ids", set())
+        if _gp0:
+            _sample0 = list(_gp0)[:5]
+            if all(str(x).startswith("sample_") or str(x).isdigit() for x in _sample0):
+                _gpt_artificial_ids = True
+            break
+
     for sp in ("valid", "test", "train"):
         ll_ids = llama["per_split"].get(sp, {}).get("ids", set())
         gp_ids = gpt["per_split"].get(sp, {}).get("ids", set())
         if not _printed_sample_diag and ll_ids and gp_ids:
             print(f"  [Sample IDs/{sp}] MethylLlama sample: {list(ll_ids)[:3]}")
             print(f"  [Sample IDs/{sp}] MethylGPT   sample: {list(gp_ids)[:3]}")
+            if _gpt_artificial_ids:
+                print(f"  [WARN] MethylGPT uses artificial sample_NNN IDs — cannot match to GSM/TCGA IDs. Age distribution will be compared instead.")
             _printed_sample_diag = True
         if not ll_ids or not gp_ids:
             result["sample_overlap"][sp] = {
                 "llama_n": len(ll_ids), "gpt_n": len(gp_ids),
                 "shared_n": None, "note": "IDs not available"
+            }
+            continue
+        if _gpt_artificial_ids:
+            # Cannot compare by ID — report n counts and note
+            result["sample_overlap"][sp] = {
+                "llama_n":   len(ll_ids),
+                "gpt_n":     len(gp_ids),
+                "shared_n":  None,
+                "note":      "MethylGPT uses artificial IDs (sample_NNN) — direct ID matching not possible",
             }
             continue
         shared = ll_ids & gp_ids
@@ -450,14 +484,33 @@ def compare(llama: dict, gpt: dict) -> dict:
     if nan_prof is not None and ll_n_cpgs:
         inside_nan  = float(np.nanmean(nan_prof[:ll_n_cpgs]))
         outside_nan = float(np.nanmean(nan_prof[ll_n_cpgs:]))
+        # Overall NaN fraction across all positions
+        overall_nan = float(np.nanmean(nan_prof))
+        # Hypothesis: positions 0..ll_n_cpgs are "always-measured" (low NaN),
+        # positions ll_n_cpgs.. are "850k-only" (high NaN).
+        # If inside ≈ outside, CpG columns are NOT ordered that way.
+        sorted_by_availability = (outside_nan > inside_nan * 3)
+        # Find what fraction of positions have NaN < 5% (proxy for always-measured)
+        low_nan_positions = int((nan_prof < 0.05).sum())
         result["nan_extension"] = {
-            "llama_n_cpgs":      ll_n_cpgs,
-            "gpt_n_cpgs":        len(nan_prof),
-            "nan_inside_llama":  inside_nan,
-            "nan_outside_llama": outside_nan,
-            "ratio":             outside_nan / max(inside_nan, 1e-9),
-            "supported":         (outside_nan > inside_nan * 3),
+            "llama_n_cpgs":          ll_n_cpgs,
+            "gpt_n_cpgs":            len(nan_prof),
+            "nan_inside_llama":      inside_nan,
+            "nan_outside_llama":     outside_nan,
+            "nan_overall":           overall_nan,
+            "ratio":                 outside_nan / max(inside_nan, 1e-9),
+            "supported":             sorted_by_availability,
+            "low_nan_positions":     low_nan_positions,
+            "columns_sorted_by_nan": sorted_by_availability,
+            "note": (
+                "Columns appear sorted by availability (low-NaN first)" if sorted_by_availability
+                else f"NaN is uniform across all positions (~{overall_nan:.1%}); "
+                     f"columns are NOT sorted by array coverage. "
+                     f"Only {low_nan_positions:,} of {len(nan_prof):,} positions have <5% NaN."
+            ),
         }
+        print(f"  [NaN profile] inside 0-{ll_n_cpgs}: {inside_nan:.4f}  outside: {outside_nan:.4f}  "
+              f"overall: {overall_nan:.4f}  low-NaN positions: {low_nan_positions:,}")
     else:
         result["nan_extension"] = {"note": "NaN profile not available"}
 
