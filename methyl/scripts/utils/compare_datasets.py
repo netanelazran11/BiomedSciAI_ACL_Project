@@ -553,6 +553,13 @@ def _fmt(v, decimals=1, suffix=""):
     return f"{v:.{decimals}f}{suffix}"
 
 
+def _fmti(v):
+    """Format int with comma thousands separator, or '?' if None."""
+    if v is None:
+        return "?"
+    return f"{int(v):,}"
+
+
 def _badge(text, cls="badge-gray"):
     return f'<span class="badge {cls}">{text}</span>'
 
@@ -621,10 +628,10 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
         <div class="stat-card sc-blue">
           <div class="s-val">{gp_tot:,}</div>
           <div class="s-label">Total Samples</div>
-          <div class="s-sub">{gpt['n_cpgs'] or '?':,} CpGs each</div>
+          <div class="s-sub">{_fmti(gpt['n_cpgs'])} CpGs each</div>
         </div>
         <div class="stat-card sc-purple">
-          <div class="s-val">{gpt['n_cpgs'] or '?'}</div>
+          <div class="s-val">{_fmti(gpt['n_cpgs'])}</div>
           <div class="s-label">CpG Sites</div>
           <div class="s-sub">incl. NaN cols</div>
         </div>
@@ -658,9 +665,9 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
   <div class="callout callout-info">
     <b>Dataset relationship:</b>
     MethylLlama uses <b>{llama['n_cpgs']:,} CpG sites</b> (always-measured, zero NaN) from ~{ll_tot:,} samples.
-    MethylGPT uses <b>{gpt['n_cpgs'] or '49,156'} CpG sites</b> from ~{gp_tot:,} samples, including NaN where probes
-    were not measured. The {gpt['n_cpgs'] or 49156} ≈ {llama['n_cpgs']:,} (core always-measured)
-    + ~{(gpt['n_cpgs'] or 49156) - llama['n_cpgs']:,} (partially-measured CpGs with NaN).
+    MethylGPT uses <b>{_fmti(gpt['n_cpgs'])} CpG sites</b> from ~{gp_tot:,} samples, including NaN where probes
+    were not measured. The {_fmti(gpt['n_cpgs'])} ≈ {llama['n_cpgs']:,} (core always-measured)
+    + ~{_fmti((gpt['n_cpgs'] or llama['n_cpgs']) - llama['n_cpgs'])} (partially-measured CpGs with NaN).
   </div>
 </div>"""
     slides.append(s1)
@@ -701,7 +708,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
         <table>
           <tr><th>Dataset</th><th class="td-r">CpG sites</th></tr>
           <tr><td>MethylLlama</td><td class="td-r">{cpg.get('llama_n', llama['n_cpgs']):,}</td></tr>
-          <tr><td>MethylGPT</td><td class="td-r">{cpg.get('gpt_n', gpt['n_cpgs'] or '?'):,}</td></tr>
+          <tr><td>MethylGPT</td><td class="td-r">{_fmti(cpg.get('gpt_n', gpt['n_cpgs']))}</td></tr>
           <tr style="background:#f4f7fc">
             <td><b>Shared (∩)</b></td>
             <td class="td-r"><b>{_cpg_shared_str}</b></td>
@@ -897,7 +904,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
           <tr><td>MethylLlama CpG window</td><td class="td-r">{llama['n_cpgs']:,}</td></tr>
           <tr><td>MethylGPT total CpGs</td><td class="td-r">{ne.get('gpt_n_cpgs', gpt['n_cpgs'] or '?')}</td></tr>
           <tr><td>Extra CpGs in MethylGPT</td>
-              <td class="td-r">{(ne.get('gpt_n_cpgs') or 0) - llama['n_cpgs']:,}
+              <td class="td-r">{_fmti((ne.get('gpt_n_cpgs') or 0) - llama['n_cpgs'])}
                               {'(always-NaN in analysis)' if supported else ''}</td></tr>
           <tr><td>NaN inside Llama window</td>
               <td class="td-r">{_fmt(nan_inside, 3, ' (% samples)') if nan_inside is not None else '?'}</td></tr>
