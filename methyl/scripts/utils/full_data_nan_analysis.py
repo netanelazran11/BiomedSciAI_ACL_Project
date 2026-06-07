@@ -279,6 +279,26 @@ def main():
     print("Full Data NaN Analysis — MethylGPT vs MethylLlama CpGs")
     print("=" * 60)
 
+    # ── Inspect GPT h5ad obs sample IDs ──────────────────────────────────────
+    gpt_h5ad = Path(args.gpt_h5ad)
+    if gpt_h5ad.exists():
+        import h5py
+        print(f"\nInspecting GPT h5ad obs sample IDs: {gpt_h5ad.name} ...")
+        with h5py.File(str(gpt_h5ad), "r") as hf:
+            obs = hf["obs"]
+            idx_key = obs.attrs.get("_index", "_index")
+            if idx_key not in obs:
+                idx_key = [k for k in obs.keys() if not k.startswith("__")][0]
+            all_ids = [x.decode() if isinstance(x, bytes) else str(x)
+                       for x in obs[idx_key][:]]
+            h5ad_id_type = detect_id_type(all_ids)
+            print(f"  Total samples in h5ad : {len(all_ids):,}")
+            print(f"  First 5 IDs : {all_ids[:5]}")
+            print(f"  Last  5 IDs : {all_ids[-5:]}")
+            print(f"  ID type     : {h5ad_id_type}")
+    else:
+        print(f"\n[WARN] GPT h5ad not found: {gpt_h5ad}")
+
     # ── Load CpG name lists ───────────────────────────────────────────────────
     cpg_csv = Path(args.cpg_csv)
     if cpg_csv.exists():
