@@ -397,7 +397,7 @@ def compare(llama: dict, gpt: dict) -> dict:
         shared       = ll_cpgs & gp_cpgs
         only_llama   = ll_cpgs - gp_cpgs
         only_gpt     = gp_cpgs - ll_cpgs
-        result["cpg"] = {
+        result["cpg_overlap"] = {
             "llama_n":    len(ll_cpgs),
             "gpt_n":      len(gp_cpgs),
             "shared_n":   len(shared),
@@ -408,7 +408,7 @@ def compare(llama: dict, gpt: dict) -> dict:
             "overlap_pct_of_gpt":   100 * len(shared) / max(len(gp_cpgs), 1),
         }
     else:
-        result["cpg"] = {
+        result["cpg_overlap"] = {
             "llama_n": len(ll_cpgs), "gpt_n": len(gp_cpgs),
             "shared_n": None, "note": "CpG IDs not available for one dataset"
         }
@@ -448,7 +448,7 @@ def compare(llama: dict, gpt: dict) -> dict:
             "nan_inside_llama":  inside_nan,
             "nan_outside_llama": outside_nan,
             "ratio":             outside_nan / max(inside_nan, 1e-9),
-            "hypothesis_supported": (outside_nan > inside_nan * 3),
+            "supported":         (outside_nan > inside_nan * 3),
         }
     else:
         result["nan_extension"] = {"note": "NaN profile not available"}
@@ -703,7 +703,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
     slides.append(s1)
 
     # ── Slide 2: CpG overlap ─────────────────────────────────────────────────
-    cpg = cmp.get("cpg", {})
+    cpg = cmp.get("cpg_overlap", {})
     cpg_note = cpg.get("note", "")
     if cpg.get("shared_n") is not None:
         overlap_badge = (_badge("✓ FULL SUBSET", "badge-green") if cpg["llama_subset_of_gpt"]
@@ -865,7 +865,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
     nan_inside  = ne.get("nan_inside_llama")
     nan_outside = ne.get("nan_outside_llama")
     ratio       = ne.get("ratio")
-    supported   = ne.get("hypothesis_supported", False)
+    supported   = ne.get("supported", False)
 
     if nan_inside is not None:
         nan_verdict_cls = "callout-ok" if supported else "callout-warn"
@@ -1087,7 +1087,7 @@ def render_txt(llama: dict, gpt: dict, cmp: dict, out_path: Path):
     lines.append("")
 
     lines += ["── CpG OVERLAP ──────────────────────────────────────"]
-    cpg = cmp.get("cpg", {})
+    cpg = cmp.get("cpg_overlap", {})
     if cpg.get("shared_n") is not None:
         lines += [
             f"  Shared CpGs:          {cpg['shared_n']:,}",
