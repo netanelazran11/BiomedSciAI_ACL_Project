@@ -686,6 +686,9 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
         cpg_callout_cls = "callout-warn"
         cpg_msg = f"<b>CpG ID list not available for one dataset.</b> {cpg_note}"
 
+    _cpg_shared_str   = f"{cpg['shared_n']:,}" if cpg.get('shared_n') is not None else '?'
+    _cpg_only_gpt_str = f"{cpg['only_gpt']:,}" if cpg.get('only_gpt') is not None else '?'
+
     s2 = f"""
 <div class="slide">
   <div class="slide-label">Dataset Comparison · Slide 2 / {n_slides}</div>
@@ -701,10 +704,10 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
           <tr><td>MethylGPT</td><td class="td-r">{cpg.get('gpt_n', gpt['n_cpgs'] or '?'):,}</td></tr>
           <tr style="background:#f4f7fc">
             <td><b>Shared (∩)</b></td>
-            <td class="td-r"><b>{'%s' % f\"{cpg['shared_n']:,}\" if cpg.get('shared_n') is not None else '?'}</b></td>
+            <td class="td-r"><b>{_cpg_shared_str}</b></td>
           </tr>
           <tr><td>Only in MethylLlama</td><td class="td-r">{cpg.get('only_llama', '?')}</td></tr>
-          <tr><td>Only in MethylGPT</td><td class="td-r">{'%s' % f\"{cpg['only_gpt']:,}\" if cpg.get('only_gpt') is not None else '?'}</td></tr>
+          <tr><td>Only in MethylGPT</td><td class="td-r">{_cpg_only_gpt_str}</td></tr>
         </table>
       </div>
 
