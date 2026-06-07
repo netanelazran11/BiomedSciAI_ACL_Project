@@ -468,7 +468,54 @@ def write_stats_report(stats: dict, out_path: Path, labels: dict, run_meta: dict
             for k, delta in s["early_speed"].items():
                 lines.append(f"    First {k:3d} epochs : {delta:+.3f} yr")
 
-    lines += ["", "=" * 70, "KEY COMPARISON", "=" * 70]
+    # ── Official test-set metrics (from WandB final-epoch summary) ───────────
+    if run_meta:
+        lines += ["", "=" * 70,
+                  "OFFICIAL REPORTED METRICS (FINAL EPOCH — WANDB SUMMARY)",
+                  "=" * 70]
+        def _fmt(v, decimals=3):
+            return f"{v:.{decimals}f}" if not (v != v) else "N/A"  # nan check
+        for key in run_keys:
+            m   = run_meta.get(key, {})
+            lbl = labels.get(key, key)
+            lines.append(f"\n  {lbl}  (ep {m.get('total_epochs',0)}, "
+                         f"step {m.get('global_step',0):,}, "
+                         f"{m.get('runtime_hrs',0):.1f}h)")
+            lines.append(f"  {'Metric':<14} {'Validation':>12} {'Test':>12}")
+            lines.append(f"  {'-'*40}")
+            for metric, vk, tk in [
+                ("MedAE (yr)",  "valid_medae",    "test_medae"),
+                ("MAE (yr)",    "valid_mae",       "test_mae"),
+                ("RMSE (yr)",   "valid_rmse",      "test_rmse"),
+                ("R²",          "valid_r2",        "test_r2"),
+                ("Pearson r",   "valid_pearson",   "test_pearson"),
+                ("Spearman r",  "valid_spearman",  "test_spearman"),
+            ]:
+                v = _fmt(m.get(vk, float("nan")))
+                t = _fmt(m.get(tk, float("nan")))
+                lines.append(f"  {metric:<14} {v:>12} {t:>12}")
+
+        if len(run_keys) >= 2:
+            k1, k2 = run_keys[0], run_keys[1]
+            m1, m2 = run_meta.get(k1, {}), run_meta.get(k2, {})
+            lines += ["", f"  Test-set gap ({labels.get(k1,k1)} vs {labels.get(k2,k2)}):"]
+            for metric, tk, lower in [
+                ("MedAE", "test_medae", True),
+                ("MAE",   "test_mae",   True),
+                ("R²",    "test_r2",    False),
+            ]:
+                v1 = m1.get(tk, float("nan"))
+                v2 = m2.get(tk, float("nan"))
+                if v1 != v1 or v2 != v2:
+                    continue
+                gap  = v1 - v2
+                pct  = 100 * abs(gap) / (abs(v2) + 1e-9)
+                sign = "better" if (gap < 0) == lower else "worse"
+                lines.append(f"    {metric}: {labels.get(k1,k1)}={v1:.3f}  "
+                             f"{labels.get(k2,k2)}={v2:.3f}  "
+                             f"gap={gap:+.3f} ({pct:.1f}% {sign})")
+
+    lines += ["", "=" * 70, "KEY COMPARISON (validation best)", "=" * 70]
     if len(run_keys) >= 2:
         k1, k2 = run_keys[0], run_keys[1]
         for metric, lower in [("val_medae", True), ("val_r2", False), ("val_mae", True)]:
@@ -1488,10 +1535,26 @@ Examples:
     for key, (entity, project, run_id) in runs_cfg.items():
         try:
             _r = _api.run(f"{entity}/{project}/{run_id}")
+            _s = _r.summary
+            def _sf(k): return float(_s[k]) if k in _s and _s[k] is not None else float("nan")
             run_meta[key] = {
-                "global_step": int(_r.summary.get("trainer/global_step", 0)),
-                "total_epochs": int(_r.summary.get("epoch", 0)),
-                "runtime_hrs":  float(_r.summary.get("_runtime", 0)) / 3600,
+                "global_step":   int(_s.get("trainer/global_step", 0)),
+                "total_epochs":  int(_s.get("epoch", 0)),
+                "runtime_hrs":   float(_s.get("_runtime", 0)) / 3600,
+                # test-set metrics (final epoch summary)
+                "test_medae":    _sf("test_medae"),
+                "test_mae":      _sf("test_mae"),
+                "test_rmse":     _sf("test_rmse"),
+                "test_r2":       _sf("test_r2"),
+                "test_pearson":  _sf("test_p_r"),
+                "test_spearman": _sf("test_s_r"),
+                # validation metrics (final epoch summary)
+                "valid_medae":   _sf("valid_medae"),
+                "valid_mae":     _sf("valid_mae"),
+                "valid_rmse":    _sf("valid_rmse"),
+                "valid_r2":      _sf("valid_r2"),
+                "valid_pearson": _sf("valid_p_r"),
+                "valid_spearman":_sf("valid_s_r"),
             }
         except Exception:
             run_meta[key] = {"global_step": 0, "total_epochs": 0, "runtime_hrs": 0}
