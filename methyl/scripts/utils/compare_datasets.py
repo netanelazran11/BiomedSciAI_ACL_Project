@@ -235,6 +235,7 @@ def analyze_llama(h5ad_path: str) -> dict:
             per_split[sp] = {
                 "n":        int(mask.sum()),
                 "ids":      set(sub.index.tolist()),
+                "ages_raw": ages.round(4).tolist(),
                 "age_mean": float(ages.mean()) if len(ages) else float("nan"),
                 "age_std":  float(ages.std())  if len(ages) else float("nan"),
                 "age_min":  float(ages.min())  if len(ages) else float("nan"),
