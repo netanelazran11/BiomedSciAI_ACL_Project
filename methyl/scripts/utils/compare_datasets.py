@@ -328,6 +328,7 @@ def analyze_gpt(parquet_dir: str, gpt_h5ad_fallback: str) -> dict:
             per_split[sp] = {
                 "n":        int(len(df)),
                 "ids":      ids,
+                "ages_raw": ages.round(4).tolist(),
                 "age_mean": float(ages.mean()) if len(ages) else float("nan"),
                 "age_std":  float(ages.std())  if len(ages) else float("nan"),
                 "age_min":  float(ages.min())  if len(ages) else float("nan"),
@@ -373,6 +374,7 @@ def analyze_gpt(parquet_dir: str, gpt_h5ad_fallback: str) -> dict:
             per_split[sp] = {
                 "n":        int(mask.sum()),
                 "ids":      set(sub.index.tolist()),
+                "ages_raw": ages.round(4).tolist(),
                 "age_mean": float(ages.mean()) if len(ages) else float("nan"),
                 "age_std":  float(ages.std())  if len(ages) else float("nan"),
                 "age_min":  float(ages.min())  if len(ages) else float("nan"),
@@ -477,6 +479,47 @@ def compare(llama: dict, gpt: dict) -> dict:
             "pct_gpt":          100 * len(shared) / max(len(gp_ids), 1),
             "fully_shared":     len(shared) == len(ll_ids) == len(gp_ids),
         }
+
+    # ── 2b. Age-based sample overlap (proxy when IDs don't match) ───────────
+    # Match samples by exact age value (rounded to 4dp).
+    # If the same biological sample appears in both datasets it will have
+    # the same age, so shared age values = lower-bound on shared samples.
+    # Note: multiple samples can share the same age, so this may over-count.
+    result["age_overlap"] = {}
+    print("\n  --- Age-based overlap (proxy for sample identity) ---")
+    for sp in ("valid", "test", "train"):
+        ll_ages_raw = llama["per_split"].get(sp, {}).get("ages_raw", [])
+        gp_ages_raw = gpt["per_split"].get(sp, {}).get("ages_raw", [])
+        if not ll_ages_raw or not gp_ages_raw:
+            result["age_overlap"][sp] = {"note": "ages not available"}
+            continue
+        ll_age_set = sorted(ll_ages_raw)
+        gp_age_set = sorted(gp_ages_raw)
+        # Count how many LL ages appear in GPT (multiset intersection via sorting)
+        from collections import Counter
+        ll_ctr = Counter(ll_ages_raw)
+        gp_ctr = Counter(gp_ages_raw)
+        shared_ages   = set(ll_ctr.keys()) & set(gp_ctr.keys())
+        shared_count  = sum(min(ll_ctr[a], gp_ctr[a]) for a in shared_ages)
+        ll_only_count = sum(ll_ctr[a] for a in set(ll_ctr.keys()) - set(gp_ctr.keys()))
+        gp_only_count = sum(gp_ctr[a] for a in set(gp_ctr.keys()) - set(ll_ctr.keys()))
+        pct_ll = 100 * shared_count / max(len(ll_ages_raw), 1)
+        pct_gp = 100 * shared_count / max(len(gp_ages_raw), 1)
+        # Duplicate ages in either set inflates shared_count — report unique age matches too
+        unique_shared = len(shared_ages)
+        result["age_overlap"][sp] = {
+            "llama_n":       len(ll_ages_raw),
+            "gpt_n":         len(gp_ages_raw),
+            "shared_count":  shared_count,
+            "unique_shared_ages": unique_shared,
+            "ll_only":       ll_only_count,
+            "gp_only":       gp_only_count,
+            "pct_of_llama":  pct_ll,
+            "pct_of_gpt":    pct_gp,
+        }
+        print(f"  [{sp}] LL={len(ll_ages_raw):,}  GPT={len(gp_ages_raw):,}  "
+              f"shared_by_age={shared_count:,} ({pct_ll:.1f}% of LL, {pct_gp:.1f}% of GPT)  "
+              f"unique_ages_shared={unique_shared:,}  ll_only={ll_only_count:,}  gp_only={gp_only_count:,}")
 
     # ── 3. NaN extension check (49k = 21k + NaN?) ───────────────────────────
     nan_prof  = gpt.get("nan_profile")
@@ -1190,13 +1233,57 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
                 f"<td class='td-r'>{ks_str}</td><td class='td-r'>{p_str}</td>"
                 f"<td class='td-c'>{age_badge}</td></tr>")
 
+    ao = cmp.get("age_overlap", {})
+
+    def _age_overlap_row(sp):
+        d = ao.get(sp, {})
+        if "shared_count" not in d:
+            return f"<tr><td>{sp}</td><td class='td-c' colspan='6'><i>{d.get('note','—')}</i></td></tr>"
+        sc  = d["shared_count"]
+        ll_n, gp_n = d["llama_n"], d["gpt_n"]
+        pll, pgp = d["pct_of_llama"], d["pct_of_gpt"]
+        u_sh = d["unique_shared_ages"]
+        overlap_badge = (
+            _badge(f"{pll:.0f}% of LL", "badge-green") if pll > 80 else
+            _badge(f"{pll:.0f}% of LL", "badge-amber") if pll > 30 else
+            _badge(f"{pll:.0f}% of LL", "badge-red"))
+        return (f"<tr><td><b>{sp}</b></td>"
+                f"<td class='td-r'>{ll_n:,}</td><td class='td-r'>{gp_n:,}</td>"
+                f"<td class='td-r'><b>{sc:,}</b></td>"
+                f"<td class='td-r'>{pll:.1f}%</td><td class='td-r'>{pgp:.1f}%</td>"
+                f"<td class='td-r'>{u_sh:,}</td>"
+                f"<td class='td-c'>{overlap_badge}</td></tr>")
+
     s6 = f"""
 <div class="slide">
   <div class="slide-label">Dataset Comparison · Slide 6 / {n_slides}</div>
   <div class="slide-title">⚖️ Split Identity — Are Valid/Test Sets the Same?</div>
 
-  <div class="panel" style="margin-bottom:20px">
-    <div class="panel-title">Split-by-split size and age distribution comparison</div>
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title">Age-based sample overlap per split (proxy for same samples)</div>
+    <table>
+      <tr>
+        <th>Split</th>
+        <th class="td-r">LL N</th><th class="td-r">GPT N</th>
+        <th class="td-r">Shared by age</th>
+        <th class="td-r">% of LL</th><th class="td-r">% of GPT</th>
+        <th class="td-r">Unique ages matched</th>
+        <th class="td-c">Verdict</th>
+      </tr>
+      {_age_overlap_row('train')}
+      {_age_overlap_row('valid')}
+      {_age_overlap_row('test')}
+    </table>
+    <p style="font-size:11px;color:#7a8aa8;margin-top:8px">
+      <b>Method:</b> Samples matched by exact age value (rounded to 4 decimal places).
+      If the same biological sample exists in both datasets it will have the same age.
+      Samples sharing an age value are counted as a lower-bound on sample overlap.
+      Duplicate ages may over-count — "Unique ages matched" shows distinct age values shared.
+    </p>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title">Split size comparison</div>
     <table>
       <tr>
         <th>Split</th>
@@ -1224,7 +1311,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
     <div class="panel">
       <div class="panel-title">Key observations</div>
       <ul style="font-size:13px;line-height:2;padding-left:18px;color:#2a3550">
-        <li>MethylGPT uses <b>artificial sample_NNN IDs</b> — direct sample-level matching is impossible</li>
+        <li>MethylGPT uses <b>artificial sample_NNN IDs</b> — direct ID matching impossible</li>
         <li>Total samples: MethylLlama <b>{llama['n_samples']:,}</b> vs MethylGPT <b>{gpt['n_samples']:,}</b></li>
         <li>Test set: MethylLlama <b>{age_cmp.get('test',{}).get('llama_n',0):,}</b> vs MethylGPT <b>{age_cmp.get('test',{}).get('gpt_n',0):,}</b> samples</li>
         <li>Valid set: MethylLlama <b>{age_cmp.get('valid',{}).get('llama_n',0):,}</b> vs MethylGPT <b>{age_cmp.get('valid',{}).get('gpt_n',0):,}</b> samples</li>
@@ -1341,6 +1428,20 @@ def render_txt(llama: dict, gpt: dict, cmp: dict, out_path: Path):
         f"  VERDICT:     {split_id.get('verdict', '?')}",
         f"  IMPLICATION: {split_id.get('implication', '?')}",
     ]
+
+    lines += ["", "── AGE-BASED SAMPLE OVERLAP ─────────────────────────"]
+    ao = cmp.get("age_overlap", {})
+    for sp in ("valid", "test", "train"):
+        d = ao.get(sp, {})
+        if "shared_count" not in d:
+            lines.append(f"  {sp}: {d.get('note', 'not available')}")
+        else:
+            lines.append(
+                f"  {sp:6s}: LL={d['llama_n']:,}  GPT={d['gpt_n']:,}  "
+                f"shared_by_age={d['shared_count']:,}  "
+                f"({d['pct_of_llama']:.1f}% of LL / {d['pct_of_gpt']:.1f}% of GPT)  "
+                f"unique_ages_matched={d['unique_shared_ages']:,}"
+            )
 
     lines += ["", "=" * 70]
     out_path.write_text("\n".join(lines))
