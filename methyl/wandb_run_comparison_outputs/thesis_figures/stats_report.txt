@@ -1,0 +1,123 @@
+======================================================================
+STATISTICAL REPORT — Pretrained (WCED) vs Random Init
+======================================================================
+
+
+────────────────────────────────────────
+  Pretrained (WCED)
+────────────────────────────────────────
+
+  val_medae:
+    Epochs observed : 300
+    First           : 19.3438
+    Final           : 3.9375
+    Best            : 3.5625  (ep 127)
+    Improvement     : +15.4062  (+79.6%)
+    AUC             : 1205.33
+    AUC/epoch       : 4.0312
+    Plateau (last20): 3.8743 ± 0.0285
+    Asymptote est.  : 3.9059  (half-life=1.6ep, fit_R²=0.924)
+    Convergence     : <20yr:NEVER  <15yr@ep2  <10yr@ep2  <7.5yr@ep3  <5yr@ep14  <4yr@ep33
+
+  val_mae:
+    Epochs observed : 300
+    First           : 22.0362
+    Final           : 5.4386
+    Best            : 5.4055  (ep 227)
+    Improvement     : +16.5976  (+75.3%)
+    AUC             : 1760.22
+    AUC/epoch       : 5.8870
+    Plateau (last20): 5.4368 ± 0.0045
+    Asymptote est.  : 5.7270  (half-life=2.2ep, fit_R²=0.877)
+    Convergence     : <20yr@ep1  <15yr@ep2  <10yr@ep3  <7.5yr@ep14  <5yr:NEVER  <4yr:NEVER
+
+  val_r2:
+    Epochs observed : 300
+    First           : 0.0107
+    Final           : 0.9107
+    Best            : 0.9114  (ep 227)
+    Improvement     : +0.9001  (+nan%)
+    AUC             : 267.10
+    AUC/epoch       : 0.8933
+    Plateau (last20): 0.9108 ± 0.0002
+    Convergence     : <0.2yr@ep1  <0.4yr@ep2  <0.6yr@ep2  <0.8yr@ep7  <0.9yr@ep86
+
+  val_loss:
+    Epochs observed : 300
+    First           : 0.1356
+    Final           : 0.0253
+    Best            : 0.0251  (ep 227)
+    Improvement     : +0.1103  (+81.3%)
+    AUC             : 8.41
+    AUC/epoch       : 0.0281
+    Plateau (last20): 0.0253 ± 0.0000
+    Asymptote est.  : 0.0271  (half-life=2.0ep, fit_R²=0.882)
+
+  Early learning (MedAE drop):
+    First   5 epochs : -13.338 yr
+    First  10 epochs : -13.812 yr
+    First  20 epochs : -14.785 yr
+    First  50 epochs : -15.250 yr
+
+────────────────────────────────────────
+  Random Init
+────────────────────────────────────────
+
+  val_medae:
+    Epochs observed : 208
+    First           : 20.2812
+    Final           : 9.4405
+    Best            : 8.5234  (ep 166)
+    Improvement     : +10.8408  (+53.5%)
+    AUC             : 2257.52
+    AUC/epoch       : 10.9059
+    Plateau (last20): 9.3652 ± 0.3974
+    Asymptote est.  : 9.6859  (half-life=17.1ep, fit_R²=0.929)
+    Convergence     : <20yr@ep1  <15yr@ep17  <10yr@ep76  <7.5yr:NEVER  <5yr:NEVER  <4yr:NEVER
+
+  val_mae:
+    Epochs observed : 208
+    First           : 22.8771
+    Final           : 13.6328
+    Best            : 13.0200  (ep 199)
+    Improvement     : +9.2444  (+40.4%)
+    AUC             : 3241.24
+    AUC/epoch       : 15.6582
+    Plateau (last20): 13.6808 ± 0.3572
+    Asymptote est.  : 14.1284  (half-life=27.9ep, fit_R²=0.915)
+    Convergence     : <20yr@ep14  <15yr@ep54  <10yr:NEVER  <7.5yr:NEVER  <5yr:NEVER  <4yr:NEVER
+
+  val_r2:
+    Epochs observed : 208
+    First           : -0.0609
+    Final           : 0.4864
+    Best            : 0.5171  (ep 199)
+    Improvement     : +0.5473  (+nan%)
+    AUC             : 68.45
+    AUC/epoch       : 0.3307
+    Plateau (last20): 0.4744 ± 0.0260
+    Convergence     : <0.2yr@ep22  <0.4yr@ep54  <0.6yr:NEVER  <0.8yr:NEVER  <0.9yr:NEVER
+
+  val_loss:
+    Epochs observed : 208
+    First           : 0.1414
+    Final           : 0.0791
+    Best            : 0.0751  (ep 199)
+    Improvement     : +0.0623  (+44.0%)
+    AUC             : 19.23
+    AUC/epoch       : 0.0929
+    Plateau (last20): 0.0796 ± 0.0024
+    Asymptote est.  : 0.0826  (half-life=28.0ep, fit_R²=0.912)
+
+  Early learning (MedAE drop):
+    First   5 epochs : -2.414 yr
+    First  10 epochs : -3.312 yr
+    First  20 epochs : -7.344 yr
+    First  50 epochs : -9.219 yr
+
+======================================================================
+KEY COMPARISON
+======================================================================
+  val_medae: Pretrained (WCED)=3.5625  Random Init=8.5234  gap=-4.9609 (58.2% better)
+  val_r2: Pretrained (WCED)=0.9114  Random Init=0.5171  gap=-0.3943 (76.3% better)
+  val_mae: Pretrained (WCED)=5.4055  Random Init=13.0200  gap=-7.6145 (58.5% better)

@@ -1,0 +1,138 @@
+======================================================================
+STATISTICAL REPORT — MethylLlama (WCED) vs MethylGPT
+======================================================================
+
+
+────────────────────────────────────────
+  MethylLlama (WCED)
+────────────────────────────────────────
+
+  val_medae:
+    Epochs observed : 300
+    First           : 19.3438
+    Final           : 3.9375
+    Best            : 3.5625  (ep 127)
+    Improvement     : +15.4062  (+79.6%)
+    AUC             : 1205.33
+    AUC/epoch       : 4.0312
+    Plateau (last20): 3.8743 ± 0.0285
+    Asymptote est.  : 3.9059  (half-life=1.6ep, fit_R²=0.924)
+    Convergence     : <20yr:NEVER  <15yr@ep2  <10yr@ep2  <7.5yr@ep3  <5yr@ep14  <4yr@ep33
+
+  val_mae:
+    Epochs observed : 300
+    First           : 22.0362
+    Final           : 5.4386
+    Best            : 5.4055  (ep 227)
+    Improvement     : +16.5976  (+75.3%)
+    AUC             : 1760.22
+    AUC/epoch       : 5.8870
+    Plateau (last20): 5.4368 ± 0.0045
+    Asymptote est.  : 5.7270  (half-life=2.2ep, fit_R²=0.877)
+    Convergence     : <20yr@ep1  <15yr@ep2  <10yr@ep3  <7.5yr@ep14  <5yr:NEVER  <4yr:NEVER
+
+  val_r2:
+    Epochs observed : 300
+    First           : 0.0107
+    Final           : 0.9107
+    Best            : 0.9114  (ep 227)
+    Improvement     : +0.9001  (+nan%)
+    AUC             : 267.10
+    AUC/epoch       : 0.8933
+    Plateau (last20): 0.9108 ± 0.0002
+    Convergence     : <0.2yr@ep1  <0.4yr@ep2  <0.6yr@ep2  <0.8yr@ep7  <0.9yr@ep86
+
+  val_loss:
+    Epochs observed : 300
+    First           : 0.1356
+    Final           : 0.0253
+    Best            : 0.0251  (ep 227)
+    Improvement     : +0.1103  (+81.3%)
+    AUC             : 8.41
+    AUC/epoch       : 0.0281
+    Plateau (last20): 0.0253 ± 0.0000
+    Asymptote est.  : 0.0271  (half-life=2.0ep, fit_R²=0.882)
+
+  Early learning (MedAE drop):
+    First   5 epochs : -13.338 yr
+    First  10 epochs : -13.812 yr
+    First  20 epochs : -14.785 yr
+    First  50 epochs : -15.250 yr
+
+────────────────────────────────────────
+  MethylGPT
+────────────────────────────────────────
+
+  val_medae:
+    Epochs observed : 84
+    First           : 11.1941
+    Final           : 4.2066
+    Best            : 3.7477  (ep 58)
+    Improvement     : +6.9875  (+62.4%)
+    AUC             : 373.61
+    AUC/epoch       : 4.5013
+    Plateau (last20): 4.1840 ± 0.1753
+    Asymptote est.  : 4.3049  (half-life=1.8ep, fit_R²=0.894)
+    Convergence     : <20yr:NEVER  <15yr:NEVER  <10yr@ep1  <7.5yr@ep2  <5yr@ep6  <4yr@ep31
+
+  val_mae:
+    Epochs observed : 84
+    First           : 13.3991
+    Final           : 6.0770
+    Best            : 5.6283  (ep 78)
+    Improvement     : +7.3221  (+54.6%)
+    AUC             : 528.72
+    AUC/epoch       : 6.3701
+    Plateau (last20): 5.9495 ± 0.1315
+    Asymptote est.  : 6.1106  (half-life=2.2ep, fit_R²=0.924)
+    Convergence     : <20yr:NEVER  <15yr:NEVER  <10yr@ep2  <7.5yr@ep6  <5yr:NEVER  <4yr:NEVER
+
+  val_r2:
+    Epochs observed : 84
+    First           : 0.5929
+    Final           : 0.8909
+    Best            : 0.9014  (ep 78)
+    Improvement     : +0.2980  (+nan%)
+    AUC             : 72.85
+    AUC/epoch       : 0.8777
+    Plateau (last20): 0.8930 ± 0.0041
+    Convergence     : <0.2yr:NEVER  <0.4yr:NEVER  <0.6yr@ep1  <0.8yr@ep3  <0.9yr@ep78
+
+  val_loss:
+    Epochs observed : 84
+    First           : 287.7289
+    Final           : 77.1174
+    Best            : 69.6598  (ep 78)
+    Improvement     : +210.6115  (+73.2%)
+    AUC             : 7173.38
+    AUC/epoch       : 86.4263
+    Plateau (last20): 75.6508 ± 2.9226
+    Asymptote est.  : 79.8769  (half-life=1.9ep, fit_R²=0.939)
+
+  Early learning (MedAE drop):
+    First   5 epochs : -5.535 yr
+    First  10 epochs : -6.288 yr
+    First  20 epochs : -6.616 yr
+    First  50 epochs : -7.163 yr
+
+======================================================================
+KEY COMPARISON
+======================================================================
+  val_medae: MethylLlama (WCED)=3.5625  MethylGPT=3.7477  gap=-0.1852 (4.9% better)
+  val_r2: MethylLlama (WCED)=0.9114  MethylGPT=0.9014  gap=-0.0100 (1.1% better)
+  val_mae: MethylLlama (WCED)=5.4055  MethylGPT=5.6283  gap=-0.2229 (4.0% better)
+
+======================================================================
+TRAINING COST COMPARISON
+======================================================================
+  MethylLlama (WCED):
+    Gradient steps : 17,100
+    Epochs         : 300
+    Wall-clock time: 44.6 hrs
+  MethylGPT:
+    Gradient steps : 458,723
+    Epochs         : 83
+    Wall-clock time: 16.8 hrs
+  Step ratio (MethylGPT/MethylLlama (WCED)): 26.8×
+  Steps per yr MedAE improvement MethylLlama (WCED): 1084 steps/yr  (total improvement=15.78 yr)
+  Steps per yr MedAE improvement MethylGPT: 61603 steps/yr  (total improvement=7.45 yr)
