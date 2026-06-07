@@ -558,7 +558,13 @@ def compare(llama: dict, gpt: dict) -> dict:
         result["nan_extension"] = {"note": "NaN profile not available"}
 
     # ── 4. Age distribution comparison + split identity analysis ─────────────
-    from scipy import stats as scipy_stats
+    try:
+        from scipy import stats as scipy_stats
+        _has_scipy = True
+    except ImportError:
+        scipy_stats = None
+        _has_scipy = False
+        print("  [WARN] scipy not available — chi2 p-values will be skipped")
 
     age_cmp = {}
     for sp in ("train", "valid", "test"):
@@ -578,13 +584,14 @@ def compare(llama: dict, gpt: dict) -> dict:
             gp_den = np.array(gp_hist, dtype=float) / max(sum(gp_hist), 1)
             ks_stat = float(np.max(np.abs(np.cumsum(ll_den) - np.cumsum(gp_den))))
             # chi2 goodness-of-fit as a p-value proxy
-            try:
-                expected = gp_den * sum(ll_hist)
-                mask = expected > 0
-                chi2 = float(np.sum((np.array(ll_hist)[mask] - expected[mask])**2 / expected[mask]))
-                ks_p = float(1 - scipy_stats.chi2.cdf(chi2, df=max(mask.sum()-1, 1)))
-            except Exception:
-                pass
+            if _has_scipy:
+                try:
+                    expected = gp_den * sum(ll_hist)
+                    mask = expected > 0
+                    chi2 = float(np.sum((np.array(ll_hist)[mask] - expected[mask])**2 / expected[mask]))
+                    ks_p = float(1 - scipy_stats.chi2.cdf(chi2, df=max(mask.sum()-1, 1)))
+                except Exception:
+                    pass
         age_cmp[sp] = {
             "llama_n":    ll_n,           "llama_mean": ll.get("age_mean"),
             "llama_std":  ll.get("age_std"), "llama_min": ll.get("age_min"),

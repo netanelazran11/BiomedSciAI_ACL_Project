@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=compare_datasets
-#SBATCH --output=logs/compare_datasets_%j.out
-#SBATCH --error=logs/compare_datasets_%j.err
+#SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs/compare_datasets_%j.out
+#SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs/compare_datasets_%j.err
 #SBATCH --time=01:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
