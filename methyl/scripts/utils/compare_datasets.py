@@ -1118,7 +1118,7 @@ def render_txt(llama: dict, gpt: dict, cmp: dict, out_path: Path):
             f"  NaN inside MethylLlama window:  {ne['nan_inside_llama']:.3%}",
             f"  NaN outside MethylLlama window: {ne['nan_outside_llama']:.3%}",
             f"  Ratio (outside/inside):         {ne['ratio']:.1f}×",
-            f"  Hypothesis supported:           {'YES' if ne['hypothesis_supported'] else 'NO'}",
+            f"  Hypothesis supported:           {'YES' if ne['supported'] else 'NO'}",
         ]
     else:
         lines.append(f"  {ne.get('note', 'Not available')}")
