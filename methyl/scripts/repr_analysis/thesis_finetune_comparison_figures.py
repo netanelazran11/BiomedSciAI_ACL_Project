@@ -1536,25 +1536,29 @@ Examples:
         try:
             _r = _api.run(f"{entity}/{project}/{run_id}")
             _s = _r.summary
-            def _sf(k): return float(_s[k]) if k in _s and _s[k] is not None else float("nan")
+            def _sf(*keys):
+                for k in keys:
+                    if k in _s and _s[k] is not None:
+                        return float(_s[k])
+                return float("nan")
             run_meta[key] = {
                 "global_step":   int(_s.get("trainer/global_step", 0)),
                 "total_epochs":  int(_s.get("epoch", 0)),
                 "runtime_hrs":   float(_s.get("_runtime", 0)) / 3600,
-                # test-set metrics (final epoch summary)
-                "test_medae":    _sf("test_medae"),
-                "test_mae":      _sf("test_mae"),
-                "test_rmse":     _sf("test_rmse"),
-                "test_r2":       _sf("test_r2"),
-                "test_pearson":  _sf("test_p_r"),
-                "test_spearman": _sf("test_s_r"),
-                # validation metrics (final epoch summary)
-                "valid_medae":   _sf("valid_medae"),
-                "valid_mae":     _sf("valid_mae"),
-                "valid_rmse":    _sf("valid_rmse"),
-                "valid_r2":      _sf("valid_r2"),
-                "valid_pearson": _sf("valid_p_r"),
-                "valid_spearman":_sf("valid_s_r"),
+                # test-set metrics — try slash format (MethylLlama) then underscore (Baseline)
+                "test_medae":    _sf("test/medae",    "test_medae"),
+                "test_mae":      _sf("test/mae",      "test_mae"),
+                "test_rmse":     _sf("test/rmse",     "test_rmse"),
+                "test_r2":       _sf("test/r2",       "test_r2"),
+                "test_pearson":  _sf("test/p_r",      "test_p_r"),
+                "test_spearman": _sf("test/s_r",      "test_s_r"),
+                # validation metrics — try slash format then underscore
+                "valid_medae":   _sf("val/medae",     "valid_medae"),
+                "valid_mae":     _sf("val/mae",       "valid_mae"),
+                "valid_rmse":    _sf("val/rmse",      "valid_rmse"),
+                "valid_r2":      _sf("val/r2",        "valid_r2"),
+                "valid_pearson": _sf("val/p_r",       "valid_p_r"),
+                "valid_spearman":_sf("val/s_r",       "valid_s_r"),
             }
         except Exception:
             run_meta[key] = {"global_step": 0, "total_epochs": 0, "runtime_hrs": 0}

@@ -116,11 +116,41 @@ STATISTICAL REPORT — MethylLlama (WCED) vs Baseline
     First  50 epochs : -7.163 yr
 
 ======================================================================
-KEY COMPARISON
+OFFICIAL REPORTED METRICS (FINAL EPOCH — WANDB SUMMARY)
 ======================================================================
-  val_medae: MethylLlama (WCED)=3.5625  Baseline=3.7477  gap=-0.1852 (4.9% better)
-  val_r2: MethylLlama (WCED)=0.9114  Baseline=0.9014  gap=-0.0100 (1.1% better)
-  val_mae: MethylLlama (WCED)=5.4055  Baseline=5.6283  gap=-0.2229 (4.0% better)
+
+  MethylLlama (WCED)    ep=300  global_step=17,100  runtime=44.6h
+  ----------------------------------------------------------------
+  Metric           Validation         Test
+  MedAE (yr)            3.938        3.650
+  MAE (yr)              5.439        5.462
+  R²                    0.911        0.905
+  Pearson r               N/A          N/A
+  Spearman r              N/A          N/A
+
+  Baseline (MethylGPT)  ep=83   global_step=458,723  runtime=16.8h
+  ----------------------------------------------------------------
+  Metric           Validation         Test
+  MedAE (yr)            4.207        4.016
+  MAE (yr)              6.077        5.817
+  RMSE (yr)             8.782        8.421
+  R²                    0.891        0.902
+  Pearson r             0.948        0.953
+  Spearman r            0.923        0.930
+
+  Test-set gap (MethylLlama vs Baseline):
+    MedAE : 3.650 vs 4.016  → MethylLlama 9.1% better  (-0.366 yr)
+    MAE   : 5.462 vs 5.817  → MethylLlama 6.1% better  (-0.355 yr)
+    R²    : 0.905 vs 0.902  → MethylLlama +0.003
+
+======================================================================
+KEY COMPARISON (validation best — comparable window)
+======================================================================
+  val_medae : MethylLlama=3.5625  Baseline=3.7477  gap=-0.1852 (MethylLlama 4.9% better)
+  val_r2    : MethylLlama=0.9114  Baseline=0.9014  gap=+0.0100 (MethylLlama +1.1%)
+  val_mae   : MethylLlama=5.4055  Baseline=5.6283  gap=-0.2229 (MethylLlama 4.0% better)
+
+  CAUTION: test sets differ in size (LL=1,927 vs GPT=4,626 samples) — not directly comparable
 
 ======================================================================
 TRAINING COST COMPARISON
@@ -134,5 +164,6 @@ TRAINING COST COMPARISON
     Epochs         : 83
     Wall-clock time: 16.8 hrs
   Step ratio (Baseline/MethylLlama (WCED)): 26.8×
-  Steps per yr MedAE improvement MethylLlama (WCED): 1084 steps/yr  (total improvement=15.78 yr)
-  Steps per yr MedAE improvement Baseline: 61603 steps/yr  (total improvement=7.45 yr)
+  Steps per yr MedAE improvement MethylLlama (WCED): 1,084 steps/yr  (total improvement=15.78 yr)
+  Steps per yr MedAE improvement Baseline           : 61,603 steps/yr  (total improvement=7.45 yr)
+  Step efficiency advantage (MethylLlama)            : 56.8× more step-efficient
