@@ -514,20 +514,72 @@ def compare(llama: dict, gpt: dict) -> dict:
     else:
         result["nan_extension"] = {"note": "NaN profile not available"}
 
-    # ── 4. Age distribution comparison ──────────────────────────────────────
+    # ── 4. Age distribution comparison + split identity analysis ─────────────
+    from scipy import stats as scipy_stats
+
     age_cmp = {}
     for sp in ("train", "valid", "test"):
         ll = llama["per_split"].get(sp, {})
         gp = gpt["per_split"].get(sp, {})
+        ll_n = ll.get("n", 0)
+        gp_n = gp.get("n", 0)
+        # same_size: do the splits have the same number of samples?
+        same_size = (ll_n == gp_n) if (ll_n and gp_n) else None
+        # KS test on age histograms (proxy, since we don't have raw ages for GPT)
+        ll_hist = ll.get("age_hist", [])
+        gp_hist = gp.get("age_hist", [])
+        ks_stat = ks_p = None
+        if ll_hist and gp_hist and sum(ll_hist) > 0 and sum(gp_hist) > 0:
+            # Normalise histograms to densities and compare
+            ll_den = np.array(ll_hist, dtype=float) / max(sum(ll_hist), 1)
+            gp_den = np.array(gp_hist, dtype=float) / max(sum(gp_hist), 1)
+            ks_stat = float(np.max(np.abs(np.cumsum(ll_den) - np.cumsum(gp_den))))
+            # chi2 goodness-of-fit as a p-value proxy
+            try:
+                expected = gp_den * sum(ll_hist)
+                mask = expected > 0
+                chi2 = float(np.sum((np.array(ll_hist)[mask] - expected[mask])**2 / expected[mask]))
+                ks_p = float(1 - scipy_stats.chi2.cdf(chi2, df=max(mask.sum()-1, 1)))
+            except Exception:
+                pass
         age_cmp[sp] = {
-            "llama_n":    ll.get("n", 0),  "llama_mean": ll.get("age_mean"),
+            "llama_n":    ll_n,           "llama_mean": ll.get("age_mean"),
             "llama_std":  ll.get("age_std"), "llama_min": ll.get("age_min"),
             "llama_max":  ll.get("age_max"),
-            "gpt_n":      gp.get("n", 0),   "gpt_mean":   gp.get("age_mean"),
+            "gpt_n":      gp_n,           "gpt_mean":   gp.get("age_mean"),
             "gpt_std":    gp.get("age_std"), "gpt_min":    gp.get("age_min"),
             "gpt_max":    gp.get("age_max"),
+            "same_size":  same_size,
+            "size_ratio": (gp_n / max(ll_n, 1)) if (ll_n and gp_n) else None,
+            "ks_stat":    ks_stat,        # max CDF difference (0=identical, 1=max diff)
+            "age_dist_p": ks_p,           # chi2 p-value (>0.05 = similar distribution)
         }
+        verdict = "SAME SIZE" if same_size else f"DIFFERENT ({gp_n:,} vs {ll_n:,})"
+        age_note = ""
+        if ks_stat is not None:
+            age_note = f"  age KS={ks_stat:.3f}  p={ks_p:.3f}" if ks_p is not None else f"  KS={ks_stat:.3f}"
+        print(f"  [split/{sp}] LL={ll_n:,}  GPT={gp_n:,}  → {verdict}{age_note}")
     result["age_cmp"] = age_cmp
+
+    # ── 5. Overall split identity verdict ────────────────────────────────────
+    same_sizes_all = all(age_cmp[sp]["same_size"] for sp in ("train", "valid", "test")
+                         if age_cmp[sp]["same_size"] is not None)
+    result["split_identity"] = {
+        "same_sizes_all_splits": same_sizes_all,
+        "can_compare_ids":       not _gpt_artificial_ids,
+        "verdict": (
+            "LIKELY SAME SPLIT — same sizes, similar age distributions"
+            if same_sizes_all else
+            "DIFFERENT SPLITS — split sizes differ; models evaluated on different samples"
+        ),
+        "implication": (
+            "MedAE scores are directly comparable (same evaluation set)."
+            if same_sizes_all else
+            "MedAE scores are NOT directly comparable — different test populations."
+        ),
+    }
+    print(f"\n  SPLIT VERDICT: {result['split_identity']['verdict']}")
+    print(f"  IMPLICATION:   {result['split_identity']['implication']}")
 
     return result
 
@@ -657,7 +709,7 @@ def _badge(text, cls="badge-gray"):
 
 def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
     slides = []
-    n_slides = 5
+    n_slides = 6
 
     # ── Slide 1: Overview ────────────────────────────────────────────────────
     ll_tot = llama["n_samples"]
@@ -1110,6 +1162,88 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
 </div>"""
     slides.append(s5)
 
+    # ── Slide 6: Split identity verdict ──────────────────────────────────────
+    age_cmp  = cmp.get("age_cmp", {})
+    split_id = cmp.get("split_identity", {})
+    same_all = split_id.get("same_sizes_all_splits", False)
+    verdict_cls = "callout-ok" if same_all else "callout-red"
+
+    def _split_row(sp):
+        d = age_cmp.get(sp, {})
+        ll_n, gp_n = d.get("llama_n", 0), d.get("gpt_n", 0)
+        same = d.get("same_size")
+        size_badge = (_badge("SAME", "badge-green") if same
+                      else _badge(f"DIFF ({gp_n:,} vs {ll_n:,})", "badge-red") if same is False
+                      else _badge("?", "badge-gray"))
+        ks = d.get("ks_stat")
+        ks_p = d.get("age_dist_p")
+        ks_str = f"{ks:.3f}" if ks is not None else "—"
+        p_str  = f"{ks_p:.3f}" if ks_p is not None else "—"
+        age_badge = (_badge("SIMILAR", "badge-green") if (ks_p is not None and ks_p > 0.05)
+                     else _badge("DIFFERENT", "badge-amber") if ks_p is not None
+                     else _badge("?", "badge-gray"))
+        return (f"<tr><td><b>{sp}</b></td>"
+                f"<td class='td-r'>{ll_n:,}</td><td class='td-r'>{gp_n:,}</td>"
+                f"<td class='td-c'>{size_badge}</td>"
+                f"<td class='td-r'>{_fmt(d.get('llama_mean'))} ± {_fmt(d.get('llama_std'))}</td>"
+                f"<td class='td-r'>{_fmt(d.get('gpt_mean'))} ± {_fmt(d.get('gpt_std'))}</td>"
+                f"<td class='td-r'>{ks_str}</td><td class='td-r'>{p_str}</td>"
+                f"<td class='td-c'>{age_badge}</td></tr>")
+
+    s6 = f"""
+<div class="slide">
+  <div class="slide-label">Dataset Comparison · Slide 6 / {n_slides}</div>
+  <div class="slide-title">⚖️ Split Identity — Are Valid/Test Sets the Same?</div>
+
+  <div class="panel" style="margin-bottom:20px">
+    <div class="panel-title">Split-by-split size and age distribution comparison</div>
+    <table>
+      <tr>
+        <th>Split</th>
+        <th class="td-r">MethylLlama N</th><th class="td-r">MethylGPT N</th>
+        <th class="td-c">Size match?</th>
+        <th class="td-r">LL age mean±std</th><th class="td-r">GPT age mean±std</th>
+        <th class="td-r">KS stat</th><th class="td-r">p-value</th>
+        <th class="td-c">Age dist.</th>
+      </tr>
+      {_split_row('train')}
+      {_split_row('valid')}
+      {_split_row('test')}
+    </table>
+    <p style="font-size:11px;color:#7a8aa8;margin-top:8px">
+      KS stat = max CDF difference between age histograms (0=identical). p&gt;0.05 = distributions not significantly different.
+    </p>
+  </div>
+
+  <div class="callout {verdict_cls}" style="margin-bottom:16px">
+    <b>Verdict: {split_id.get('verdict', '?')}</b><br>
+    {split_id.get('implication', '')}
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="panel-title">Key observations</div>
+      <ul style="font-size:13px;line-height:2;padding-left:18px;color:#2a3550">
+        <li>MethylGPT uses <b>artificial sample_NNN IDs</b> — direct sample-level matching is impossible</li>
+        <li>Total samples: MethylLlama <b>{llama['n_samples']:,}</b> vs MethylGPT <b>{gpt['n_samples']:,}</b></li>
+        <li>Test set: MethylLlama <b>{age_cmp.get('test',{}).get('llama_n',0):,}</b> vs MethylGPT <b>{age_cmp.get('test',{}).get('gpt_n',0):,}</b> samples</li>
+        <li>Valid set: MethylLlama <b>{age_cmp.get('valid',{}).get('llama_n',0):,}</b> vs MethylGPT <b>{age_cmp.get('valid',{}).get('gpt_n',0):,}</b> samples</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Implication for MedAE comparison</div>
+      <p style="font-size:13px;line-height:1.8;color:#2a3550">
+        MedAE (median absolute error) is <b>highly sensitive to the age distribution</b> of the test set.
+        A test set skewed toward older patients will yield higher MedAE even for an equally accurate model.<br><br>
+        {'<b style="color:#aa2020">⚠ Different test set sizes and composition mean the reported MedAE values (MethylLlama=3.56yr vs MethylGPT=3.75yr) are evaluated on DIFFERENT populations — direct comparison is not statistically valid.</b>'
+         if not same_all else
+         '<b style="color:#2a7a2a">✓ Same split sizes suggest the models are evaluated on the same population — MedAE comparison is valid.</b>'}
+      </p>
+    </div>
+  </div>
+</div>"""
+    slides.append(s6)
+
     # ── Assemble HTML ─────────────────────────────────────────────────────────
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1183,6 +1317,30 @@ def render_txt(llama: dict, gpt: dict, cmp: dict, out_path: Path):
         ]
     else:
         lines.append(f"  {ne.get('note', 'Not available')}")
+
+    lines += [""]
+    lines += ["── SPLIT IDENTITY ANALYSIS ──────────────────────────"]
+    age_cmp = cmp.get("age_cmp", {})
+    for sp in ("train", "valid", "test"):
+        d = age_cmp.get(sp, {})
+        ll_n, gp_n = d.get("llama_n", 0), d.get("gpt_n", 0)
+        same = d.get("same_size")
+        ks   = d.get("ks_stat")
+        ks_p = d.get("age_dist_p")
+        lines.append(
+            f"  {sp:6s}: LL={ll_n:,}  GPT={gp_n:,}  "
+            f"{'SAME SIZE' if same else 'DIFFERENT SIZE'}  "
+            f"KS={f'{ks:.3f}' if ks is not None else '?'}  "
+            f"p={f'{ks_p:.3f}' if ks_p is not None else '?'}  "
+            f"age LL={_fmt(d.get('llama_mean'))}±{_fmt(d.get('llama_std'))}  "
+            f"GPT={_fmt(d.get('gpt_mean'))}±{_fmt(d.get('gpt_std'))}"
+        )
+    split_id = cmp.get("split_identity", {})
+    lines += [
+        "",
+        f"  VERDICT:     {split_id.get('verdict', '?')}",
+        f"  IMPLICATION: {split_id.get('implication', '?')}",
+    ]
 
     lines += ["", "=" * 70]
     out_path.write_text("\n".join(lines))
