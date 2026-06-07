@@ -393,6 +393,9 @@ def compare(llama: dict, gpt: dict) -> dict:
     # ── 1. CpG overlap ──────────────────────────────────────────────────────
     ll_cpgs = set(llama.get("cpg_ids") or [])
     gp_cpgs = set(gpt.get("cpg_ids")  or [])
+    # Diagnostics: show ID format samples
+    print(f"  [CpG IDs] MethylLlama sample: {list(ll_cpgs)[:5]}")
+    print(f"  [CpG IDs] MethylGPT   sample: {list(gp_cpgs)[:5]}")
     if ll_cpgs and gp_cpgs:
         shared       = ll_cpgs & gp_cpgs
         only_llama   = ll_cpgs - gp_cpgs
@@ -415,9 +418,14 @@ def compare(llama: dict, gpt: dict) -> dict:
 
     # ── 2. Sample overlap per split ─────────────────────────────────────────
     result["sample_overlap"] = {}
+    _printed_sample_diag = False
     for sp in ("valid", "test", "train"):
         ll_ids = llama["per_split"].get(sp, {}).get("ids", set())
         gp_ids = gpt["per_split"].get(sp, {}).get("ids", set())
+        if not _printed_sample_diag and ll_ids and gp_ids:
+            print(f"  [Sample IDs/{sp}] MethylLlama sample: {list(ll_ids)[:3]}")
+            print(f"  [Sample IDs/{sp}] MethylGPT   sample: {list(gp_ids)[:3]}")
+            _printed_sample_diag = True
         if not ll_ids or not gp_ids:
             result["sample_overlap"][sp] = {
                 "llama_n": len(ll_ids), "gpt_n": len(gp_ids),
@@ -1166,7 +1174,10 @@ def main():
         else:
             print(f"  {sp} overlap : SKIPPED (no sample IDs)")
     ne = cmp.get("nan_extension", {})
-    print(f"  NaN extension: {'computed' if ne.get('supported') else 'SKIPPED (no NaN profile)'}")
+    if "nan_inside_llama" in ne:
+        print(f"  NaN extension: computed  inside={ne['nan_inside_llama']:.4f}  outside={ne['nan_outside_llama']:.4f}  ratio={ne['ratio']:.1f}x  hypothesis={'SUPPORTED' if ne['supported'] else 'NOT supported'}")
+    else:
+        print(f"  NaN extension: SKIPPED ({ne.get('note', 'no NaN profile')})")
 
     render_html(llama, gpt, cmp, out / "dataset_comparison_report.html")
     render_txt(llama, gpt, cmp, out / "dataset_comparison_summary.txt")
