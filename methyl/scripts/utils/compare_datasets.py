@@ -912,7 +912,7 @@ def render_html(llama: dict, gpt: dict, cmp: dict, out_path: Path):
 
   <div class="divider"></div>
 
-  <div class="callout {'callout-ok' if all(so.get(sp,{}).get('shared_n',0)>0 for sp in ('valid','test')) else 'callout-warn'}">
+  <div class="callout {'callout-ok' if all((so.get(sp,{}).get('shared_n') or 0)>0 for sp in ('valid','test')) else 'callout-warn'}">
     <b>Key question — do they evaluate on the same samples?</b><br>
     If the valid/test sets are identical, training performance differences between the models
     are directly comparable. If they differ (different splits or different cohorts),
@@ -1225,7 +1225,7 @@ def main():
         if d.get("shared_n") is not None:
             print(f"  {sp} overlap : shared={d['shared_n']:,} / LL={d['llama_n']:,} / GPT={d['gpt_n']:,}")
         else:
-            print(f"  {sp} overlap : SKIPPED (no sample IDs)")
+            print(f"  {sp} overlap : N/A — {d.get('note', 'no sample IDs')}")
     ne = cmp.get("nan_extension", {})
     if "nan_inside_llama" in ne:
         print(f"  NaN extension: computed  inside={ne['nan_inside_llama']:.4f}  outside={ne['nan_outside_llama']:.4f}  ratio={ne['ratio']:.1f}x  hypothesis={'SUPPORTED' if ne['supported'] else 'NOT supported'}")
