@@ -5,7 +5,7 @@
 #SBATCH --time=01:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
-#SBATCH --partition=gpu
+#SBATCH --partition=glacier
 
 set -euo pipefail
 
