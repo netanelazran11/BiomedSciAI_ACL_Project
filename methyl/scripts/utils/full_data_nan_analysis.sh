@@ -25,8 +25,11 @@ echo "Full NaN Analysis (49k matrix)"
 echo "Started: $(date)"
 echo "=============================="
 
+CPG_CSV="/sci/labs/benjamin.yakir/netanel.azran/repos/MethylGPT-Thesis/data/finetuning_data_49k/cpg_mapping/probe_ids_type3.csv"
+
 python scripts/utils/full_data_nan_analysis.py \
-    --outdir "$OUTDIR"
+    --cpg_csv  "$CPG_CSV" \
+    --outdir   "$OUTDIR"
 
 echo ""
 echo "=============================="

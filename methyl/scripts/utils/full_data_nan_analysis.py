@@ -28,6 +28,7 @@ _BASE = "/sci/labs/benjamin.yakir/netanel.azran"
 LLAMA_H5AD    = f"{_BASE}/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
 GPT_H5AD      = f"{_BASE}/data/data_methyl_finetune_49k_h5ad/finetuning_49k.h5ad"
 GPT_PARQUET   = f"{_BASE}/repos/MethylGPT-Thesis/data/finetuning_data_49k"
+GPT_CPG_CSV   = f"{_BASE}/repos/MethylGPT-Thesis/data/finetuning_data_49k/cpg_mapping/probe_ids_type3.csv"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,6 +45,24 @@ def load_var_names_h5ad(path: str) -> list:
     return names
 
 
+def load_cpg_names_csv(csv_path: str) -> list:
+    """Load CpG probe names from probe_ids_type3.csv (index → illumina_probe_id)."""
+    df = pd.read_csv(csv_path, index_col=0)
+    return [str(x) for x in df["illumina_probe_id"].tolist()]
+
+
+def detect_id_type(ids: list) -> str:
+    """Detect whether sample IDs are real (GSM/TCGA) or artificial (sample_NNN)."""
+    sample = [str(x) for x in ids[:20] if x is not None]
+    if not sample:
+        return "unknown"
+    if all(s.lower().startswith("sample_") for s in sample):
+        return "artificial"
+    if any(s.startswith(("GSM", "TCGA", "GSE", "ENCSR")) for s in sample):
+        return "real"
+    return "unknown"
+
+
 def load_parquet_split_full(parquet_dir: str, split: str):
     """
     Load full data matrix for one split from parquet.
@@ -58,12 +77,17 @@ def load_parquet_split_full(parquet_dir: str, split: str):
     ids  = tbl_meta["id"].to_pylist()
     ages = np.array(tbl_meta["age"].to_pylist(), dtype=np.float32)
 
+    id_type = detect_id_type(ids)
+    print(f"    Sample IDs — first 5: {ids[:5]}", flush=True)
+    print(f"    Sample IDs — last  5: {ids[-5:]}", flush=True)
+    print(f"    ID type detected: {id_type}", flush=True)
+
     # Load data column
     tbl_data = pq.read_table(f, columns=["data"])
     rows = tbl_data["data"].to_pylist()
     data = np.array(rows, dtype=np.float32)  # (N, 49156)
     print(f"    shape: {data.shape}  NaN total: {np.isnan(data).sum():,}", flush=True)
-    return data, ages, ids
+    return data, ages, ids, id_type
 
 
 def load_llama_split_info(h5ad_path: str):
@@ -104,8 +128,10 @@ def load_llama_split_info(h5ad_path: str):
 
     for sp in ("train", "valid", "test"):
         mask = splits == sp
+        sp_ids = [sample_ids[i] for i in np.where(mask)[0]]
         result[sp] = {
-            "ids":      [sample_ids[i] for i in np.where(mask)[0]],
+            "ids":      sp_ids,
+            "ids_set":  set(sp_ids),
             "ages":     np.round(ages[mask], 4),
             "n":        int(mask.sum()),
         }
@@ -114,7 +140,8 @@ def load_llama_split_info(h5ad_path: str):
 
 def report_split(split: str, data: np.ndarray, ages: np.ndarray, ids: list,
                  llama_mask: np.ndarray, llama_split_info: dict,
-                 gpt_cpg_names: list, llama_cpg_set: set):
+                 gpt_cpg_names: list, llama_cpg_set: set,
+                 id_type: str = "unknown"):
     """Full analysis for one split."""
     N, C = data.shape
     is_nan = np.isnan(data)
@@ -167,9 +194,28 @@ def report_split(split: str, data: np.ndarray, ages: np.ndarray, ids: list,
     print(f"    High NaN (>90%)            : {n_high_nan:,} ({100*n_high_nan/C:.1f}%)")
     print(f"    MethylLlama CpGs with <5% NaN: {in_llama_low_nan:,} / {llama_mask.sum():,}")
 
-    # ── 5. Age-based overlap with MethylLlama split ───────────────────────────
-    sp_info = llama_split_info.get(split, {})
-    ll_ages = sp_info.get("ages", np.array([]))
+    # ── 5. Exact ID overlap with MethylLlama split ───────────────────────────
+    sp_info    = llama_split_info.get(split, {})
+    ll_ids_set = sp_info.get("ids_set", set())
+    ll_ages    = sp_info.get("ages", np.array([]))
+
+    if id_type == "real" and ll_ids_set:
+        gpt_ids_set   = set(ids)
+        exact_overlap = ll_ids_set & gpt_ids_set
+        n_exact       = len(exact_overlap)
+        pct_ll_exact  = 100 * n_exact / max(len(ll_ids_set), 1)
+        pct_gp_exact  = 100 * n_exact / max(len(ids), 1)
+        print(f"\n  Exact ID overlap with MethylLlama {split} ({len(ll_ids_set):,} samples):")
+        print(f"    Matched by sample ID : {n_exact:,}  "
+              f"({pct_ll_exact:.1f}% of LL / {pct_gp_exact:.1f}% of GPT)")
+        print(f"    LL samples NOT in GPT {split}: {len(ll_ids_set) - n_exact:,}")
+        print(f"    GPT samples NOT in LL {split}: {len(ids) - n_exact:,}")
+    elif id_type == "artificial":
+        print(f"\n  Exact ID overlap: SKIPPED — GPT uses artificial IDs (sample_NNN)")
+    else:
+        print(f"\n  Exact ID overlap: SKIPPED — ID type unknown")
+
+    # ── 6. Age-based overlap with MethylLlama split ───────────────────────────
     if len(ll_ages) > 0:
         gpt_ages_r4 = np.round(ages, 4)
         ll_ages_r4  = np.round(ll_ages, 4)
@@ -193,7 +239,7 @@ def report_split(split: str, data: np.ndarray, ages: np.ndarray, ids: list,
         print(f"    All GPT {split} samples   : shared_by_age={shared_count:,}  "
               f"({pct_ll:.1f}% of LL / {pct_gp:.1f}% of GPT)  unique_ages={unique_shared:,}")
         print(f"    Zero-NaN GPT samples only : shared_by_age={shared_zn_count:,}  "
-              f"({pct_ll_zn:.1f}% of LL)  — these are the most likely true overlaps")
+              f"({pct_ll_zn:.1f}% of LL)  — proxy for true overlaps (age not a unique key)")
 
     return {
         "split":           split,
@@ -218,6 +264,8 @@ def main():
     p.add_argument("--llama_h5ad",  default=LLAMA_H5AD)
     p.add_argument("--gpt_h5ad",    default=GPT_H5AD)
     p.add_argument("--gpt_parquet", default=GPT_PARQUET)
+    p.add_argument("--cpg_csv",     default=GPT_CPG_CSV,
+                   help="probe_ids_type3.csv mapping column index → illumina_probe_id")
     p.add_argument("--splits",      default="valid,test,train",
                    help="Comma-separated splits to analyze")
     p.add_argument("--outdir",      default="dataset_comparison_outputs/full_nan_analysis")
@@ -232,9 +280,16 @@ def main():
     print("=" * 60)
 
     # ── Load CpG name lists ───────────────────────────────────────────────────
-    print(f"\nLoading MethylGPT CpG names from {args.gpt_h5ad} ...")
-    gpt_cpg_names = load_var_names_h5ad(args.gpt_h5ad)
-    print(f"  MethylGPT: {len(gpt_cpg_names):,} CpG names")
+    cpg_csv = Path(args.cpg_csv)
+    if cpg_csv.exists():
+        print(f"\nLoading MethylGPT CpG names from CSV: {cpg_csv} ...")
+        gpt_cpg_names = load_cpg_names_csv(str(cpg_csv))
+        print(f"  MethylGPT: {len(gpt_cpg_names):,} CpG names  (source: probe_ids_type3.csv)")
+    else:
+        print(f"\n[WARN] CPG CSV not found at {cpg_csv}, falling back to h5ad ...")
+        print(f"Loading MethylGPT CpG names from {args.gpt_h5ad} ...")
+        gpt_cpg_names = load_var_names_h5ad(args.gpt_h5ad)
+        print(f"  MethylGPT: {len(gpt_cpg_names):,} CpG names  (source: h5ad)")
 
     print(f"\nLoading MethylLlama CpG names from {args.llama_h5ad} ...")
     llama_cpg_names = load_var_names_h5ad(args.llama_h5ad)
@@ -257,11 +312,17 @@ def main():
 
     # ── Analyze each split ────────────────────────────────────────────────────
     results = []
+    global_id_type = None
     for split in splits:
-        data, ages, ids = load_parquet_split_full(args.gpt_parquet, split)
+        data, ages, ids, id_type = load_parquet_split_full(args.gpt_parquet, split)
+        if global_id_type is None:
+            global_id_type = id_type
+            print(f"\n  >>> Sample ID type: {id_type} — "
+                  f"{'exact ID matching ENABLED' if id_type == 'real' else 'will use age-based matching'} <<<")
         r = report_split(split, data, ages, ids,
                          llama_mask, llama_split_info,
-                         gpt_cpg_names, llama_cpg_set)
+                         gpt_cpg_names, llama_cpg_set,
+                         id_type=id_type)
         results.append(r)
         del data  # free memory before next split
 
