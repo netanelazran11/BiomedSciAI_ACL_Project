@@ -15,8 +15,7 @@ cd "$REPO"
 
 mkdir -p logs
 
-source /sci/labs/benjamin.yakir/netanel.azran/miniconda3/etc/profile.d/conda.sh
-conda activate bmfm
+source bmfm_methyl_env/bin/activate
 
 OUTDIR="$REPO/dataset_comparison_outputs"
 mkdir -p "$OUTDIR"
