@@ -1,5 +1,5 @@
 ======================================================================
-STATISTICAL REPORT — MethylLlama (WCED) vs MethylGPT
+STATISTICAL REPORT — MethylLlama (WCED) vs Baseline
 ======================================================================
 
 
@@ -60,7 +60,7 @@ STATISTICAL REPORT — MethylLlama (WCED) vs MethylGPT
     First  50 epochs : -15.250 yr
 
 ────────────────────────────────────────
-  MethylGPT
+  Baseline
 ────────────────────────────────────────
 
   val_medae:
@@ -116,11 +116,40 @@ STATISTICAL REPORT — MethylLlama (WCED) vs MethylGPT
     First  50 epochs : -7.163 yr
 
 ======================================================================
-KEY COMPARISON
+OFFICIAL REPORTED METRICS (FINAL EPOCH — WANDB SUMMARY)
 ======================================================================
-  val_medae: MethylLlama (WCED)=3.5625  MethylGPT=3.7477  gap=-0.1852 (4.9% better)
-  val_r2: MethylLlama (WCED)=0.9114  MethylGPT=0.9014  gap=-0.0100 (1.1% better)
-  val_mae: MethylLlama (WCED)=5.4055  MethylGPT=5.6283  gap=-0.2229 (4.0% better)
+
+  MethylLlama (WCED)  (ep 300, step 17,100, 44.6h)
+  Metric           Validation         Test
+  ----------------------------------------
+  MedAE (yr)            3.938        3.650
+  MAE (yr)              5.439        5.462
+  RMSE (yr)               N/A          N/A
+  R²                    0.911        0.905
+  Pearson r               N/A          N/A
+  Spearman r              N/A          N/A
+
+  Baseline  (ep 83, step 458,723, 16.8h)
+  Metric           Validation         Test
+  ----------------------------------------
+  MedAE (yr)            4.207        4.016
+  MAE (yr)              6.077        5.817
+  RMSE (yr)             8.782        8.421
+  R²                    0.891        0.902
+  Pearson r             0.948        0.953
+  Spearman r            0.923        0.930
+
+  Test-set gap (MethylLlama (WCED) vs Baseline):
+    MedAE: MethylLlama (WCED)=3.650  Baseline=4.016  gap=-0.366 (9.1% better)
+    MAE: MethylLlama (WCED)=5.462  Baseline=5.817  gap=-0.354 (6.1% better)
+    R²: MethylLlama (WCED)=0.905  Baseline=0.902  gap=+0.003 (0.3% better)
+
+======================================================================
+KEY COMPARISON (validation best)
+======================================================================
+  val_medae: MethylLlama (WCED)=3.5625  Baseline=3.7477  gap=-0.1852 (4.9% better)
+  val_r2: MethylLlama (WCED)=0.9114  Baseline=0.9014  gap=-0.0100 (1.1% better)
+  val_mae: MethylLlama (WCED)=5.4055  Baseline=5.6283  gap=-0.2229 (4.0% better)
 
 ======================================================================
 TRAINING COST COMPARISON
@@ -129,10 +158,10 @@ TRAINING COST COMPARISON
     Gradient steps : 17,100
     Epochs         : 300
     Wall-clock time: 44.6 hrs
-  MethylGPT:
+  Baseline:
     Gradient steps : 458,723
     Epochs         : 83
     Wall-clock time: 16.8 hrs
-  Step ratio (MethylGPT/MethylLlama (WCED)): 26.8×
+  Step ratio (Baseline/MethylLlama (WCED)): 26.8×
   Steps per yr MedAE improvement MethylLlama (WCED): 1084 steps/yr  (total improvement=15.78 yr)
-  Steps per yr MedAE improvement MethylGPT: 61603 steps/yr  (total improvement=7.45 yr)
+  Steps per yr MedAE improvement Baseline: 61603 steps/yr  (total improvement=7.45 yr)

@@ -116,8 +116,47 @@ STATISTICAL REPORT — Pretrained (WCED) vs Random Init
     First  50 epochs : -9.219 yr
 
 ======================================================================
-KEY COMPARISON
+OFFICIAL REPORTED METRICS (FINAL EPOCH — WANDB SUMMARY)
+======================================================================
+
+  Pretrained (WCED)  (ep 300, step 17,100, 44.6h)
+  Metric           Validation         Test
+  ----------------------------------------
+  MedAE (yr)            3.938        3.650
+  MAE (yr)              5.439        5.462
+  RMSE (yr)               N/A          N/A
+  R²                    0.911        0.905
+  Pearson r               N/A          N/A
+  Spearman r              N/A          N/A
+
+  Random Init  (ep 0, step 0, 0.0h)
+  Metric           Validation         Test
+  ----------------------------------------
+  MedAE (yr)              N/A          N/A
+  MAE (yr)                N/A          N/A
+  RMSE (yr)               N/A          N/A
+  R²                      N/A          N/A
+  Pearson r               N/A          N/A
+  Spearman r              N/A          N/A
+
+  Test-set gap (Pretrained (WCED) vs Random Init):
+
+======================================================================
+KEY COMPARISON (validation best)
 ======================================================================
   val_medae: Pretrained (WCED)=3.5625  Random Init=8.5234  gap=-4.9609 (58.2% better)
   val_r2: Pretrained (WCED)=0.9114  Random Init=0.5171  gap=-0.3943 (76.3% better)
   val_mae: Pretrained (WCED)=5.4055  Random Init=13.0200  gap=-7.6145 (58.5% better)
+
+======================================================================
+TRAINING COST COMPARISON
+======================================================================
+  Pretrained (WCED):
+    Gradient steps : 17,100
+    Epochs         : 300
+    Wall-clock time: 44.6 hrs
+  Random Init:
+    Gradient steps : 0
+    Epochs         : 0
+    Wall-clock time: 0.0 hrs
+  Steps per yr MedAE improvement Pretrained (WCED): 1084 steps/yr  (total improvement=15.78 yr)

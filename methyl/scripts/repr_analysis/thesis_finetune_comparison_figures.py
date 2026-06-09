@@ -734,7 +734,7 @@ def fig_early_phase(df, stats, out_dir):
     panels = [
         ("val_medae", "Validation MedAE (years)"),
         ("val_r2",    "Validation R²"),
-        ("val_loss",  "Validation Loss"),
+        ("val_mae",   "Validation MAE (years)"),
     ]
 
     for ax, (metric, ylabel) in zip(axes, panels):

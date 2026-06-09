@@ -45,7 +45,7 @@ ALTUMAGE_21K = (
 )
 # MethylGPT — parquet directory (train/valid/test.parquet)
 GPT_PARQUET_DIR = (
-    f"{_REPOS}/MethylGPT-Thesis/data/finetuning_data_49k"
+    f"{_REPOS}/MethylGPT-Thesis/data/finetuning_data_21k"
 )
 # MethylGPT — h5ad fallback (if parquet dir not available)
 GPT_H5AD = (

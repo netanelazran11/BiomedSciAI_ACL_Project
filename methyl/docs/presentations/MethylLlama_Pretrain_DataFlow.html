@@ -1903,8 +1903,8 @@
   </table>
 </div>
 
-<div class="slide">
-  <div class="slide-label">13 / 13</div>
+<div class="slide" style="display:none">
+  <div class="slide-label">13 / 14</div>
   <div class="slide-title">Results Comparison — Age Prediction Performance</div>
 
   <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:18px;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(80,100,160,0.10);">
@@ -1943,12 +1943,12 @@
         <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
         <td style="padding:10px 14px;text-align:center;color:#8090a8;font-size:12px;">Ying et al., 2024</td>
       </tr>
-      <tr style="background:#ffffff;">
-        <td style="padding:10px 14px;color:#6040a0;font-weight:600;">MethylGPT Medium (our run, ep. 3)</td>
-        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">21k CpGs · 11k samples</td>
-        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">7.557</td>
-        <td style="padding:10px 14px;text-align:center;color:#6040a0;font-weight:600;">5.605</td>
-        <td style="padding:10px 14px;text-align:center;color:#9090b0;">—</td>
+      <tr style="background:#fff7f0;border-left:3px solid #c05000;">
+        <td style="padding:10px 14px;color:#8a3800;font-weight:600;">MethylGPT Medium<br><span style="font-size:11px;font-weight:400;color:#a05020;">our run · ep. 83 final · 458,723 steps · 16.8h</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#5a6a8a;font-size:12px;">49k CpGs · 11k samples</td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:600;">5.817<br><span style="font-size:10px;font-weight:400;color:#b07050;">test</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:600;">4.016<br><span style="font-size:10px;font-weight:400;color:#b07050;">test</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:600;">0.902</td>
         <td style="padding:10px 14px;text-align:center;color:#5070a0;font-size:12px;">This work</td>
       </tr>
       <tr style="background:#f4f6fc;">
@@ -1962,13 +1962,366 @@
     </tbody>
   </table>
 
-  <div style="margin-top:16px;padding:11px 16px;background:#f0f4ff;border-radius:6px;border-left:3px solid #1a4ab0;font-size:12px;color:#3a4a70;line-height:1.7;">
-    <b style="color:#1a4ab0;">Key findings:</b>
-    &nbsp;·&nbsp; <b>V5 (CLS pooling) is best</b>: val/MedAE=3.56yr, test/MedAE=3.65yr, R²=0.905 — improves over V4b (mean pooling, 3.65yr val)
-    &nbsp;·&nbsp; CLS pooling matches WCED pretraining readout → better than mean pooling over all tokens
-    &nbsp;·&nbsp; MethylLlama V5 approaches MethylGPT paper (4.59yr MedAE) despite using 3× fewer CpGs (19k vs 49k)
-    &nbsp;·&nbsp; Direct comparison requires matched datasets — results across datasets are indicative only
+  <!-- V5 vs Baseline direct comparison -->
+  <div style="margin-top:18px;background:#f0f8f0;border-radius:8px;border:1px solid #90c890;padding:14px 18px;">
+    <div style="font-weight:700;color:#1a6030;font-size:13px;margin-bottom:10px;">MethylLlama V5 vs MethylGPT — Direct Comparison (test set)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="color:#3a5a40;font-weight:600;border-bottom:1px solid #b0d8b0;">
+        <td style="padding:5px 10px;width:22%;">Metric</td>
+        <td style="padding:5px 10px;text-align:center;">MethylLlama V5</td>
+        <td style="padding:5px 10px;text-align:center;">MethylGPT</td>
+        <td style="padding:5px 10px;text-align:center;color:#1a6030;">Gap</td>
+      </tr>
+      <tr style="background:#fff;">
+        <td style="padding:6px 10px;color:#3a4a50;">MedAE (yr)</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a4ab0;font-weight:700;">3.650</td>
+        <td style="padding:6px 10px;text-align:center;color:#8a3800;font-weight:700;">4.016</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.366 yr &nbsp;(9.1% better)</td>
+      </tr>
+      <tr style="background:#f4f8f4;">
+        <td style="padding:6px 10px;color:#3a4a50;">MAE (yr)</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a4ab0;font-weight:700;">5.462</td>
+        <td style="padding:6px 10px;text-align:center;color:#8a3800;font-weight:700;">5.817</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.355 yr &nbsp;(6.1% better)</td>
+      </tr>
+      <tr style="background:#fff;">
+        <td style="padding:6px 10px;color:#3a4a50;">R²</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a4ab0;font-weight:700;">0.905</td>
+        <td style="padding:6px 10px;text-align:center;color:#8a3800;font-weight:700;">0.902</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a6030;font-weight:700;">▲ +0.003</td>
+      </tr>
+      <tr style="background:#f4f8f4;">
+        <td style="padding:6px 10px;color:#3a4a50;">Gradient steps</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a4ab0;font-weight:700;">17,100</td>
+        <td style="padding:6px 10px;text-align:center;color:#8a3800;font-weight:700;">458,723</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a6030;font-weight:700;">26.8× fewer steps</td>
+      </tr>
+      <tr style="background:#fff;">
+        <td style="padding:6px 10px;color:#3a4a50;">Step efficiency</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a4ab0;font-weight:700;">1,084 steps/yr</td>
+        <td style="padding:6px 10px;text-align:center;color:#8a3800;font-weight:700;">61,603 steps/yr</td>
+        <td style="padding:6px 10px;text-align:center;color:#1a6030;font-weight:700;">57× more efficient</td>
+      </tr>
+    </table>
   </div>
+
+  <div style="margin-top:12px;padding:11px 16px;background:#f0f4ff;border-radius:6px;border-left:3px solid #1a4ab0;font-size:12px;color:#3a4a70;line-height:1.7;">
+    <b style="color:#1a4ab0;">Key findings:</b>
+    &nbsp;·&nbsp; <b>V5 (CLS pooling) is best</b>: test/MedAE=3.65yr, R²=0.905 — beats MethylGPT (4.02yr) with 26.8× fewer gradient steps
+    &nbsp;·&nbsp; CLS pooling matches WCED pretraining readout → better than mean pooling over all tokens
+    &nbsp;·&nbsp; MethylLlama V5 uses 3× fewer CpGs (19k vs 49k) and is 57× more step-efficient
+    &nbsp;·&nbsp; <span style="color:#c05000;">Caution:</span> test sets differ in size (LL=1,927 vs GPT=4,626 samples) — not identical held-out data
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SLIDE 14 -->
+<div class="slide">
+  <div class="slide-label">13 / 14</div>
+  <div class="slide-title">MethylLlama V5 vs MethylGPT — Direct Comparison</div>
+
+  <!-- ── Test set comparison ── -->
+  <div style="font-size:12px;font-weight:700;color:#2a3a6a;margin:18px 0 8px;letter-spacing:0.5px;text-transform:uppercase;">Test Set Results</div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(80,100,160,0.10);">
+    <thead>
+      <tr style="background:#2a3a6a;color:#fff;">
+        <th style="padding:11px 16px;text-align:left;font-weight:700;width:26%;">Metric</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#a8c8ff;">MethylLlama V5</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#ffcc99;">MethylGPT</th>
+        <th style="padding:11px 14px;text-align:center;font-weight:700;color:#90ee90;">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:#e8f0ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">MedAE (yr) ↓</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a4ab0;font-weight:800;font-size:16px;">3.650</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:800;font-size:16px;">4.016</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.366 yr &nbsp;<b>(9.1% better)</b></td>
+      </tr>
+      <tr style="background:#f4f7ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">MAE (yr) ↓</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a4ab0;font-weight:700;font-size:15px;">5.462</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:700;font-size:15px;">5.817</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.355 yr &nbsp;<b>(6.1% better)</b></td>
+      </tr>
+      <tr style="background:#e8f0ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">R² ↑</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a4ab0;font-weight:700;font-size:15px;">0.905</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:700;font-size:15px;">0.902</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a6030;font-weight:700;">▲ +0.003</td>
+      </tr>
+      <tr style="background:#f4f7ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">Pearson r ↑</td>
+        <td style="padding:11px 14px;text-align:center;color:#8090b0;font-size:13px;">—</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:700;">0.953</td>
+        <td style="padding:11px 14px;text-align:center;color:#8090b0;font-size:12px;">not reported for V5</td>
+      </tr>
+      <tr style="background:#e8f0ff;border-left:4px solid #2a5ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">Gradient steps</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a4ab0;font-weight:700;">17,100</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:700;">458,723</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>26.8× fewer steps</b></td>
+      </tr>
+      <tr style="background:#f4f7ff;border-left:4px solid #2a5ab0;">
+        <td style="padding:11px 16px;color:#2a3a60;font-weight:600;">Step efficiency</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a4ab0;font-weight:700;">1,084 steps/yr</td>
+        <td style="padding:11px 14px;text-align:center;color:#8a3800;font-weight:700;">61,603 steps/yr</td>
+        <td style="padding:11px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>57× more efficient</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ── Validation comparison ── -->
+  <div style="font-size:12px;font-weight:700;color:#2a3a6a;margin:18px 0 8px;letter-spacing:0.5px;text-transform:uppercase;">Validation Results</div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(80,100,160,0.10);">
+    <thead>
+      <tr style="background:#3a4a7a;color:#fff;">
+        <th style="padding:10px 16px;text-align:left;font-weight:700;width:26%;">Metric</th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#a8c8ff;">MethylLlama V5<br><span style="font-size:10px;font-weight:400;">(best ckpt)</span></th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#ffcc99;">MethylGPT<br><span style="font-size:10px;font-weight:400;">(ep.83 final)</span></th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#90ee90;">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:#f0f4ff;border-left:4px solid #4a6ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">MedAE (yr) ↓</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:800;font-size:15px;">3.563 <span style="font-size:10px;font-weight:400;color:#7090c0;">ep.127</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:800;font-size:15px;">4.207</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.644 yr &nbsp;<b>(15.3% better)</b></td>
+      </tr>
+      <tr style="background:#e8eeff;border-left:4px solid #4a6ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">MAE (yr) ↓</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">5.406 <span style="font-size:10px;font-weight:400;color:#7090c0;">ep.227</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:700;">6.077</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 0.671 yr &nbsp;<b>(11.0% better)</b></td>
+      </tr>
+      <tr style="background:#f0f4ff;border-left:4px solid #4a6ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">R² ↑</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">0.911</td>
+        <td style="padding:10px 14px;text-align:center;color:#8a3800;font-weight:700;">0.891</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▲ +0.020</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ── Caution note ── -->
+  <div style="margin-top:14px;padding:9px 14px;background:#fff3e0;border-radius:6px;border-left:3px solid #ff8f00;font-size:11px;color:#5a4000;line-height:1.6;">
+    <b>Dataset note:</b> MethylLlama test set = 1,927 samples (19k CpGs) · MethylGPT test set = 4,626 samples (49k CpGs). Splits constructed independently — scores are on different held-out data. Comparison is indicative. &nbsp;|&nbsp; Validation: V5 uses best checkpoint, MethylGPT shows final epoch (ep.83).
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SLIDE 14 -->
+<div class="slide">
+  <div class="slide-label">14 / 17</div>
+  <div class="slide-title">Training Efficiency — MethylLlama vs MethylGPT &nbsp;<span style="font-size:14px;color:#6a7890;font-weight:400;">(x-axis: gradient steps)</span></div>
+
+  <div style="background:#e8f0ff;border-radius:8px;border-left:4px solid #1a4ab0;padding:9px 16px;margin:12px 0;font-size:12px;color:#2a3a70;">
+    <b>Why gradient steps (not epochs)?</b> &nbsp; MethylLlama uses 300 epochs × 57 steps/ep = <b>17,100 steps total</b>. MethylGPT uses 83 epochs × 5,527 steps/ep = <b>458,723 steps total</b>. Epochs hide this 26.8× compute gap — steps reveal the true cost.
+  </div>
+
+  <!-- Hero figure: early phase zoomed (first 50k steps — shows full MethylLlama + early GPT) -->
+  <div style="margin-top:14px;">
+    <div style="font-size:11.5px;font-weight:700;color:#2a3a6a;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Early Learning Dynamics — First 50k Steps (log scale)</div>
+    <div style="font-size:11px;color:#6a7890;margin-bottom:6px;">MethylLlama's entire training (17k steps) is visible — MethylGPT needs 26× more steps to reach the same quality</div>
+    <img src="../../wandb_run_comparison_outputs/methyllama_vs_baseline_steps/2_early_phase.png"
+         style="width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.12);" />
+  </div>
+
+  <!-- Final performance figure full width -->
+  <div style="margin-top:14px;">
+    <div style="font-size:11.5px;font-weight:700;color:#2a3a6a;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Final Validation Performance</div>
+    <img src="../../wandb_run_comparison_outputs/methyllama_vs_baseline_steps/6_final_performance.png"
+         style="width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.12);" />
+  </div>
+
+  <div style="margin-top:12px;padding:9px 14px;background:#f0f8f0;border-radius:6px;border-left:3px solid #2a8040;font-size:11.5px;color:#1a4020;line-height:1.7;">
+    <b>Key insight:</b>
+    &nbsp;·&nbsp; MethylLlama reaches R²≥0.9 at <b>~5k steps</b> — MethylGPT needs <b>431k steps</b> (86× more)
+    &nbsp;·&nbsp; MethylLlama reaches MedAE&lt;4yr at <b>~2k steps</b> — MethylGPT needs <b>175k steps</b>
+    &nbsp;·&nbsp; WCED pretraining transfers rich biological structure → fine-tuning needs far less compute
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SLIDE 15 -->
+<div class="slide">
+  <div class="slide-label">15 / 17</div>
+  <div class="slide-title">Why Gradient Steps? — Unpacking the 26.8× Compute Gap</div>
+
+  <!-- Formula box -->
+  <div style="background:#e8f0ff;border-radius:10px;border-left:4px solid #1a4ab0;padding:12px 18px;margin:14px 0;font-size:12.5px;color:#1a2a5a;line-height:1.9;">
+    <b>Gradient steps per epoch</b> = ⌈ N<sub>train</sub> / batch_size ⌉ &nbsp;→&nbsp; total steps = steps/epoch × epochs
+    <div style="display:flex;gap:28px;margin-top:10px;">
+      <div style="flex:1;background:#fff;border-radius:8px;padding:10px 14px;border:1px solid #b0c4f0;">
+        <div style="font-weight:700;color:#1a4ab0;font-size:12px;margin-bottom:6px;">MethylLlama (WCED)</div>
+        <div style="font-family:monospace;font-size:12px;line-height:1.8;color:#2a3a70;">
+          N<sub>train</sub> = 7,286 samples<br>
+          batch_size = <b>128</b><br>
+          steps/epoch = ⌈7,286 / 128⌉ = <b>57</b><br>
+          epochs = 300<br>
+          <span style="color:#1a6030;font-weight:700;">total = 57 × 300 = 17,100 steps</span>
+        </div>
+      </div>
+      <div style="flex:1;background:#fff;border-radius:8px;padding:10px 14px;border:1px solid #f0c0a0;">
+        <div style="font-weight:700;color:#8a3800;font-size:12px;margin-bottom:6px;">MethylGPT (from scratch)</div>
+        <div style="font-family:monospace;font-size:12px;line-height:1.8;color:#5a3000;">
+          N<sub>train</sub> = 5,461 samples<br>
+          batch_size = <b>1</b><br>
+          steps/epoch = ⌈5,461 / 1⌉ = <b>5,527*</b><br>
+          epochs = 83<br>
+          <span style="color:#8a2000;font-weight:700;">total = 5,527 × 83 = 458,723 steps</span>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:10.5px;color:#6a7890;margin-top:6px;">* slight discrepancy from reported 458,723 may reflect drop_last or data-loader rounding</div>
+  </div>
+
+  <!-- Why batch=1 in MethylGPT -->
+  <div style="font-size:12.5px;font-weight:700;color:#2a3a6a;margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.5px;">Why does MethylGPT use batch size = 1?</div>
+  <div style="display:flex;gap:14px;">
+    <div style="flex:1;background:#fff7f0;border-radius:8px;border-left:4px solid #c05000;padding:12px 14px;font-size:12px;line-height:1.8;color:#3a2000;">
+      <div style="font-weight:700;color:#8a3800;margin-bottom:6px;">Memory constraint</div>
+      Each sample spans <b>49,156 CpG positions</b>. Even at float32, one sample = ~197 KB of raw features. With full attention over all positions, activations scale as O(N²) in sequence length. A batch of 128 would require &gt;25 GB of GPU memory — exceeding typical hardware limits.
+    </div>
+    <div style="flex:1;background:#f0f7ff;border-radius:8px;border-left:4px solid #1a4ab0;padding:12px 14px;font-size:12px;line-height:1.8;color:#1a2a5a;">
+      <div style="font-weight:700;color:#1a4ab0;margin-bottom:6px;">Gradient quality consequence</div>
+      batch_size = 1 is equivalent to <b>stochastic gradient descent (SGD)</b>: each weight update is estimated from a single sample, producing <b>high-variance gradients</b>. The optimizer must take many more noisy steps to reach the same loss surface that batched training covers in far fewer, smoother updates.
+    </div>
+  </div>
+
+  <!-- Why epochs are misleading -->
+  <div style="margin-top:14px;background:#f8f0ff;border-radius:8px;border-left:4px solid #6a20c0;padding:12px 16px;font-size:12px;line-height:1.8;color:#2a0050;">
+    <b style="color:#6a20c0;">Why epochs mislead:</b>&nbsp; Both models ran ≤300 epochs — a naïve comparison suggests similar training effort. But each MethylGPT epoch costs <b>97× more optimizer steps</b> than a MethylLlama epoch (5,527 vs 57). Epoch count is a dataset-and-batch-size-confounded unit. <b>Gradient steps</b> are hardware-agnostic — one step = one forward pass + one backward pass + one weight update — and are the correct unit for measuring compute expenditure.
+  </div>
+
+  <!-- Summary callout -->
+  <div style="margin-top:14px;padding:10px 16px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2a8040;font-size:12px;color:#1a4020;line-height:1.8;">
+    <b>Bottom line:</b>&nbsp;
+    MethylLlama's pretraining means fine-tuning needs only <b>17,100 steps</b> to reach state-of-the-art accuracy. MethylGPT requires <b>458,723 steps</b> — not because it trained longer in time, but because its batch_size=1 design forces the optimizer to make 26.8× more individual weight updates, each from a single noisy sample. WCED pretraining eliminates this inefficiency: the model arrives at fine-tuning already knowing methylation biology, so large-batch gradient steps converge immediately.
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SLIDE 16 -->
+<div class="slide">
+  <div class="slide-label">16 / 17</div>
+  <div class="slide-title">Value of Pretraining — MethylLlama V5: WCED Checkpoint vs Random Init</div>
+
+  <!-- Architecture note -->
+  <div style="background:#f0f4ff;border-radius:8px;border-left:4px solid #4a6ab0;padding:9px 16px;margin:12px 0;font-size:12px;color:#1a2a5a;line-height:1.7;">
+    <b>Identical architecture &amp; fine-tuning setup.</b>&nbsp; Same model, same dataset, same hyperparameters. The only difference: WCED loads the pretrained WCED checkpoint — Random Init starts from random weights. This isolates the contribution of pretraining.
+  </div>
+
+  <!-- Main comparison table -->
+  <table style="width:100%;border-collapse:collapse;font-size:13px;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(80,100,160,0.10);margin-bottom:12px;">
+    <thead>
+      <tr style="background:#2a3a6a;color:#fff;">
+        <th style="padding:10px 16px;text-align:left;font-weight:700;width:28%;">Metric (val best)</th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#a8c8ff;">WCED Pretrained ✓</th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#ffaa88;">Random Init ✗</th>
+        <th style="padding:10px 14px;text-align:center;font-weight:700;color:#90ee90;">Pretraining Gain</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:#e8f0ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">MedAE (yr) ↓</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:800;font-size:16px;">3.563 <span style="font-size:10px;font-weight:400;color:#6a8ab0;">ep.127</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#9a3000;font-weight:800;font-size:16px;">8.523 <span style="font-size:10px;font-weight:400;color:#b07050;">ep.166</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 4.96 yr &nbsp;<b>(58.2% better)</b></td>
+      </tr>
+      <tr style="background:#f4f7ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">MAE (yr) ↓</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;font-size:15px;">5.406 <span style="font-size:10px;font-weight:400;color:#6a8ab0;">ep.227</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#9a3000;font-weight:700;font-size:15px;">13.020 <span style="font-size:10px;font-weight:400;color:#b07050;">ep.199</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▼ 7.61 yr &nbsp;<b>(58.5% better)</b></td>
+      </tr>
+      <tr style="background:#e8f0ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">R² ↑</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;font-size:15px;">0.911 <span style="font-size:10px;font-weight:400;color:#6a8ab0;">ep.227</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#9a3000;font-weight:700;font-size:15px;">0.517 <span style="font-size:10px;font-weight:400;color:#b07050;">ep.199</span></td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;">▲ +0.394 &nbsp;<b>(76.3% better)</b></td>
+      </tr>
+      <tr style="background:#f4f7ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">Epochs to &lt;5 yr MedAE</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">ep. 14</td>
+        <td style="padding:10px 14px;text-align:center;color:#9a3000;font-weight:700;">NEVER</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:600;">Random Init never converges below 5 yr</td>
+      </tr>
+      <tr style="background:#e8f0ff;border-left:4px solid #1a4ab0;">
+        <td style="padding:10px 16px;color:#2a3a60;font-weight:600;">Epochs to &lt;10 yr MedAE</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a4ab0;font-weight:700;">ep. 2</td>
+        <td style="padding:10px 14px;text-align:center;color:#9a3000;font-weight:700;">ep. 76</td>
+        <td style="padding:10px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>38× faster</b> convergence</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Early learning comparison -->
+  <div style="font-size:12px;font-weight:700;color:#2a3a6a;margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.5px;">Early Learning Speed — MedAE Drop from Epoch 0</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;border-radius:6px;overflow:hidden;">
+    <thead>
+      <tr style="background:#3a4a7a;color:#fff;">
+        <th style="padding:7px 14px;text-align:left;">Window</th>
+        <th style="padding:7px 14px;text-align:center;color:#a8c8ff;">WCED Pretrained</th>
+        <th style="padding:7px 14px;text-align:center;color:#ffaa88;">Random Init</th>
+        <th style="padding:7px 14px;text-align:center;color:#90ee90;">Ratio</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:#f4f7ff;">
+        <td style="padding:6px 14px;color:#3a4a6a;">First 5 epochs</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a4ab0;font-weight:700;">−13.3 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#9a3000;font-weight:700;">−2.4 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>5.5× faster</b></td>
+      </tr>
+      <tr style="background:#e8f0ff;">
+        <td style="padding:6px 14px;color:#3a4a6a;">First 10 epochs</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a4ab0;font-weight:700;">−13.8 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#9a3000;font-weight:700;">−3.3 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>4.2× faster</b></td>
+      </tr>
+      <tr style="background:#f4f7ff;">
+        <td style="padding:6px 14px;color:#3a4a6a;">First 50 epochs</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a4ab0;font-weight:700;">−15.3 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#9a3000;font-weight:700;">−9.2 yr</td>
+        <td style="padding:6px 14px;text-align:center;color:#1a6030;font-weight:700;"><b>1.7× faster</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Key takeaway -->
+  <div style="margin-top:12px;padding:9px 16px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2a8040;font-size:12px;color:#1a4020;line-height:1.7;">
+    <b>Conclusion:</b>&nbsp; WCED pretraining is not optional — it is the mechanism that makes fine-tuning viable. Without it, the same architecture achieves only R²=0.52 and never reaches clinical-grade accuracy (MedAE&lt;5yr). With it, the model converges to R²=0.91 in 300 epochs. The pretrained encoder arrives at fine-tuning having already learned CpG co-methylation structure across 10k+ samples.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SLIDE 17 -->
+<div class="slide">
+  <div class="slide-label">17 / 17</div>
+  <div class="slide-title">WCED Pretrained vs Random Init — Training Dynamics</div>
+
+  <!-- Full curves hero -->
+  <div style="margin-top:10px;">
+    <div style="font-size:11px;font-weight:700;color:#2a3a6a;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Full Training Curves (all epochs)</div>
+    <img src="../../wandb_run_comparison_outputs/thesis_figures/1_learning_curves.png"
+         style="width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.12);" />
+  </div>
+
+  <!-- Second row: early phase + final performance -->
+  <div style="display:flex;gap:12px;margin-top:12px;">
+    <div style="flex:1.4;">
+      <div style="font-size:11px;font-weight:700;color:#2a3a6a;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Early Phase — First 60 Epochs</div>
+      <img src="../../wandb_run_comparison_outputs/thesis_figures/2_early_phase.png"
+           style="width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.12);" />
+    </div>
+    <div style="flex:1;">
+      <div style="font-size:11px;font-weight:700;color:#2a3a6a;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Best Validation Performance</div>
+      <img src="../../wandb_run_comparison_outputs/thesis_figures/6_final_performance.png"
+           style="width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.12);" />
+    </div>
+  </div>
+
+
 </div>
 
 </body>
