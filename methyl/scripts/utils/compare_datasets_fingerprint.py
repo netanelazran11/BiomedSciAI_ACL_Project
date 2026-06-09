@@ -129,18 +129,27 @@ def load_cpg_mapping(mapping_dir: str):
                 df = pq.read_table(fname).to_pandas()
             else:
                 continue
-            # Find the probe ID column
-            for col in ("cpg_id", "probe_id", "CpG", "name", "id", "cpg"):
+            # Priority: known probe ID column names, then any column whose
+            # values start with 'cg' (Illumina methylation probe format)
+            ids = None
+            for col in ("illumina_probe_id", "cpg_id", "probe_id", "CpG", "name", "cpg"):
                 if col in df.columns:
-                    ids = df[col].astype(str).tolist()
-                    break
-            else:
-                ids = df.iloc[:, 0].astype(str).tolist()
-            # Reject pure integers
-            sample = ids[:20]
-            if all(s.isdigit() for s in sample):
-                print(f"  [WARN] cpg_mapping has integer indices — ignoring")
-                return None
+                    candidate = df[col].astype(str).tolist()
+                    if any(v.startswith("cg") for v in candidate[:20]):
+                        ids = candidate
+                        print(f"  CpG mapping: using column '{col}'")
+                        break
+            if ids is None:
+                # Scan all columns for cg-prefixed values
+                for col in df.columns:
+                    candidate = df[col].astype(str).tolist()
+                    if any(v.startswith("cg") for v in candidate[:20]):
+                        ids = candidate
+                        print(f"  CpG mapping: using column '{col}' (auto-detected)")
+                        break
+            if ids is None:
+                print(f"  [WARN] No cg-prefixed probe IDs found in {fname.name} — skipping")
+                continue
             print(f"  CpG mapping loaded: {len(ids):,} probes from {fname.name}")
             return ids
         except Exception as e:
