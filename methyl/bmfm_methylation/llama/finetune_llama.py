@@ -611,11 +611,13 @@ def main(cfg: DictConfig):
 
     # Data settings
     dm_cfg = cfg.get("data_module", {})
-    subset_k          = dm_cfg.get("subset_k", 8000)
-    fixed_subset_seed = dm_cfg.get("fixed_subset_seed", 42)
-    wced_input_ratio  = cfg.get("wced_input_ratio", 0.5)
-    vocab_size        = subset_k
-    bmfm_style        = dm_cfg.get("bmfm_style", False)
+    subset_k             = dm_cfg.get("subset_k", 8000)
+    fixed_subset_seed    = dm_cfg.get("fixed_subset_seed", 42)
+    wced_input_ratio     = cfg.get("wced_input_ratio", 0.5)
+    vocab_size           = subset_k
+    bmfm_style           = dm_cfg.get("bmfm_style", False)
+    filter_age_outliers  = dm_cfg.get("filter_age_outliers", False)
+    duplicate_pairs_csv  = dm_cfg.get("duplicate_pairs_csv", None)
 
     # Data module
     data_module = MethylationDataModule(
@@ -634,6 +636,8 @@ def main(cfg: DictConfig):
         fixed_subset=True,
         fixed_subset_seed=fixed_subset_seed,
         bmfm_style=bmfm_style,
+        filter_age_outliers=filter_age_outliers,
+        duplicate_pairs_csv=duplicate_pairs_csv,
     )
 
     def _wrap_collator():

@@ -45,6 +45,58 @@ logger = logging.getLogger(__name__)
 _H5AD_CACHE: dict = {}
 
 
+def _compute_dedup_exclusions(pairs_csv: str) -> set:
+    """
+    Given a CSV of duplicate pairs (id_a, id_b columns), return the set of
+    sample IDs to exclude so that no duplicate remains.
+
+    Strategy: build a graph, find connected components via BFS, keep the
+    alphabetically-first ID in each component and exclude the rest.
+    This is deterministic and removes the minimum number of samples.
+    """
+    import pandas as pd
+    from collections import defaultdict, deque
+
+    df = pd.read_csv(pairs_csv)
+    if df.empty or "id_a" not in df.columns or "id_b" not in df.columns:
+        logger.warning(f"Duplicate pairs CSV is empty or missing id_a/id_b columns: {pairs_csv}")
+        return set()
+
+    adj: dict = defaultdict(set)
+    all_nodes: set = set()
+    for _, row in df.iterrows():
+        a, b = str(row["id_a"]), str(row["id_b"])
+        adj[a].add(b)
+        adj[b].add(a)
+        all_nodes.add(a)
+        all_nodes.add(b)
+
+    visited: set = set()
+    to_exclude: set = set()
+    for start in sorted(all_nodes):
+        if start in visited:
+            continue
+        component: list = []
+        queue: deque = deque([start])
+        while queue:
+            node = queue.popleft()
+            if node in visited:
+                continue
+            visited.add(node)
+            component.append(node)
+            for neighbor in adj[node]:
+                if neighbor not in visited:
+                    queue.append(neighbor)
+        component.sort()
+        to_exclude.update(component[1:])  # keep alphabetically-first, remove rest
+
+    logger.info(
+        f"Dedup: {len(df)} pairs → {len(all_nodes)} unique samples → "
+        f"keeping {len(all_nodes) - len(to_exclude)}, excluding {len(to_exclude)}"
+    )
+    return to_exclude
+
+
 def _read_h5ad_robust(h5ad_path: str):
     """
     Load h5ad with h5py fallback for anndata format-version mismatches.
@@ -165,6 +217,8 @@ class MethylationDataset(Dataset):
         normalize_age: bool = True,
         min_age: Optional[float] = None,
         bmfm_style: bool = False,
+        filter_age_outliers: bool = False,
+        exclude_ids: Optional[set] = None,
     ):
         """
         Args:
@@ -177,6 +231,9 @@ class MethylationDataset(Dataset):
                 the full beta vector in metadata for BMFM-style label construction.
                 Requires BMFMWCEDCollator. If False (default), returns the full
                 49k array (NaN preserved) for WCEDCollator / MethylationCollator.
+            filter_age_outliers: If True, remove samples with age < 0 or age > 120
+                entirely before splitting (not just set to NaN).
+            exclude_ids: Set of sample obs_names to exclude entirely (e.g. duplicates).
         """
         self.h5ad_path = h5ad_path
         self.split = split
@@ -188,6 +245,26 @@ class MethylationDataset(Dataset):
 
         # Load data (with h5py fallback for old-format h5ad files)
         self.adata = _read_h5ad_robust(h5ad_path)
+
+        # --- Pre-split filters (applied before train/val/test splitting) ---
+
+        # 1. Remove age outliers (age < 0 prenatal, age > 120 implausible)
+        if filter_age_outliers and age_column in self.adata.obs.columns:
+            import pandas as pd
+            age_vals = pd.to_numeric(self.adata.obs[age_column], errors="coerce")
+            keep = (age_vals >= 0) & (age_vals <= 120)
+            n_removed = int((~keep).sum())
+            if n_removed:
+                logger.info(f"Age outlier filter: removing {n_removed} samples (age<0 or age>120)")
+            self.adata = self.adata[keep.values].copy()
+
+        # 2. Remove known duplicate sample IDs (keep one per duplicate group)
+        if exclude_ids:
+            keep = np.array([sid not in exclude_ids for sid in self.adata.obs_names])
+            n_removed = int((~keep).sum())
+            if n_removed:
+                logger.info(f"Duplicate exclusion: removing {n_removed} samples")
+            self.adata = self.adata[keep].copy()
 
         # Filter by split if specified
         split_applied = False
@@ -362,6 +439,8 @@ class MethylationDataModule(pl.LightningDataModule):
         wced_input_ratio: float = 0.5,    # Fraction of vocab per view (matches pretraining)
         min_age: Optional[float] = None,  # Exclude samples below this age from age loss (e.g. 1.0 removes placenta/sperm)
         bmfm_style: bool = False,         # Use BMFM-style dataset + BMFMWCEDCollator
+        filter_age_outliers: bool = False, # Remove age<0 and age>120 samples entirely
+        duplicate_pairs_csv: Optional[str] = None,  # CSV of duplicate pairs to deduplicate
     ):
         """
         Args:
@@ -420,6 +499,16 @@ class MethylationDataModule(pl.LightningDataModule):
         self.wced_input_ratio = wced_input_ratio
         self.min_age = min_age
         self.bmfm_style = bmfm_style
+        self.filter_age_outliers = filter_age_outliers
+
+        # Pre-compute duplicate exclusion set once at init (shared across all splits)
+        self.exclude_ids: set = set()
+        if duplicate_pairs_csv is not None:
+            from pathlib import Path as _Path
+            if _Path(duplicate_pairs_csv).exists():
+                self.exclude_ids = _compute_dedup_exclusions(duplicate_pairs_csv)
+            else:
+                logger.warning(f"duplicate_pairs_csv not found: {duplicate_pairs_csv}")
 
         # Will be set during setup
         self.train_dataset = None
@@ -433,6 +522,8 @@ class MethylationDataModule(pl.LightningDataModule):
             raise ValueError("h5ad_path must be provided")
 
         # Create datasets
+        _exclude = self.exclude_ids if self.exclude_ids else None
+
         if stage == "fit" or stage is None:
             self.train_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
@@ -442,6 +533,8 @@ class MethylationDataModule(pl.LightningDataModule):
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
                 bmfm_style=self.bmfm_style,
+                filter_age_outliers=self.filter_age_outliers,
+                exclude_ids=_exclude,
             )
             self.val_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
@@ -451,6 +544,8 @@ class MethylationDataModule(pl.LightningDataModule):
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
                 bmfm_style=self.bmfm_style,
+                filter_age_outliers=self.filter_age_outliers,
+                exclude_ids=_exclude,
             )
             # Share normalization stats from training
             self.val_dataset.age_mean = self.train_dataset.age_mean
@@ -465,6 +560,8 @@ class MethylationDataModule(pl.LightningDataModule):
                 normalize_age=self.normalize_age,
                 min_age=self.min_age,
                 bmfm_style=self.bmfm_style,
+                filter_age_outliers=self.filter_age_outliers,
+                exclude_ids=_exclude,
             )
             if self.train_dataset is not None:
                 self.test_dataset.age_mean = self.train_dataset.age_mean

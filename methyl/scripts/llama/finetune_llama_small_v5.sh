@@ -135,6 +135,8 @@ python -m bmfm_methylation.llama.finetune_llama \
     data_module.max_length=21369 \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
+    data_module.filter_age_outliers=true \
+    "data_module.duplicate_pairs_csv='${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv'" \
     wced_input_ratio="${INPUT_RATIO}" \
     finetune.head_hidden_size="${HEAD_HIDDEN}" \
     finetune.head_dropout="${HEAD_DROPOUT}" \
