@@ -46,7 +46,7 @@ set -euo pipefail
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 LOGDIR="${REPO}/logs_llama-wced"
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
+DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 
 CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt}"
 TOKENIZER_PATH="${REPO}/tokenizer_llama_pretrain49k"
@@ -132,7 +132,7 @@ python -m bmfm_methylation.llama.finetune_llama \
     "output_directory='${OUTDIR}'" \
     data_module.subset_k="${SUBSET_K}" \
     data_module.fixed_subset_seed=42 \
-    data_module.max_length=19609 \
+    data_module.max_length=21369 \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     wced_input_ratio="${INPUT_RATIO}" \
