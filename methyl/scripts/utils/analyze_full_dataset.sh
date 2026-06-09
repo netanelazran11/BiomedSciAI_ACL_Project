@@ -6,7 +6,7 @@
 #SBATCH --mem=128G
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=salmon
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:1
 
 set -euo pipefail
 REPO=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl
