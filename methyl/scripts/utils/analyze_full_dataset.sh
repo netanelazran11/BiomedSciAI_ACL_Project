@@ -5,8 +5,8 @@
 #SBATCH --time=04:00:00
 #SBATCH --mem=128G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=dogfish
-#SBATCH --gres=gpu:a100:1
+#SBATCH --partition=catfish
+#SBATCH --gres=gpu:l4:1
 
 set -euo pipefail
 REPO=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl
