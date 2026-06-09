@@ -265,12 +265,17 @@ def build_txt(cpg, id_results, fp_results):
         r_id = id_results.get(sp, {})
         r_fp = fp_results.get(sp, {})
         lines += [f"{sp.upper()} SPLIT", "-"*40,
-                  f"  Direct ID match : {r_id.get('shared_n','?'):,} / {r_id.get('ll_n','?'):,}"
-                  f"  ({r_id.get('pct_ll',0):.1f}% of LL)",
-                  f"  Fingerprint exact (>={r_fp.get('threshold',0.9999)}): "
-                  f"{r_fp.get('exact_n','?'):,} / {r_fp.get('ll_n','?'):,}"
+                  f"  LL samples              : {r_id.get('ll_n','?'):,}",
+                  f"  Direct ID match (all Alt): {r_id.get('shared_n_all','?'):,} / {r_id.get('ll_n','?'):,}"
+                  f"  ({r_id.get('pct_ll',0):.1f}%)",
+                  f"  Of matched → same split : {r_id.get('same_split_n',0):,}"
+                  f"  ({r_id.get('same_split_pct',0):.1f}% of LL)",
+                  f"  Alt split distribution  : {r_id.get('matched_alt_splits',{})}",
+                  f"  Fingerprint exact match : {r_fp.get('exact_n','?'):,} / {r_fp.get('ll_n','?'):,}"
                   f"  ({r_fp.get('exact_pct',0):.1f}%)",
-                  f"  Sim min/median/mean/max: "
+                  f"    same split in Alt     : {r_fp.get('same_split_n',0):,}",
+                  f"    different split in Alt: {r_fp.get('diff_split_n',0):,}",
+                  f"  Sim min/median/mean/max : "
                   f"{r_fp.get('sim_min',0):.6f} / {r_fp.get('sim_median',0):.6f} / "
                   f"{r_fp.get('sim_mean',0):.6f} / {r_fp.get('sim_max',0):.6f}",
                   f"  VERDICT: {r_fp.get('verdict','?')}", ""]
@@ -488,23 +493,115 @@ def main():
     alt_cols = np.array([alt_pos[c] for c in shared], dtype=np.int32)
     print(f"\n  Fingerprinting on {len(shared):,} shared CpGs")
 
+    # ── Build full Alt arrays (ALL splits combined) for cross-split search ──
+    # The 19k was derived from the 21k by filtering, so splits were assigned
+    # independently. A 19k test sample might be a 21k train sample.
+    # Correct check: match each 19k sample against ALL 21k samples, then
+    # report which 21k split the match falls in.
+    all_alt_X   = np.concatenate([alt_X[s]   for s in ("train","valid","test")], axis=0)
+    all_alt_ids = sum([alt_ids[s]             for s in ("train","valid","test")], [])
+    all_alt_ages= np.concatenate([alt_ages[s] for s in ("train","valid","test")], axis=0)
+    # Build a lookup: alt_id -> split label
+    alt_id_to_split = {}
+    for s in ("train","valid","test"):
+        for aid in alt_ids[s]:
+            alt_id_to_split[aid] = s
+
+    all_alt_X_shared = all_alt_X[:, alt_cols]
+    print(f"  Alt full dataset: {len(all_alt_ids):,} samples")
+
     id_results, fp_results = {}, {}
     for sp in splits:
         print(f"\n{'─'*50}\n  Split: {sp}\n{'─'*50}")
 
-        # Direct ID match
-        print("\n  --- Direct ID matching ---")
-        id_results[sp] = direct_id_match(ll_ids[sp], alt_ids[sp], sp)
+        ll_X_sp   = ll_X[sp][:, ll_cols]
+        ll_ids_sp = ll_ids[sp]
+        ll_ages_sp= ll_ages[sp]
 
-        # Fingerprint
-        print("\n  --- Methylation fingerprint matching ---")
-        fp_results[sp] = fingerprint_match(
-            ll_X[sp][:, ll_cols],
-            alt_X[sp][:, alt_cols],
-            ll_ids[sp], alt_ids[sp],
-            ll_ages[sp], alt_ages[sp],
-            split=sp, threshold=args.threshold,
-        )
+        # Direct ID match against ALL alt samples
+        print("\n  --- Direct ID matching (vs ALL AltumAge samples) ---")
+        ll_set  = set(ll_ids_sp)
+        alt_all_set = set(all_alt_ids)
+        shared_ids_all = ll_set & alt_all_set
+        # For matched samples, check which alt split they landed in
+        split_dest = {}
+        for sid in shared_ids_all:
+            dest = alt_id_to_split.get(sid, "unknown")
+            split_dest[dest] = split_dest.get(dest, 0) + 1
+        print(f"  LL {sp} vs ALL Alt: {len(shared_ids_all):,}/{len(ll_set):,} "
+              f"({100*len(shared_ids_all)/max(len(ll_set),1):.1f}%) matched")
+        print(f"  Of those, their Alt split: {split_dest}")
+        id_results[sp] = {
+            "ll_n":              len(ll_set),
+            "alt_total_n":       len(all_alt_ids),
+            "shared_n_all":      len(shared_ids_all),
+            "pct_ll":            100*len(shared_ids_all)/max(len(ll_set),1),
+            "matched_alt_splits":split_dest,
+            "same_split_n":      split_dest.get(sp, 0),
+            "same_split_pct":    100*split_dest.get(sp,0)/max(len(ll_set),1),
+        }
+
+        # Fingerprint against ALL alt samples
+        print("\n  --- Methylation fingerprint (vs ALL AltumAge samples) ---")
+        best_sim, best_idx = cosine_nn(ll_X_sp, all_alt_X_shared)
+        best_alt_ids  = [all_alt_ids[i]  for i in best_idx]
+        best_alt_ages = all_alt_ages[best_idx]
+        best_alt_splits = [alt_id_to_split.get(aid, "unknown") for aid in best_alt_ids]
+
+        exact   = int((best_sim >= args.threshold).sum())
+        near    = int(((best_sim >= 0.999) & (best_sim < args.threshold)).sum())
+        partial = int(((best_sim >= 0.99)  & (best_sim < 0.999)).sum())
+        poor    = int((best_sim < 0.99).sum())
+
+        # Among exact matches, how many land in the same split vs different?
+        exact_mask = best_sim >= args.threshold
+        same_split_fp = int(sum(1 for i,m in enumerate(exact_mask)
+                                if m and best_alt_splits[i] == sp))
+        diff_split_fp = exact - same_split_fp
+
+        print(f"  sim: min={best_sim.min():.6f} mean={best_sim.mean():.6f} max={best_sim.max():.6f}")
+        print(f"  exact(>={args.threshold}): {exact:,}/{len(ll_ids_sp):,} ({100*exact/max(len(ll_ids_sp),1):.1f}%)")
+        print(f"    → same split '{sp}' in Alt: {same_split_fp:,}  different split: {diff_split_fp:,}")
+        print(f"  near: {near:,}  partial: {partial:,}  poor: {poor:,}")
+
+        bins   = [0.0, 0.9, 0.99, 0.999, 0.9999, 1.0001]
+        labels = ["<0.9", "0.9–0.99", "0.99–0.999", "0.999–0.9999", "≥0.9999"]
+        counts, _ = np.histogram(best_sim, bins=bins)
+
+        fp_results[sp] = {
+            "split":          sp,
+            "ll_n":           len(ll_ids_sp),
+            "alt_n":          len(all_alt_ids),
+            "sim_min":        float(best_sim.min()),
+            "sim_mean":       float(best_sim.mean()),
+            "sim_max":        float(best_sim.max()),
+            "sim_median":     float(np.median(best_sim)),
+            "exact_n":        exact,
+            "exact_pct":      float(100*exact/max(len(ll_ids_sp),1)),
+            "same_split_n":   same_split_fp,
+            "diff_split_n":   diff_split_fp,
+            "near_n":         near,
+            "partial_n":      partial,
+            "poor_n":         poor,
+            "threshold":      args.threshold,
+            "hist_counts":    counts.tolist(),
+            "hist_labels":    labels,
+            "verdict": (
+                f"ALL {exact:,} matched samples found in Alt — "
+                f"{same_split_fp:,} in same split, {diff_split_fp:,} in different split"
+                if exact == len(ll_ids_sp) else
+                f"{exact:,}/{len(ll_ids_sp):,} exact matches — "
+                f"{same_split_fp:,} same split, {diff_split_fp:,} different split"
+            ),
+            "sample_detail": [
+                {"ll_id": ll_ids_sp[i], "alt_id": best_alt_ids[i],
+                 "alt_split": best_alt_splits[i],
+                 "sim": float(best_sim[i]),
+                 "ll_age":  (float(ll_ages_sp[i])   if not np.isnan(ll_ages_sp[i])   else None),
+                 "alt_age": (float(best_alt_ages[i]) if not np.isnan(best_alt_ages[i]) else None)}
+                for i in range(min(20, len(ll_ids_sp)))
+            ],
+        }
 
     # Write outputs
     txt  = build_txt(cpg, id_results, fp_results)
