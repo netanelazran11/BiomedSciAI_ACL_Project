@@ -37,6 +37,8 @@ data_module:
   max_length: 8002
   subset_k: 8000
   fixed_subset_seed: 42
+  filter_age_outliers: false      # Remove age<0 and age>120 samples entirely
+  duplicate_pairs_csv: null       # Path to duplicate_pairs.csv for deduplication
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED collator settings

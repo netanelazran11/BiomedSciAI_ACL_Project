@@ -14,33 +14,25 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fine-tuning MethylLlama-Small V5 — CLS pooling (vs V4b mean pooling)
+# Fine-tuning MethylLlama-Small V5 — CLS pooling, full 21k dataset
 #
-# Motivation: WCED pretraining routes all global signal through CLS (pooler_output).
-#   Mean pooling (V4b) reads token embeddings that were NOT trained for global tasks.
-#   CLS pooling reads pooler_output = Linear(CLS)+Tanh — the exact readout used
-#   during pretraining for reconstruction, age supervision, and InfoNCE.
+# Best run: job 44895876, test/MedAE=3.65yr, R²=0.905
 #
-# V4b reference (44884146): test/r2=0.919, test/mae=5.01yr @ epoch 79 (still running)
-#   - Pooling: mean over all CpG tokens
-#
-# V5 strategy: scratch from WCED checkpoint + CLS pooling
-#   Starting from scratch (not warmstart from V4b) gives a clean comparison.
-#
-# Changes from V4b:
-#   1. POOLING: mean → cls  (pooler_output: Linear(CLS)+Tanh)
-#   2. No warmstart (from WCED pretrain checkpoint, not V4b weights)
-#      Fresh start isolates the effect of pooling change.
-#
-# Unchanged from V4b:
-#   - Architecture: 256D × 4L × 4H, RoPE, SwiGLU, RMSNorm
-#   - Loss: Huber (delta=5yr/age_std)
-#   - LR: 1e-4 (head), 2e-5 (encoder after unfreeze)
+# V5 configuration (unchanged from original best run):
+#   - Pooling: CLS (pooler_output = Linear(CLS)+Tanh)
+#   - Loss: Huber
+#   - LR: 1e-4 (head), 2e-5 (encoder after unfreeze at epoch 10)
 #   - Batch: 32 × accum 4 = eff batch 128
 #   - Epochs: 300, early stop patience: 100
-#   - Unfreeze encoder: epoch 10, warmup: 500 steps
-#   - Data: outlier-free stratified split (298 samples removed)
-#   - All 19,608 CpGs used
+#   - Warmup: 500 steps
+#   - Architecture: 256D × 4L × 4H, RoPE, SwiGLU, RMSNorm
+#
+# Dataset change (this run):
+#   - Data: altumage_21k_3way.h5ad (full 21,368 CpGs, 10,988 samples)
+#   - Age outliers removed at runtime: age<0 (327) and age>120 (1)
+#   - Duplicates removed at runtime: ~75 brain-tissue replicates
+#   - 302 previously-excluded samples are NOW included (no valid reason to exclude)
+#   - Final ~10,585 samples with original train/valid/test splits preserved
 # ─────────────────────────────────────────────────────────────────────────────
 
 REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
