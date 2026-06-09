@@ -1,0 +1,37 @@
+======================================================================
+DATASET FINGERPRINT COMPARISON
+MethylLlama (19k)  vs  AltumAge 21k h5ad
+======================================================================
+
+CpG OVERLAP
+----------------------------------------
+  MethylLlama : 19,608
+  AltumAge 21k: 21,368
+  Shared      : 19,608 (100.0% of LL)
+  LL ⊆ Alt    : True
+
+VALID SPLIT
+----------------------------------------
+  LL samples              : 1,145
+  Direct ID match (all Alt): 1,145 / 1,145  (100.0%)
+  Of matched → same split : 126  (11.0% of LL)
+  Alt split distribution  : {'test': 260, 'train': 759, 'valid': 126}
+  Fingerprint exact match : 1,145 / 1,145  (100.0%)
+    same split in Alt     : 127
+    different split in Alt: 1,018
+  Sim min/median/mean/max : 0.999955 / 1.000001 / 1.000001 / 1.000043
+  VERDICT: ALL 1,145 matched samples found in Alt — 127 in same split, 1,018 in different split
+
+TEST SPLIT
+----------------------------------------
+  LL samples              : 1,927
+  Direct ID match (all Alt): 1,927 / 1,927  (100.0%)
+  Of matched → same split : 422  (21.9% of LL)
+  Alt split distribution  : {'test': 422, 'train': 1259, 'valid': 246}
+  Fingerprint exact match : 1,927 / 1,927  (100.0%)
+    same split in Alt     : 422
+    different split in Alt: 1,505
+  Sim min/median/mean/max : 0.999951 / 1.000001 / 1.000001 / 1.000050
+  VERDICT: ALL 1,927 matched samples found in Alt — 422 in same split, 1,505 in different split
+
+======================================================================

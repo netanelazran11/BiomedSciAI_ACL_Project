@@ -1,0 +1,20 @@
+============================================================
+OUTLIER SAMPLES REPORT
+AltumAge 21k  →  MethylLlama 19k (filtered)
+============================================================
+AltumAge 21k total    : 10,988
+MethylLlama 19k total : 10,358
+Kept (in both)        : 10,358
+Removed as outliers   : 630
+In 19k but not 21k    : 0
+
+Outlier split distribution in AltumAge 21k:
+  train: 437
+  test: 100
+  valid: 93
+
+Age — kept    : mean=41.5  std=26.9  range=[0, 114]
+Age — removed : mean=10.6  std=16.1  range=[-1, 144]
+
+CSV: /sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/dataset_fingerprint_outputs/outliers.csv
+============================================================

@@ -1,0 +1,164 @@
+<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Dataset Fingerprint Comparison</title><style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Segoe UI',Arial,sans-serif; background:#eef0f4; color:#1e2535; font-size:14px; }
+.slide { width:1280px; min-height:720px; margin:40px auto; background:#fff; border-radius:16px;
+         padding:46px 56px; box-shadow:0 4px 24px rgba(0,0,0,.10); border:1px solid #dde1ea; }
+.slide-title { font-size:24px; font-weight:700; margin-bottom:28px; color:#1a2340;
+               border-bottom:2px solid #dde3f0; padding-bottom:12px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
+.panel { background:#f7f9fc; border:1px solid #dde3ef; border-radius:10px; padding:18px 20px; }
+.panel-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.8px;
+               color:#5a6888; margin-bottom:14px; }
+.stat-card { border-radius:10px; padding:18px 14px; text-align:center; margin-bottom:0; }
+.s-val { font-size:30px; font-weight:800; line-height:1; margin-bottom:6px; }
+.s-label { font-size:11px; text-transform:uppercase; letter-spacing:.8px; font-weight:600; }
+.s-sub { font-size:11px; margin-top:4px; opacity:.75; }
+.sc-green  { background:#edf7ed; border:1.5px solid #4a9a4a; color:#1a5a1a; }
+.sc-blue   { background:#eef3ff; border:1.5px solid #7a9fe0; color:#1a3a80; }
+.sc-purple { background:#f4eeff; border:1.5px solid #8a60c8; color:#3a1a70; }
+.sc-amber  { background:#fff8ee; border:1.5px solid #cc9040; color:#6a3a00; }
+.sc-red    { background:#fff0f0; border:1.5px solid #cc4040; color:#6a0a0a; }
+.callout-ok   { background:#edf7ed; border-left:4px solid #4a9a4a; color:#1a4a1a;
+                border-radius:8px; padding:12px 16px; font-size:13px; margin-top:14px; }
+.callout-warn { background:#fff8ee; border-left:4px solid #cc9040; color:#5a3a00;
+                border-radius:8px; padding:12px 16px; font-size:13px; margin-top:14px; }
+.callout-bad  { background:#fff0f0; border-left:4px solid #cc4040; color:#5a0a0a;
+                border-radius:8px; padding:12px 16px; font-size:13px; margin-top:14px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:#f0f3f8; color:#4a5a78; font-size:11px; text-transform:uppercase;
+     letter-spacing:.6px; padding:7px 10px; font-weight:700; }
+td { padding:6px 10px; border-bottom:1px solid #edf0f6; }
+tr:last-child td { border-bottom:none; }
+.td-r { text-align:right; } .td-c { text-align:center; }
+.mono { font-family:'Courier New',monospace; font-size:12px; }
+.bar-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.bar-label { font-size:11px; color:#4a5a78; width:100px; text-align:right; flex-shrink:0; font-family:monospace; }
+.bar-track { flex:1; height:18px; background:#eef1f8; border-radius:4px; overflow:hidden; }
+.bar-fill  { height:100%; border-radius:4px; }
+.bar-val   { font-size:11px; color:#6a7890; width:90px; flex-shrink:0; font-family:monospace; }
+.b-green { background:#4a9a60; } .b-blue { background:#5a8de0; }
+.b-amber { background:#cc8830; } .b-red  { background:#cc5040; }
+</style></head><body>
+<div class="slide">
+  <div class="slide-title">CpG Site Overlap</div>
+  <div class="grid3" style="margin-bottom:22px">
+    <div class="stat-card sc-blue"><div class="s-val">19,608</div>
+      <div class="s-label">MethylLlama CpGs</div></div>
+    <div class="stat-card sc-purple"><div class="s-val">21,368</div>
+      <div class="s-label">AltumAge 21k CpGs</div></div>
+    <div class="stat-card sc-green"><div class="s-val">19,608</div>
+      <div class="s-label">Shared (fingerprint basis)</div>
+      <div class="s-sub">100.0% of LL · 91.8% of Alt</div></div>
+  </div>
+  <div class="panel">
+    <p>LL ⊆ AltumAge 21k: <strong>✓ Yes</strong>
+       &nbsp;·&nbsp; Only in LL: <strong>0</strong>
+       &nbsp;·&nbsp; Only in Alt: <strong>1,760</strong></p>
+    <p style="margin-top:8px">All 19,608 shared CpGs were used as the methylation
+       fingerprint for sample identity verification.</p>
+  </div>
+</div>
+<div class="slide">
+  <div class="slide-title">Valid Split — Sample Identity Check</div>
+  <div class="grid2" style="margin-bottom:20px">
+    <div>
+      <div class="grid2" style="gap:12px;margin-bottom:14px">
+        <div class="stat-card sc-blue"><div class="s-val">1,145</div>
+          <div class="s-label">MethylLlama samples</div></div>
+        <div class="stat-card sc-purple"><div class="s-val">10,988</div>
+          <div class="s-label">AltumAge samples</div></div>
+      </div>
+      <div class="grid2" style="gap:12px;margin-bottom:14px">
+        <div class="stat-card sc-green">
+          <div class="s-val">0</div>
+          <div class="s-label">Direct ID match</div>
+          <div class="s-sub">100.0% of LL</div></div>
+        <div class="stat-card sc-green">
+          <div class="s-val">1,145</div>
+          <div class="s-label">Fingerprint exact</div>
+          <div class="s-sub">cosine ≥ 0.9999 · 100.0%</div></div>
+      </div>
+      <div class="callout-ok"><strong>Verdict:</strong> ALL 1,145 matched samples found in Alt — 127 in same split, 1,018 in different split</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Similarity distribution</div>
+      <div class="bar-row"><span class="bar-label"><0.9</span><div class="bar-track"><div class="bar-fill b-red" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.9–0.99</span><div class="bar-track"><div class="bar-fill b-red" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.99–0.999</span><div class="bar-track"><div class="bar-fill b-amber" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.999–0.9999</span><div class="bar-track"><div class="bar-fill b-amber" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">≥0.9999</span><div class="bar-track"><div class="bar-fill b-green" style="width:100.0%"></div></div><span class="bar-val">1,145 (100.0%)</span></div>
+      <p style="margin-top:10px;font-size:12px;color:#5a6888">
+        min=0.999955 · median=1.000001
+        · mean=1.000001 · max=1.000043</p>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">First 20 LL samples — nearest AltumAge neighbour</div>
+    <table>
+      <tr><th>MethylLlama ID</th><th>Best AltumAge match</th>
+          <th class="td-r">Cosine sim</th><th class="td-c">Match?</th>
+          <th class="td-r">LL age</th><th class="td-r">Alt age</th></tr>
+      <tr><td class="mono">GSM667201</td><td class="mono">GSM667201</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999998</td><td class="td-c">✓</td><td class="td-r">8.583333333333334</td><td class="td-r">8.583333333333334</td></tr><tr><td class="mono">GSM667200</td><td class="mono">GSM667200</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">8.083333333333334</td><td class="td-r">8.083333333333334</td></tr><tr><td class="mono">GSM667448</td><td class="mono">GSM667448</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000005</td><td class="td-c">✓</td><td class="td-r">11.416666666666666</td><td class="td-r">11.416666666666666</td></tr><tr><td class="mono">GSM666595</td><td class="mono">GSM666595</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">13.416666666666666</td><td class="td-r">13.416666666666666</td></tr><tr><td class="mono">GSM666753</td><td class="mono">GSM666753</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999995</td><td class="td-c">✓</td><td class="td-r">19.25</td><td class="td-r">19.25</td></tr><tr><td class="mono">GSM667365</td><td class="mono">GSM667365</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">8.583333333333334</td><td class="td-r">8.583333333333334</td></tr><tr><td class="mono">GSM666356</td><td class="mono">GSM666356</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">18.25</td><td class="td-r">18.25</td></tr><tr><td class="mono">GSM666591</td><td class="mono">GSM666591</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">10.25</td><td class="td-r">10.25</td></tr><tr><td class="mono">GSM667233</td><td class="mono">GSM667233</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">12.583333333333334</td><td class="td-r">12.583333333333334</td></tr><tr><td class="mono">GSM666436</td><td class="mono">GSM666436</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999997</td><td class="td-c">✓</td><td class="td-r">4.916666666666667</td><td class="td-r">4.916666666666667</td></tr><tr><td class="mono">GSM666520</td><td class="mono">GSM666520</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">7.416666666666667</td><td class="td-r">7.416666666666667</td></tr><tr><td class="mono">GSM667065</td><td class="mono">GSM667065</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000002</td><td class="td-c">✓</td><td class="td-r">8.083333333333334</td><td class="td-r">8.083333333333334</td></tr><tr><td class="mono">GSM666742</td><td class="mono">GSM666742</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">9.25</td><td class="td-r">9.25</td></tr><tr><td class="mono">GSM666385</td><td class="mono">GSM666385</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">13.166666666666666</td><td class="td-r">13.166666666666666</td></tr><tr><td class="mono">GSM667049</td><td class="mono">GSM667049</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999997</td><td class="td-c">✓</td><td class="td-r">4.666666666666667</td><td class="td-r">4.666666666666667</td></tr><tr><td class="mono">GSM666672</td><td class="mono">GSM666672</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999998</td><td class="td-c">✓</td><td class="td-r">6.833333333333333</td><td class="td-r">6.833333333333333</td></tr><tr><td class="mono">GSM666929</td><td class="mono">GSM666929</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999996</td><td class="td-c">✓</td><td class="td-r">12.166666666666666</td><td class="td-r">12.166666666666666</td></tr><tr><td class="mono">GSM666822</td><td class="mono">GSM666822</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">8.416666666666666</td><td class="td-r">8.416666666666666</td></tr><tr><td class="mono">GSM667064</td><td class="mono">GSM667064</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">12.416666666666666</td><td class="td-r">12.416666666666666</td></tr><tr><td class="mono">GSM666954</td><td class="mono">GSM666954</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999998</td><td class="td-c">✓</td><td class="td-r">13.916666666666666</td><td class="td-r">13.916666666666666</td></tr>
+    </table>
+  </div>
+</div>
+<div class="slide">
+  <div class="slide-title">Test Split — Sample Identity Check</div>
+  <div class="grid2" style="margin-bottom:20px">
+    <div>
+      <div class="grid2" style="gap:12px;margin-bottom:14px">
+        <div class="stat-card sc-blue"><div class="s-val">1,927</div>
+          <div class="s-label">MethylLlama samples</div></div>
+        <div class="stat-card sc-purple"><div class="s-val">10,988</div>
+          <div class="s-label">AltumAge samples</div></div>
+      </div>
+      <div class="grid2" style="gap:12px;margin-bottom:14px">
+        <div class="stat-card sc-green">
+          <div class="s-val">0</div>
+          <div class="s-label">Direct ID match</div>
+          <div class="s-sub">100.0% of LL</div></div>
+        <div class="stat-card sc-green">
+          <div class="s-val">1,927</div>
+          <div class="s-label">Fingerprint exact</div>
+          <div class="s-sub">cosine ≥ 0.9999 · 100.0%</div></div>
+      </div>
+      <div class="callout-ok"><strong>Verdict:</strong> ALL 1,927 matched samples found in Alt — 422 in same split, 1,505 in different split</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Similarity distribution</div>
+      <div class="bar-row"><span class="bar-label"><0.9</span><div class="bar-track"><div class="bar-fill b-red" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.9–0.99</span><div class="bar-track"><div class="bar-fill b-red" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.99–0.999</span><div class="bar-track"><div class="bar-fill b-amber" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">0.999–0.9999</span><div class="bar-track"><div class="bar-fill b-amber" style="width:0.0%"></div></div><span class="bar-val">0 (0.0%)</span></div><div class="bar-row"><span class="bar-label">≥0.9999</span><div class="bar-track"><div class="bar-fill b-green" style="width:100.0%"></div></div><span class="bar-val">1,927 (100.0%)</span></div>
+      <p style="margin-top:10px;font-size:12px;color:#5a6888">
+        min=0.999951 · median=1.000001
+        · mean=1.000001 · max=1.000050</p>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">First 20 LL samples — nearest AltumAge neighbour</div>
+    <table>
+      <tr><th>MethylLlama ID</th><th>Best AltumAge match</th>
+          <th class="td-r">Cosine sim</th><th class="td-c">Match?</th>
+          <th class="td-r">LL age</th><th class="td-r">Alt age</th></tr>
+      <tr><td class="mono">GSM667342</td><td class="mono">GSM667342</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">7.75</td><td class="td-r">7.75</td></tr><tr><td class="mono">GSM666749</td><td class="mono">GSM666749</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">5.75</td><td class="td-r">5.75</td></tr><tr><td class="mono">GSM667218</td><td class="mono">GSM667218</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999997</td><td class="td-c">✓</td><td class="td-r">4.166666666666667</td><td class="td-r">4.166666666666667</td></tr><tr><td class="mono">GSM666552</td><td class="mono">GSM666552</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999998</td><td class="td-c">✓</td><td class="td-r">7.916666666666667</td><td class="td-r">7.916666666666667</td></tr><tr><td class="mono">GSM666377</td><td class="mono">GSM666377</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">9.166666666666666</td><td class="td-r">9.166666666666666</td></tr><tr><td class="mono">GSM666841</td><td class="mono">GSM666841</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">14.5</td><td class="td-r">14.5</td></tr><tr><td class="mono">GSM666726</td><td class="mono">GSM666726</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">10.666666666666666</td><td class="td-r">10.666666666666666</td></tr><tr><td class="mono">GSM666788</td><td class="mono">GSM666788</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999995</td><td class="td-c">✓</td><td class="td-r">16.25</td><td class="td-r">16.25</td></tr><tr><td class="mono">GSM666892</td><td class="mono">GSM666892</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999999</td><td class="td-c">✓</td><td class="td-r">10.083333333333334</td><td class="td-r">10.083333333333334</td></tr><tr><td class="mono">GSM667383</td><td class="mono">GSM667383</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">5.916666666666667</td><td class="td-r">5.916666666666667</td></tr><tr><td class="mono">GSM667206</td><td class="mono">GSM667206</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000003</td><td class="td-c">✓</td><td class="td-r">7.416666666666667</td><td class="td-r">7.416666666666667</td></tr><tr><td class="mono">GSM666350</td><td class="mono">GSM666350</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">12.166666666666666</td><td class="td-r">12.166666666666666</td></tr><tr><td class="mono">GSM667359</td><td class="mono">GSM667359</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">8.5</td><td class="td-r">8.5</td></tr><tr><td class="mono">GSM667281</td><td class="mono">GSM667281</td><td class="td-r" style="color:#1a7a1a;font-weight:700">0.999998</td><td class="td-c">✓</td><td class="td-r">13.583333333333334</td><td class="td-r">13.583333333333334</td></tr><tr><td class="mono">GSM666413</td><td class="mono">GSM666413</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000001</td><td class="td-c">✓</td><td class="td-r">6.0</td><td class="td-r">6.0</td></tr><tr><td class="mono">GSM666533</td><td class="mono">GSM666533</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">15.416666666666666</td><td class="td-r">15.416666666666666</td></tr><tr><td class="mono">GSM666408</td><td class="mono">GSM666408</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000002</td><td class="td-c">✓</td><td class="td-r">12.916666666666666</td><td class="td-r">12.916666666666666</td></tr><tr><td class="mono">GSM667384</td><td class="mono">GSM667384</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">9.0</td><td class="td-r">9.0</td></tr><tr><td class="mono">GSM666362</td><td class="mono">GSM666362</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000002</td><td class="td-c">✓</td><td class="td-r">6.916666666666667</td><td class="td-r">6.916666666666667</td></tr><tr><td class="mono">GSM667356</td><td class="mono">GSM667356</td><td class="td-r" style="color:#1a7a1a;font-weight:700">1.000000</td><td class="td-c">✓</td><td class="td-r">6.083333333333333</td><td class="td-r">6.083333333333333</td></tr>
+    </table>
+  </div>
+</div>
+<div class="slide">
+  <div class="slide-title">Summary — Are the Evaluation Sets the Same?</div>
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="panel"><div class="panel-title">Validation</div>
+      <p style="font-size:22px;font-weight:800">100.0% exact match</p>
+      <p style="margin-top:8px">ALL 1,145 matched samples found in Alt — 127 in same split, 1,018 in different split</p></div>
+    <div class="panel"><div class="panel-title">Test</div>
+      <p style="font-size:22px;font-weight:800">100.0% exact match</p>
+      <p style="margin-top:8px">ALL 1,927 matched samples found in Alt — 422 in same split, 1,505 in different split</p></div>
+  </div>
+  <div class="callout-ok">
+    <strong>Comparability of MedAE scores:</strong><br>
+    Both evaluation sets contain the same samples → MedAE scores are directly comparable.
+  </div>
+  <div class="panel" style="margin-top:20px">
+    <div class="panel-title">Method</div>
+    <p>For each MethylLlama sample, cosine similarity was computed against every AltumAge
+       sample in the same split over all <strong>19,608 shared CpG sites</strong>.
+       The nearest neighbour was taken as the candidate match.</p>
+    <p style="margin-top:6px">Cosine ≥ 0.9999 = identical biological sample.
+       Direct ID matching was also attempted using the sample index names.</p>
+  </div>
+</div></body></html>
