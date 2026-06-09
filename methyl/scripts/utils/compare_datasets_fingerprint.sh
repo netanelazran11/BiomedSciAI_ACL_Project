@@ -27,7 +27,8 @@ echo "=============================="
 
 python scripts/utils/compare_datasets_fingerprint.py \
     --outdir "$OUTDIR" \
-    --splits "valid,test"
+    --splits "valid,test" \
+    --alt_h5ad "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 
 echo ""
 echo "=============================="
