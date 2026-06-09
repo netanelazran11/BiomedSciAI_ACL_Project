@@ -6,6 +6,7 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 
 set -euo pipefail
 
