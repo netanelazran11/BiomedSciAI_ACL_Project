@@ -34,10 +34,6 @@ set -euo pipefail
 #      Why: head-only phase is ~3000 steps (10 epochs × 331 steps).
 #           500-step warmup reaches full LR by epoch 2 — too aggressive.
 #           1000 steps gives a smoother ramp across the frozen phase.
-#   4. ENCODER_LR:     2e-5 → 1e-5
-#      Why: after 10 frozen epochs the head is well-converged. A smaller
-#           encoder LR protects WCED pretrained features from being
-#           overwritten by the small fine-tuning gradient signal.
 #
 # Unchanged from V5 (controls for fair comparison):
 #   - Data: altumage_21k_3way.h5ad (same as new V5 run)
@@ -77,7 +73,7 @@ INPUT_RATIO="${INPUT_RATIO:-1.0}"
 # V6 hyperparameters
 # ─────────────────────────────────────────────────────────────────────────────
 LR="${LR:-1e-4}"
-ENCODER_LR="${ENCODER_LR:-1e-5}"          # V6: 2e-5 → 1e-5 (more conservative unfreeze)
+ENCODER_LR="${ENCODER_LR:-2e-5}"          # same as V5
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.05}"       # V6: 0.01 → 0.05 (stronger regularization)
 BATCH_SIZE="${BATCH_SIZE:-32}"
 ACCUM="${ACCUM:-4}"
@@ -120,7 +116,6 @@ echo "V6 changes from V5:"
 echo "  HEAD_DROPOUT : 0.0  → ${HEAD_DROPOUT}"
 echo "  WEIGHT_DECAY : 0.01 → ${WEIGHT_DECAY}"
 echo "  WARMUP_STEPS : 500  → ${WARMUP_STEPS}"
-echo "  ENCODER_LR   : 2e-5 → ${ENCODER_LR}"
 echo ""
 echo "epochs=${FINETUNE_EPOCHS} | early_stop=${EARLY_STOP} | warmup=${WARMUP_STEPS} steps"
 echo "batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff"
