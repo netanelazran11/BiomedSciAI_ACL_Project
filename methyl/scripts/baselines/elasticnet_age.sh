@@ -16,7 +16,6 @@ mkdir -p logs
 source bmfm_methyl_env/bin/activate
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
-DEDUP="${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv"
 OUTDIR="${REPO}/outputs/baselines/elasticnet"
 
 mkdir -p "${OUTDIR}"
@@ -24,14 +23,12 @@ mkdir -p "${OUTDIR}"
 echo "============================================================"
 echo "ElasticNet Age Baseline"
 echo "Data:  ${DATA}"
-echo "Dedup: ${DEDUP}"
 echo "Out:   ${OUTDIR}"
 echo "============================================================"
 
 python scripts/baselines/elasticnet_age.py \
-    --h5ad   "${DATA}" \
-    --dedup  "${DEDUP}" \
-    --outdir "${OUTDIR}" \
+    --h5ad    "${DATA}" \
+    --outdir  "${OUTDIR}" \
     --alpha    0.01 \
     --l1_ratio 0.5
 
