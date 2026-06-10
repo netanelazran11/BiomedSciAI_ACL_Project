@@ -5,8 +5,8 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=salmon
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --partition=catfish
+#SBATCH --gres=gpu:l4:1
 
 set -euo pipefail
 
