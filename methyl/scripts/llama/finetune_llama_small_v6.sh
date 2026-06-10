@@ -22,18 +22,17 @@ set -euo pipefail
 #   WEIGHT_DECAY = 0.01
 #   WARMUP_STEPS = 500
 #
-# V6 targeted changes (one coherent goal: better regularization):
-#   1. HEAD_DROPOUT:   0.0  → 0.2
-#      Why: head has ~99k params (256×256 + 256×128) for ~8k training samples.
-#           Without dropout the head can memorize training patterns.
-#           Dropout(0.2) is standard for small-dataset regression heads.
-#   2. WEIGHT_DECAY:   0.01 → 0.05
-#      Why: complements dropout — stronger L2 on linear weights, especially
-#           in the frozen-encoder phase where only the head trains.
-#   3. WARMUP_STEPS:   500  → 1000
-#      Why: head-only phase is ~3000 steps (10 epochs × 331 steps).
+# V6 targeted changes:
+#   1. WEIGHT_DECAY:   0.01 → 0.05
+#      Why: stronger L2 on head linear weights. Weight decay is the correct
+#           regularizer for a fine-tuning head reading from pretrained CLS —
+#           it shrinks weights smoothly without corrupting pretrained dimensions.
+#           Dropout (0.0) is intentionally kept — randomly zeroing pretrained
+#           CLS dims destroys the dense signal the WCED encoder built.
+#   2. WARMUP_STEPS:   500  → 1000
+#      Why: frozen-encoder phase is ~3000 steps (10 epochs × 331 steps).
 #           500-step warmup reaches full LR by epoch 2 — too aggressive.
-#           1000 steps gives a smoother ramp across the frozen phase.
+#           1000 steps gives a smoother ramp across the full frozen phase.
 #
 # Unchanged from V5 (controls for fair comparison):
 #   - Data: altumage_21k_3way.h5ad (same as new V5 run)
@@ -84,7 +83,7 @@ UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-10}"
 WARMUP_STEPS="${WARMUP_STEPS:-1000}"       # V6: 500 → 1000 (smoother frozen-phase ramp)
 RECON_WEIGHT="${RECON_WEIGHT:-0.0}"
 HEAD_HIDDEN="${HEAD_HIDDEN:-256}"
-HEAD_DROPOUT="${HEAD_DROPOUT:-0.2}"        # V6: 0.0 → 0.2 (KEY change — no dropout was main weakness)
+HEAD_DROPOUT="${HEAD_DROPOUT:-0.0}"        # same as V5 — pretrained CLS dims carry dense signal; dropout corrupts them
 POOLING="${POOLING:-cls}"
 LOSS_TYPE="${LOSS_TYPE:-huber}"
 BETA_NOISE="${BETA_NOISE:-0.0}"
@@ -113,9 +112,9 @@ echo "Job: ${SLURM_JOB_ID} | Host: $(hostname) | Time: $(date)"
 echo "Pooling: ${POOLING} | Loss: ${LOSS_TYPE}"
 echo ""
 echo "V6 changes from V5:"
-echo "  HEAD_DROPOUT : 0.0  → ${HEAD_DROPOUT}"
 echo "  WEIGHT_DECAY : 0.01 → ${WEIGHT_DECAY}"
 echo "  WARMUP_STEPS : 500  → ${WARMUP_STEPS}"
+echo "  HEAD_DROPOUT : 0.0 (unchanged — dropout corrupts pretrained CLS dims)"
 echo ""
 echo "epochs=${FINETUNE_EPOCHS} | early_stop=${EARLY_STOP} | warmup=${WARMUP_STEPS} steps"
 echo "batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff"
