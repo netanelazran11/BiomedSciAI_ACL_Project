@@ -16,21 +16,24 @@ mkdir -p logs
 source bmfm_methyl_env/bin/activate
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
-OUTDIR="${REPO}/outputs/baselines/elasticnet"
+ALPHA="${ALPHA:-0.01}"
+L1_RATIO="${L1_RATIO:-0.5}"
+OUTDIR="${REPO}/outputs/baselines/elasticnet/alpha${ALPHA}_l1ratio${L1_RATIO}"
 
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
 echo "ElasticNet Age Baseline"
+echo "alpha=${ALPHA} | l1_ratio=${L1_RATIO}"
 echo "Data:  ${DATA}"
 echo "Out:   ${OUTDIR}"
 echo "============================================================"
 
 python scripts/baselines/elasticnet_age.py \
-    --h5ad    "${DATA}" \
-    --outdir  "${OUTDIR}" \
-    --alpha    0.01 \
-    --l1_ratio 0.5
+    --h5ad     "${DATA}" \
+    --outdir   "${OUTDIR}" \
+    --alpha    "${ALPHA}" \
+    --l1_ratio "${L1_RATIO}"
 
 echo "============================================================"
 echo "Done: $(date)"
