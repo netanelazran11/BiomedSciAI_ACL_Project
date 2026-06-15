@@ -103,8 +103,8 @@ def main():
     model.eval().to(device)
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
-    from transformers import PreTrainedTokenizerFast
-    tokenizer = PreTrainedTokenizerFast.from_pretrained(args.tokenizer)
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    tokenizer = MultiFieldTokenizer.from_pretrained(args.tokenizer)
 
     # ── Collator (same as training) ───────────────────────────────────────────
     collator = WCEDCollator(
