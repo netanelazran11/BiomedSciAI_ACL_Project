@@ -40,7 +40,6 @@ python scripts/llama/eval_llama_checkpoint.py \
     --outdir      "${OUTDIR}" \
     --subset_k    49156 \
     --seed        42 \
-    --max_length  21369 \
     --batch_size  32 \
     --filter_age_outliers
 
