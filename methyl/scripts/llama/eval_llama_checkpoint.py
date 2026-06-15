@@ -1,7 +1,7 @@
 """
 Evaluate a MethylationAgeRegressorLlama checkpoint on val and test splits.
 
-Prints and saves MedAE, MAE, R², PCC for both splits.
+Prints and saves MedAE, MAE, R², PCC, SCC for both splits.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import scanpy as sc
 import torch
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -17,6 +18,7 @@ from torch.utils.data import DataLoader
 
 from bmfm_methylation.llama.finetune_llama import load_finetune_llama_checkpoint
 from bmfm_methylation.shared.data_module import MethylationDataset, WCEDCollator
+from bmfm_targets.tokenization import MultiFieldTokenizer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -79,14 +81,13 @@ def run_split(model, dataset, collator, batch_size, device, split_name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", required=True, help="Path to .ckpt file")
-    parser.add_argument("--h5ad",       required=True, help="Path to h5ad dataset")
-    parser.add_argument("--tokenizer",  required=True, help="Path to tokenizer dir")
-    parser.add_argument("--outdir",     required=True, help="Where to save results")
-    parser.add_argument("--subset_k",   type=int,   default=49156)
-    parser.add_argument("--seed",       type=int,   default=42)
-    parser.add_argument("--max_length", type=int,   default=21369)
-    parser.add_argument("--batch_size", type=int,   default=32)
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--h5ad",       required=True)
+    parser.add_argument("--tokenizer",  required=True)
+    parser.add_argument("--outdir",     required=True)
+    parser.add_argument("--subset_k",   type=int, default=49156)
+    parser.add_argument("--seed",       type=int, default=42)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--age_col",    default="age")
     parser.add_argument("--split_col",  default="split")
     parser.add_argument("--filter_age_outliers", action="store_true")
@@ -103,26 +104,35 @@ def main():
     model.eval().to(device)
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
-    from bmfm_targets.tokenization import MultiFieldTokenizer
     tokenizer = MultiFieldTokenizer.from_pretrained(args.tokenizer)
 
-    # ── Collator (same as training) ───────────────────────────────────────────
-    collator = WCEDCollator(
-        tokenizer=tokenizer,
-        max_length=args.max_length,
-        subset_k=args.subset_k,
-        fixed_subset_seed=args.seed,
-        mask_ratio=0.0,
-        input_ratio=1.0,
-    )
-
-    # ── Datasets ──────────────────────────────────────────────────────────────
-    import scanpy as sc
+    # ── Load data (need cpg_sites for collator) ───────────────────────────────
     logger.info(f"Loading {args.h5ad}")
     adata = sc.read_h5ad(args.h5ad)
 
+    # Build a dataset just to get cpg_sites list
+    ds_ref = MethylationDataset(
+        adata=adata,
+        split="train",
+        age_col=args.age_col,
+        split_col=args.split_col,
+        filter_age_outliers=args.filter_age_outliers,
+    )
+    cpg_sites = ds_ref.cpg_sites
+    logger.info(f"CpG sites: {len(cpg_sites)}")
+
+    # ── Collator (mirrors finetune_llama.py — input_ratio=1.0 for eval) ───────
+    collator = WCEDCollator(
+        tokenizer=tokenizer,
+        cpg_sites=cpg_sites,
+        vocab_size=args.subset_k,
+        input_ratio=1.0,
+        fixed_subset_seed=args.seed,
+        contrastive=False,
+    )
+
+    # ── Evaluate each split ───────────────────────────────────────────────────
     results = []
-    preds_all = {}
 
     for split in ("valid", "test"):
         logger.info(f"Evaluating {split} split ...")
@@ -135,11 +145,8 @@ def main():
         )
         logger.info(f"  {split}: {len(ds)} samples")
 
-        metrics, y_pred, y_true = run_split(
-            model, ds, collator, args.batch_size, device, split
-        )
+        metrics, _, _ = run_split(model, ds, collator, args.batch_size, device, split)
         results.append(metrics)
-        preds_all[split] = {"y_pred": y_pred.tolist(), "y_true": y_true.tolist()}
 
     # ── Save ──────────────────────────────────────────────────────────────────
     with open(outdir / "eval_results.json", "w") as f:
@@ -147,7 +154,7 @@ def main():
 
     summary_lines = [
         "=" * 65,
-        f"MethylLlama Checkpoint Evaluation",
+        "MethylLlama Checkpoint Evaluation",
         f"Checkpoint: {args.checkpoint}",
         "=" * 65,
         f"{'Split':<8} {'N':>6} {'MedAE':>8} {'MAE':>8} {'RMSE':>8} {'R²':>8} {'PCC':>8} {'SCC':>8}",
