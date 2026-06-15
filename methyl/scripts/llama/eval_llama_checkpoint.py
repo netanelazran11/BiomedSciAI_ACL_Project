@@ -10,7 +10,6 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import scanpy as sc
 import torch
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -88,8 +87,8 @@ def main():
     parser.add_argument("--subset_k",   type=int, default=49156)
     parser.add_argument("--seed",       type=int, default=42)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--age_col",    default="age")
-    parser.add_argument("--split_col",  default="split")
+    parser.add_argument("--age_col",   default="age")
+    parser.add_argument("--split_col", default="split")
     parser.add_argument("--filter_age_outliers", action="store_true")
     args = parser.parse_args()
 
@@ -108,14 +107,13 @@ def main():
 
     # ── Load data (need cpg_sites for collator) ───────────────────────────────
     logger.info(f"Loading {args.h5ad}")
-    adata = sc.read_h5ad(args.h5ad)
 
     # Build a dataset just to get cpg_sites list
     ds_ref = MethylationDataset(
-        adata=adata,
+        h5ad_path=args.h5ad,
         split="train",
-        age_col=args.age_col,
-        split_col=args.split_col,
+        age_column=args.age_col,
+        split_column=args.split_col,
         filter_age_outliers=args.filter_age_outliers,
     )
     cpg_sites = ds_ref.cpg_sites
@@ -137,10 +135,10 @@ def main():
     for split in ("valid", "test"):
         logger.info(f"Evaluating {split} split ...")
         ds = MethylationDataset(
-            adata=adata,
+            h5ad_path=args.h5ad,
             split=split,
-            age_col=args.age_col,
-            split_col=args.split_col,
+            age_column=args.age_col,
+            split_column=args.split_col,
             filter_age_outliers=args.filter_age_outliers,
         )
         logger.info(f"  {split}: {len(ds)} samples")
