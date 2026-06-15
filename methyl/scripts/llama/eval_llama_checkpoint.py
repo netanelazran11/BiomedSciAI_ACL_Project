@@ -105,6 +105,7 @@ def main():
     # ── Load checkpoint ───────────────────────────────────────────────────────
     model = load_finetune_llama_checkpoint(args.checkpoint)
     model.eval().to(device)
+    logger.info(f"age_mean={model.age_mean:.4f}  age_std={model.age_std:.4f}")
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
     tokenizer = MultiFieldTokenizer.from_pretrained(args.tokenizer)

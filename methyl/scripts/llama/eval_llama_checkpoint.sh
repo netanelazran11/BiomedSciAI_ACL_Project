@@ -20,10 +20,10 @@ DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_
 TOKENIZER="${REPO}/tokenizer_llama_pretrain49k"
 
 # Best checkpoint from V5 21k run (job 45031621, run 3rfmxeol)
-# epoch=212: best val MAE=5.5183yr, val MedAE=3.50yr
-CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/finetune-llama-small/llama-small-ft-v5-cls-huber-ep300-wu500-scratch-45031621/checkpoints/epoch=212-val_mae=5.5183.ckpt}"
+# epoch=203: best val MedAE=3.5000yr  ← PRIMARY METRIC
+CHECKPOINT="${CHECKPOINT:-${REPO}/outputs/finetune-llama-small/llama-small-ft-v5-cls-huber-ep300-wu500-scratch-45031621/checkpoints/epoch=203-val_medae=3.5000.ckpt}"
 
-OUTDIR="${REPO}/outputs/baselines/eval_methylllama_v5_21k"
+OUTDIR="${REPO}/outputs/baselines/eval_methylllama_v5_21k_ep203"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
