@@ -135,6 +135,9 @@ def main():
     )
 
     # ── Evaluate each split ───────────────────────────────────────────────────
+    # CRITICAL: override each split's age_mean/age_std with the training statistics
+    # stored in the checkpoint. MethylationDataModule does this during training
+    # (lines 551-568 of data_module.py) — we must replicate it here.
     results = []
 
     for split in ("valid", "test"):
@@ -146,7 +149,9 @@ def main():
             split_column=args.split_col,
             filter_age_outliers=args.filter_age_outliers,
         )
-        logger.info(f"  {split}: {len(ds)} samples")
+        ds.age_mean = model.age_mean
+        ds.age_std  = model.age_std
+        logger.info(f"  {split}: {len(ds)} samples  age_mean={ds.age_mean:.2f}  age_std={ds.age_std:.2f}")
 
         metrics, _, _ = run_split(model, ds, collator, args.batch_size, device, split)
         results.append(metrics)
