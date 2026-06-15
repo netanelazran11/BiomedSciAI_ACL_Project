@@ -40,17 +40,21 @@ def run_split(model, dataset, collator, batch_size, device, split_name):
 
     all_pred, all_true = [], []
     for batch in loader:
-        input_ids      = batch["input_ids"].to(device)
+        cpg_ids        = batch["cpg_ids"].to(device)
+        beta_values    = batch["beta_values"].to(device)
         attention_mask = batch["attention_mask"].to(device)
-        cpg_values     = batch["cpg_values"].to(device)
         ages           = batch["age"].to(device)
 
-        out = model(input_ids=input_ids, attention_mask=attention_mask, cpg_values=cpg_values)
-        pred_years = out["age_pred"] * model.age_std + model.age_mean
-        true_years = ages * model.age_std + model.age_mean
+        out = model._shared_step(
+            {"cpg_ids": cpg_ids, "beta_values": beta_values,
+             "attention_mask": attention_mask, "age": ages},
+            stage="test",
+        )
+        pred_years = out["age_pred_years"]
+        true_years = out["age_label_years"]
 
-        all_pred.extend(pred_years.cpu().numpy())
-        all_true.extend(true_years.cpu().numpy())
+        all_pred.extend(pred_years.detach().cpu().numpy())
+        all_true.extend(true_years.detach().cpu().numpy())
 
     y_pred = np.array(all_pred)
     y_true = np.array(all_true)
