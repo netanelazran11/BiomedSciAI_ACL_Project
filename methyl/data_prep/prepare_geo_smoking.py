@@ -47,15 +47,14 @@ def parse_series_matrix(matrix_gz: Path):
             if "smoking" in line.lower() and line.startswith("!Sample_characteristics"):
                 parts = line.strip().split("\t")[1:]
                 for i, p in enumerate(parts):
-                    p = p.strip('"').lower()
-                    # Must contain "smoking" in this specific field, not just anywhere
-                    if "smoking" not in p:
-                        continue
-                    if "current" in p:
+                    p = p.strip('"').strip()
+                    # Format: "smoking (...): VALUE" where VALUE is 0/1/2 or never/former/current
+                    val = p.split(":")[-1].strip().lower()
+                    if val == "2" or "current" in val:
                         smoking[i] = "current"
-                    elif "former" in p or "ex-" in p or "ex " in p:
+                    elif val == "1" or "former" in val or "ex-" in val:
                         smoking[i] = "former"
-                    elif "never" in p or "non" in p:
+                    elif val == "0" or "never" in val or "non" in val:
                         smoking[i] = "never"
 
     labels = [smoking.get(i, "unknown") for i in range(len(sample_ids))]
