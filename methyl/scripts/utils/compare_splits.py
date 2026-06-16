@@ -53,31 +53,44 @@ for split in ("train", "valid", "test"):
     llama[split] = ids
     print(f"  MethylLlama {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:3]})")
 
-# ── Compare ───────────────────────────────────────────────────────────────────
+# ── Compare via AGE VALUES (MethylGPT uses integer row index, not GSM IDs) ───
 print("\n" + "=" * 60)
-print("SPLIT COMPARISON")
+print("SPLIT COMPARISON — via age values")
 print("=" * 60)
+import numpy as np
+
+# Load MethylGPT ages per split
+gpt_ages = {}
+for split in ("train", "valid", "test"):
+    tbl = pq.ParquetFile(f"{PARQUET_DIR}/{split}.parquet").read(columns=["age"])
+    gpt_ages[split] = sorted(tbl["age"].to_pylist())
+
+# Load MethylLlama ages per split via h5py
+with h5py.File(H5AD_PATH, "r") as f:
+    obs_grp = f["obs"]
+    all_ids = [x.decode() if isinstance(x, bytes) else x for x in obs_grp["_index"][:]]
+    split_vals = list(obs_grp["split"]["codes"][:])
+    split_cats = [x.decode() if isinstance(x, bytes) else x for x in obs_grp["split"]["categories"][:]]
+    splits_decoded = [split_cats[c] for c in split_vals]
+    all_ages = list(obs_grp["age"][:])
+
+llama_ages = {}
+for split in ("train", "valid", "test"):
+    llama_ages[split] = sorted(a for a, s in zip(all_ages, splits_decoded) if s == split)
+
 all_match = True
 for split in ("train", "valid", "test"):
-    g = gpt[split]
-    l = llama[split]
-    overlap  = len(g & l)
-    only_gpt = len(g - l)
-    only_llm = len(l - g)
-    identical = (g == l)
-    all_match = all_match and identical
+    g = gpt_ages[split]
+    l = llama_ages[split]
+    sizes_match = len(g) == len(l)
+    ages_match  = np.allclose(g, l, atol=0.01)
+    all_match   = all_match and sizes_match and ages_match
     print(f"\n{split.upper()}:")
-    print(f"  MethylGPT : {len(g):5d} samples")
-    print(f"  MethylLlama: {len(l):5d} samples")
-    print(f"  Overlap   : {overlap:5d}")
-    print(f"  Only GPT  : {only_gpt:5d}")
-    print(f"  Only Llama: {only_llm:5d}")
-    print(f"  IDENTICAL : {'YES ✓' if identical else 'NO ✗'}")
-    if only_gpt > 0 and only_gpt <= 5:
-        print(f"  GPT-only IDs: {list(g - l)}")
-    if only_llm > 0 and only_llm <= 5:
-        print(f"  Llama-only IDs: {list(l - g)}")
+    print(f"  MethylGPT  : {len(g):5d} samples  age range [{min(g):.1f}, {max(g):.1f}]  mean={np.mean(g):.2f}")
+    print(f"  MethylLlama: {len(l):5d} samples  age range [{min(l):.1f}, {max(l):.1f}]  mean={np.mean(l):.2f}")
+    print(f"  Sizes match : {'YES ✓' if sizes_match else 'NO ✗'}")
+    print(f"  Ages match  : {'YES ✓' if ages_match else 'NO ✗'}")
 
 print("\n" + "=" * 60)
-print(f"ALL SPLITS IDENTICAL: {'YES ✓' if all_match else 'NO ✗ — comparison may be unfair!'}")
+print(f"SAME DATASET & SPLIT: {'YES ✓' if all_match else 'NO ✗ — comparison may be unfair!'}")
 print("=" * 60)
