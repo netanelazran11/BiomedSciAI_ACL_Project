@@ -19,12 +19,10 @@ for split in ("train", "valid", "test"):
     col_names = pf.schema_arrow.names
     print(f"  {split} columns: {col_names[:8]}")
     # Read only the first column to get row count + index
-    tbl = pf.read(columns=[col_names[0]])
+    # Read only 'age' column (small) — avoid loading 'data' (full matrix)
+    tbl = pf.read(columns=["age"])
     df  = tbl.to_pandas()
     ids = set(df.index.astype(str))
-    if len(ids) == 1 and list(ids)[0] in ("0", ""):
-        # index is RangeIndex, IDs must be in a column
-        ids = set(df[col_names[0]].astype(str))
     gpt[split] = ids
     print(f"  MethylGPT  {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:3]})")
 
