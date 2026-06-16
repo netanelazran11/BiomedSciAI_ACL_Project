@@ -9,17 +9,27 @@ import scanpy as sc
 PARQUET_DIR = "/sci/labs/benjamin.yakir/netanel.azran/MethylGPT/data/19k_data/finetuning_data"
 H5AD_PATH   = "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
 
-# ── MethylGPT (parquet) ───────────────────────────────────────────────────────
-print("Loading MethylGPT parquet files...")
+# ── MethylGPT (parquet) — read only index, no full data load ─────────────────
+print("Loading MethylGPT parquet files (index only)...")
+import pyarrow.parquet as pq
 gpt = {}
 for split in ("train", "valid", "test"):
-    df = pd.read_parquet(f"{PARQUET_DIR}/{split}.parquet")
-    # sample ID is usually index or a column — try both
-    if "sample_id" in df.columns:
-        ids = set(df["sample_id"].astype(str))
-    elif "GSM" in str(df.index[0]) or "GSE" in str(df.index[0]):
-        ids = set(df.index.astype(str))
+    pf = pq.ParquetFile(f"{PARQUET_DIR}/{split}.parquet")
+    # Read only the first row group to inspect columns
+    schema = pf.schema_arrow
+    col_names = schema.names
+    # Try to find an ID column; fall back to reading index via pandas __null_dask_index__
+    id_col = None
+    for c in ("sample_id", "GSM", "id", "__index_level_0__"):
+        if c in col_names:
+            id_col = c
+            break
+    if id_col:
+        tbl = pf.read(columns=[id_col])
+        ids = set(tbl[id_col].to_pylist())
     else:
+        # No explicit ID column — index is stored as row group metadata; read via pandas
+        df = pd.read_parquet(f"{PARQUET_DIR}/{split}.parquet", columns=[])
         ids = set(df.index.astype(str))
     gpt[split] = ids
     print(f"  MethylGPT  {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:2]})")
