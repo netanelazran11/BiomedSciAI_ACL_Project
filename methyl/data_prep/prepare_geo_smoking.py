@@ -48,6 +48,9 @@ def parse_series_matrix(matrix_gz: Path):
                 parts = line.strip().split("\t")[1:]
                 for i, p in enumerate(parts):
                     p = p.strip('"').lower()
+                    # Must contain "smoking" in this specific field, not just anywhere
+                    if "smoking" not in p:
+                        continue
                     if "current" in p:
                         smoking[i] = "current"
                     elif "former" in p or "ex-" in p or "ex " in p:
