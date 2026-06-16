@@ -3,48 +3,57 @@ Compare train/val/test sample IDs between MethylGPT (parquet) and MethylLlama (h
 Verifies both models used identical splits for fair comparison.
 """
 
+import h5py
 import pandas as pd
-import scanpy as sc
+import pyarrow.parquet as pq
 
 PARQUET_DIR = "/sci/labs/benjamin.yakir/netanel.azran/MethylGPT/data/19k_data/finetuning_data"
 H5AD_PATH   = "/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_finetune_19k_h5ad/finetuning_19608_clean_stratified_no_outliers.h5ad"
 
-# ── MethylGPT (parquet) — read only index, no full data load ─────────────────
-print("Loading MethylGPT parquet files (index only)...")
-import pyarrow.parquet as pq
+# ── MethylGPT (parquet) — read schema + first column only ────────────────────
+print("Loading MethylGPT parquet files (schema inspect)...")
 gpt = {}
 for split in ("train", "valid", "test"):
-    pf = pq.ParquetFile(f"{PARQUET_DIR}/{split}.parquet")
-    # Read only the first row group to inspect columns
-    schema = pf.schema_arrow
-    col_names = schema.names
-    # Try to find an ID column; fall back to reading index via pandas __null_dask_index__
-    id_col = None
-    for c in ("sample_id", "GSM", "id", "__index_level_0__"):
-        if c in col_names:
-            id_col = c
-            break
-    if id_col:
-        tbl = pf.read(columns=[id_col])
-        ids = set(tbl[id_col].to_pylist())
-    else:
-        # No explicit ID column — index is stored as row group metadata; read via pandas
-        df = pd.read_parquet(f"{PARQUET_DIR}/{split}.parquet", columns=[])
-        ids = set(df.index.astype(str))
+    path = f"{PARQUET_DIR}/{split}.parquet"
+    pf = pq.ParquetFile(path)
+    col_names = pf.schema_arrow.names
+    print(f"  {split} columns: {col_names[:8]}")
+    # Read only the first column to get row count + index
+    tbl = pf.read(columns=[col_names[0]])
+    df  = tbl.to_pandas()
+    ids = set(df.index.astype(str))
+    if len(ids) == 1 and list(ids)[0] in ("0", ""):
+        # index is RangeIndex, IDs must be in a column
+        ids = set(df[col_names[0]].astype(str))
     gpt[split] = ids
-    print(f"  MethylGPT  {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:2]})")
+    print(f"  MethylGPT  {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:3]})")
 
-# ── MethylLlama (h5ad) ───────────────────────────────────────────────────────
-print("\nLoading MethylLlama h5ad...")
-adata = sc.read_h5ad(H5AD_PATH)
-print(f"  Total samples: {len(adata)}")
-print(f"  Split column values: {adata.obs['split'].value_counts().to_dict()}")
+# ── MethylLlama (h5ad) — read only obs via h5py, no matrix load ──────────────
+print("\nLoading MethylLlama h5ad (obs only via h5py)...")
+with h5py.File(H5AD_PATH, "r") as f:
+    # obs index (sample IDs)
+    obs_grp = f["obs"]
+    print(f"  obs keys: {list(obs_grp.keys())[:10]}")
+    # index is stored as _index or the first string dataset
+    if "_index" in obs_grp:
+        all_ids = [x.decode() if isinstance(x, bytes) else x for x in obs_grp["_index"][:]]
+    else:
+        idx_key = list(obs_grp.keys())[0]
+        all_ids = [x.decode() if isinstance(x, bytes) else x for x in obs_grp[idx_key][:]]
+    # split column
+    split_vals = [x.decode() if isinstance(x, bytes) else x for x in obs_grp["split"]["codes"][:]]
+    split_cats = [x.decode() if isinstance(x, bytes) else x for x in obs_grp["split"]["categories"][:]]
+    splits_decoded = [split_cats[c] for c in split_vals]
+
+print(f"  Total samples: {len(all_ids)}")
+from collections import Counter
+print(f"  Split counts: {dict(Counter(splits_decoded))}")
 
 llama = {}
 for split in ("train", "valid", "test"):
-    ids = set(adata.obs[adata.obs["split"] == split].index.astype(str))
+    ids = set(sid for sid, sp in zip(all_ids, splits_decoded) if sp == split)
     llama[split] = ids
-    print(f"  MethylLlama {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:2]})")
+    print(f"  MethylLlama {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:3]})")
 
 # ── Compare ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
