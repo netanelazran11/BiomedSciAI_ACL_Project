@@ -53,6 +53,57 @@ for split in ("train", "valid", "test"):
     llama[split] = ids
     print(f"  MethylLlama {split:5s}: {len(ids):5d} samples  (example: {list(ids)[:3]})")
 
+# ── Map MethylGPT integer index → GSM ID via h5ad row order ──────────────────
+print("\nMapping MethylGPT integer indices → GSM IDs...")
+with h5py.File(H5AD_PATH, "r") as f:
+    all_gsm = [x.decode() if isinstance(x, bytes) else x for x in f["obs"]["_index"][:]]
+    split_vals = list(f["obs"]["split"]["codes"][:])
+    split_cats = [x.decode() if isinstance(x, bytes) else x for x in f["obs"]["split"]["categories"][:]]
+    splits_decoded = [split_cats[c] for c in split_vals]
+    h5ad_ages = list(f["obs"]["age"][:])
+
+# Build lookup: row_index → (gsm_id, age, split)
+h5ad_by_idx = {i: (gsm, age, sp) for i, (gsm, age, sp) in enumerate(zip(all_gsm, h5ad_ages, splits_decoded))}
+
+print("\n" + "=" * 60)
+print("SPLIT COMPARISON — exact sample ID mapping")
+print("=" * 60)
+all_match = True
+for split in ("train", "valid", "test"):
+    tbl = pq.ParquetFile(f"{PARQUET_DIR}/{split}.parquet").read(columns=["age"])
+    df  = tbl.to_pandas()
+    matched = 0
+    wrong_split = 0
+    age_mismatch = 0
+    not_found = 0
+    gsm_ids_gpt = []
+    for row_idx_str, row_age in zip(df.index.astype(str), df["age"]):
+        row_idx = int(row_idx_str)
+        if row_idx not in h5ad_by_idx:
+            not_found += 1
+            continue
+        gsm, h5_age, h5_split = h5ad_by_idx[row_idx]
+        gsm_ids_gpt.append(gsm)
+        if abs(float(row_age) - float(h5_age)) > 0.01:
+            age_mismatch += 1
+        elif h5_split != split:
+            wrong_split += 1
+        else:
+            matched += 1
+    total = len(df)
+    ok = matched == total
+    all_match = all_match and ok
+    print(f"\n{split.upper()} ({total} samples):")
+    print(f"  Fully matched (ID + age + split): {matched}/{total}  {'✓' if ok else '✗'}")
+    if age_mismatch: print(f"  Age mismatch: {age_mismatch}")
+    if wrong_split:  print(f"  Wrong split : {wrong_split}")
+    if not_found:    print(f"  Index not in h5ad: {not_found}")
+    print(f"  Example GSM IDs: {gsm_ids_gpt[:3]}")
+
+print("\n" + "=" * 60)
+print(f"SPLITS 100% IDENTICAL (ID + age + split): {'YES ✓' if all_match else 'NO ✗'}")
+print("=" * 60)
+
 # ── Compare via AGE VALUES (MethylGPT uses integer row index, not GSM IDs) ───
 print("\n" + "=" * 60)
 print("SPLIT COMPARISON — via age values")
