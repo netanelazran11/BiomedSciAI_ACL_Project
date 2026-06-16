@@ -17,7 +17,7 @@ REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt"
 
 # Use smoking h5ad (has smoking_status labels) for probing
-DATA_SMOKING="/sci/labs/benjamin.yakir/netanel.azran/data/smoking/smoking_data.h5ad"
+DATA_SMOKING="/sci/labs/benjamin.yakir/netanel.azran/data/smoking_geo/smoking_data_aligned.h5ad"
 # Use age h5ad (has age labels) for age probing
 DATA_AGE="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
 
