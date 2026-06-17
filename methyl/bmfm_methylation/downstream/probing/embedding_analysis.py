@@ -317,27 +317,14 @@ def main():
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-    from bmfm_targets.config import FieldInfo, SCBertConfig, TrainerConfig
+    from bmfm_targets.config import SCBertConfig, TrainerConfig, FieldInfo
     from bmfm_methylation.wced.wced_module import WCEDTrainingModule
     from bmfm_methylation.shared.config import PretrainingConfig
-
-    # Minimal field config
-    field_cfg = {"name": "methylation", "vocab_size": 49166, "pad_token_id": 0,
-                 "bos_token_id": 1, "eos_token_id": 2}
-    fields = [FieldInfo(**field_cfg)]
+    from bmfm_methylation.downstream.probing.data_efficiency import _build_encoder_config
 
     torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
 
-    import hydra
-    with hydra.initialize_config_dir(
-        config_dir=str(Path(__file__).parent.parent.parent / "mlm" / "configs"),
-        job_name="embedding_analysis",
-        version_base="1.2",
-    ):
-        cfg = hydra.compose("finetune_config")
-        model_config_fn = hydra.utils.instantiate(cfg.model)
-
-    model_config = model_config_fn(fields=fields)
+    model_config = _build_encoder_config()
     model_config.checkpoint = None
     pt = WCEDTrainingModule.load_from_checkpoint(
         args.checkpoint_path,
@@ -357,9 +344,8 @@ def main():
     rand_embeddings = None
     if args.compare_random_init:
         logger.info("Extracting random-init embeddings...")
-        model_config2 = model_config_fn(fields=fields)
         from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
-        rand_encoder = SCBertModel(model_config2)
+        rand_encoder = SCBertModel(_build_encoder_config())
         rand_embeddings, _ = extract_embeddings(
             rand_encoder, args.data_path, subset_k=SUBSET_K, device=device, split=args.split,
         )
