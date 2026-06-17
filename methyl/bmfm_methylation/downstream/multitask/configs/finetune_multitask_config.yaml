@@ -1,8 +1,6 @@
 # Task B — Multi-Task Probing config (age + smoking + sex)
 
 defaults:
-  - /bmfm_methylation/mlm/configs/fields: methylation
-  - /bmfm_methylation/mlm/configs/model: scbert_methylation
   - _self_
 
 # ── Paths ──────────────────────────────────────────────────────────────────
