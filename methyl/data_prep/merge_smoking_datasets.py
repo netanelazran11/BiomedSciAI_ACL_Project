@@ -46,12 +46,49 @@ def align_one(adata: ad.AnnData, vocab: dict, gse: str) -> ad.AnnData:
     return aligned
 
 
+def restratify_splits(combined: ad.AnnData, seed: int = 42) -> ad.AnnData:
+    """Re-assign train/val/test splits on the combined dataset using stratified sampling.
+
+    Per-dataset splits merged naively can produce val and test sets with different
+    class distributions (e.g. val=60% never, test=35% never). Re-stratifying on the
+    full pool ensures all splits share the same class proportions.
+
+    Split: 80% train / 10% val / 10% test, stratified by smoking_status.
+    """
+    from sklearn.model_selection import train_test_split as tts
+
+    labels = combined.obs["smoking_status"].values
+    idx = np.arange(len(combined))
+
+    idx_tr, idx_tmp, lab_tr, lab_tmp = tts(
+        idx, labels, test_size=0.20, random_state=seed, stratify=labels
+    )
+    idx_val, idx_te = tts(
+        idx_tmp, test_size=0.50, random_state=seed, stratify=lab_tmp
+    )
+
+    split_col = np.array(["train"] * len(combined))
+    split_col[idx_val] = "valid"
+    split_col[idx_te] = "test"
+    combined.obs["split"] = split_col
+
+    logger.info("Re-stratified splits on combined dataset:")
+    for s in ["train", "valid", "test"]:
+        mask = combined.obs["split"] == s
+        counts = combined.obs.loc[mask, "smoking_status"].value_counts()
+        logger.info(f"  {s}: {mask.sum()} samples — {counts.to_dict()}")
+
+    return combined
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inputs", nargs="+", required=True,
                         help="List of smoking h5ad files to merge")
     parser.add_argument("--tokenizer_path", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--restratify", action="store_true", default=True,
+                        help="Re-stratify splits on the combined dataset (recommended)")
     args = parser.parse_args()
 
     vocab = build_vocab(args.tokenizer_path)
@@ -81,6 +118,9 @@ def main():
 
     # Ensure cpg_id is set from vocab
     combined.var["cpg_id"] = [vocab[c] for c in combined.var_names]
+
+    if args.restratify:
+        combined = restratify_splits(combined)
 
     logger.info(f"Combined dataset: {combined.shape}")
     logger.info(f"Label distribution: {combined.obs['smoking_status'].value_counts().to_dict()}")

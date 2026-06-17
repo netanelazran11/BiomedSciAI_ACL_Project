@@ -377,13 +377,13 @@ def main(cfg: DictConfig):
     callbacks = [
         pl.callbacks.ModelCheckpoint(
             dirpath=output_dir / "checkpoints",
-            filename="epoch={epoch}-val_acc={val/acc:.4f}",
-            monitor="val/acc",
+            filename="epoch={epoch}-val_f1={val/f1_macro:.4f}",
+            monitor="val/f1_macro",
             mode="max",
             save_top_k=3,
             save_last=True,
         ),
-        pl.callbacks.EarlyStopping(monitor="val/acc", patience=cfg.get("early_stop_patience", 20), mode="max"),
+        pl.callbacks.EarlyStopping(monitor="val/f1_macro", patience=cfg.get("early_stop_patience", 20), mode="max"),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
     ]
 
