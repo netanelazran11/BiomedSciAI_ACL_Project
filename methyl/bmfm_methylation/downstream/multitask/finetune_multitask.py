@@ -405,14 +405,25 @@ def main(cfg: DictConfig):
                                           num_workers=nw, collate_fn=_collate_multitask, pin_memory=True)
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    from bmfm_targets.config import FieldInfo
+    from bmfm_targets.config import SCBertConfig, TrainerConfig, FieldInfo
     from bmfm_methylation.wced.wced_module import WCEDTrainingModule
     from bmfm_methylation.shared.config import PretrainingConfig
-    from bmfm_targets.config import SCBertConfig, TrainerConfig
 
-    fields = [FieldInfo(**{k: v for k, v in OmegaConf.to_container(f).items() if k != "_target_"})
-              for f in cfg.fields]
-    model_config = hydra.utils.instantiate(cfg.model)(fields=fields)
+    fields = [
+        FieldInfo(field_name="cpg_sites", vocab_size=8005, is_input=True, is_masked=False,
+                  tokenization_strategy="tokenize"),
+        FieldInfo(field_name="beta_values", is_input=True, is_masked=True,
+                  tokenization_strategy="continuous_value_encoder", num_special_tokens=5,
+                  encoder_kwargs={"kind": "mlp_with_special_token_embedding"},
+                  decode_modes={"regression": {}}),
+    ]
+    model_config = SCBertConfig(
+        fields=fields, num_hidden_layers=6, num_attention_heads=8, hidden_size=512,
+        intermediate_size=2048, hidden_act="gelu", hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1, classifier_dropout=0.1, initializer_range=0.02,
+        layer_norm_eps=1e-12, pad_token_id=0, use_cache=True, max_position_embeddings=8002,
+        attention="torch", label_columns=None, checkpoint=None,
+    )
 
     torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
     wced_config = PretrainingConfig(mode="wced")

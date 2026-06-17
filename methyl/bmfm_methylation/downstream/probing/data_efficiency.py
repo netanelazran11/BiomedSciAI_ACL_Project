@@ -129,7 +129,49 @@ def _train_one_run(encoder, head, train_ds, val_ds, task, device, n_epochs=EPOCH
     return best_metric
 
 
-def _load_encoder(checkpoint_path, model_config_fn, fields, random_init=False):
+def _build_encoder_config():
+    """Build SCBertConfig directly from known pretraining architecture (no Hydra needed)."""
+    from bmfm_targets.config import SCBertConfig, FieldInfo
+    fields = [
+        FieldInfo(
+            field_name="cpg_sites",
+            vocab_size=8005,
+            is_input=True,
+            is_masked=False,
+            tokenization_strategy="tokenize",
+        ),
+        FieldInfo(
+            field_name="beta_values",
+            is_input=True,
+            is_masked=True,
+            tokenization_strategy="continuous_value_encoder",
+            num_special_tokens=5,
+            encoder_kwargs={"kind": "mlp_with_special_token_embedding"},
+            decode_modes={"regression": {}},
+        ),
+    ]
+    return SCBertConfig(
+        fields=fields,
+        num_hidden_layers=6,
+        num_attention_heads=8,
+        hidden_size=512,
+        intermediate_size=2048,
+        hidden_act="gelu",
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        classifier_dropout=0.1,
+        initializer_range=0.02,
+        layer_norm_eps=1e-12,
+        pad_token_id=0,
+        use_cache=True,
+        max_position_embeddings=8002,
+        attention="torch",
+        label_columns=None,
+        checkpoint=None,
+    )
+
+
+def _load_encoder(checkpoint_path, random_init=False):
     """Load WCED encoder or create a random-init copy."""
     import torch.serialization
     from bmfm_targets.config import SCBertConfig, TrainerConfig, FieldInfo
@@ -137,7 +179,7 @@ def _load_encoder(checkpoint_path, model_config_fn, fields, random_init=False):
     from bmfm_methylation.shared.config import PretrainingConfig
 
     torch.serialization.add_safe_globals([SCBertConfig, TrainerConfig, FieldInfo])
-    model_config = model_config_fn(fields=fields)
+    model_config = _build_encoder_config()
 
     if random_init:
         from bmfm_targets.models.predictive.scbert.modeling_scbert import SCBertModel
@@ -145,7 +187,6 @@ def _load_encoder(checkpoint_path, model_config_fn, fields, random_init=False):
         logger.info("Random-init encoder created")
         return encoder
 
-    model_config.checkpoint = None
     pt = WCEDTrainingModule.load_from_checkpoint(
         checkpoint_path,
         model_config=model_config,
@@ -182,31 +223,6 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
-
-    # ── Load model config (reuse MLM configs) ────────────────────────────────
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-    from omegaconf import OmegaConf
-    from bmfm_targets.config import FieldInfo
-
-    # Minimal field config (same as mlm/configs/fields/methylation.yaml)
-    field_cfg = {"name": "methylation", "vocab_size": 49166, "pad_token_id": 0,
-                 "bos_token_id": 1, "eos_token_id": 2}
-    fields = [FieldInfo(**field_cfg)]
-
-    # Model config factory
-    from omegaconf import OmegaConf as OC
-    import hydra
-
-    # Use the pretrain config for model instantiation
-    with hydra.initialize_config_dir(
-        config_dir=str(Path(__file__).parent.parent.parent / "mlm" / "configs"),
-        job_name="data_efficiency",
-        version_base="1.2",
-    ):
-        cfg = hydra.compose("finetune_config")
-        model_config_fn = hydra.utils.instantiate(cfg.model)
 
     # ── Build datasets ────────────────────────────────────────────────────────
     from bmfm_methylation.downstream.shared.classification_data_module import (
@@ -264,7 +280,7 @@ def main():
                     train_ds = Subset(full_train, indices)
 
                 encoder = _load_encoder(
-                    args.checkpoint_path, model_config_fn, fields,
+                    args.checkpoint_path,
                     random_init=(init_type == "random_init"),
                 )
                 encoder.eval()

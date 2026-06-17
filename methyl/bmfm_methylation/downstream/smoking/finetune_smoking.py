@@ -234,6 +234,48 @@ class SmokingClassifier(pl.LightningModule):
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _build_encoder_config():
+    """Build SCBertConfig directly from known pretraining architecture (no Hydra needed)."""
+    from bmfm_targets.config import SCBertConfig, FieldInfo
+    fields = [
+        FieldInfo(
+            field_name="cpg_sites",
+            vocab_size=8005,
+            is_input=True,
+            is_masked=False,
+            tokenization_strategy="tokenize",
+        ),
+        FieldInfo(
+            field_name="beta_values",
+            is_input=True,
+            is_masked=True,
+            tokenization_strategy="continuous_value_encoder",
+            num_special_tokens=5,
+            encoder_kwargs={"kind": "mlp_with_special_token_embedding"},
+            decode_modes={"regression": {}},
+        ),
+    ]
+    return SCBertConfig(
+        fields=fields,
+        num_hidden_layers=6,
+        num_attention_heads=8,
+        hidden_size=512,
+        intermediate_size=2048,
+        hidden_act="gelu",
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        classifier_dropout=0.1,
+        initializer_range=0.02,
+        layer_norm_eps=1e-12,
+        pad_token_id=0,
+        use_cache=True,
+        max_position_embeddings=8002,
+        attention="torch",
+        label_columns=None,
+        checkpoint=None,
+    )
+
+
 def _load_wced_encoder(checkpoint_path: str, model_config, cfg: DictConfig):
     from bmfm_methylation.wced.wced_module import WCEDTrainingModule
     from bmfm_methylation.shared.config import PretrainingConfig
@@ -283,11 +325,7 @@ def main(cfg: DictConfig):
     data.setup()
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    from bmfm_targets.config import FieldInfo
-    fields = [FieldInfo(**{k: v for k, v in OmegaConf.to_container(f).items() if k != "_target_"})
-              for f in cfg.fields]
-
-    model_config = hydra.utils.instantiate(cfg.model)(fields=fields)
+    model_config = _build_encoder_config()
     encoder = _load_wced_encoder(cfg.checkpoint_path, model_config, cfg)
 
     steps_per_epoch = len(data.train_dataset) // (cfg.get("batch_size", 32) * cfg.get("accumulate_grad_batches", 1))
