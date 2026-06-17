@@ -21,7 +21,12 @@ LOGDIR="${REPO}/logs"
 #   --output_dir /sci/labs/benjamin.yakir/netanel.azran/data/smoking \
 #   --vocab_49k_path /sci/labs/benjamin.yakir/netanel.azran/data/pretrain_cpg_list.csv
 
-DATA="/sci/labs/benjamin.yakir/netanel.azran/data/smoking_geo/smoking_data_aligned.h5ad"
+# Use combined dataset if available, else fall back to GSE50660 only
+if [ -f "/sci/labs/benjamin.yakir/netanel.azran/data/smoking_geo/smoking_combined_aligned.h5ad" ]; then
+    DATA="/sci/labs/benjamin.yakir/netanel.azran/data/smoking_geo/smoking_combined_aligned.h5ad"
+else
+    DATA="/sci/labs/benjamin.yakir/netanel.azran/data/smoking_geo/smoking_data_aligned.h5ad"
+fi
 CHECKPOINT="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt"
 
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -53,6 +58,7 @@ python -m bmfm_methylation.downstream.smoking.finetune_smoking \
     "checkpoint_path='${CHECKPOINT}'" \
     output_directory="${OUTDIR}" \
     label_col=smoking_status \
+    binary=true \
     subset_k=4000 \
     batch_size=32 \
     finetune_epochs=100 \

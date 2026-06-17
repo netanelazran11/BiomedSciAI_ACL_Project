@@ -309,14 +309,19 @@ def main(cfg: DictConfig):
 
     # ── Data ─────────────────────────────────────────────────────────────────
     from bmfm_methylation.downstream.shared.classification_data_module import (
-        ClassificationDataModule, SMOKING_LABEL_MAP,
+        ClassificationDataModule, SMOKING_LABEL_MAP, EVER_NEVER_LABEL_MAP,
     )
+
+    binary = cfg.get("binary", False)
+    n_classes = 2 if binary else 3
+    label_map = EVER_NEVER_LABEL_MAP if binary else SMOKING_LABEL_MAP
+    label_col = cfg.get("label_col", "smoking_status")
 
     data = ClassificationDataModule(
         h5ad_path=cfg.data_path,
-        label_col=cfg.get("label_col", "smoking_status"),
-        label_map=SMOKING_LABEL_MAP,
-        n_classes=3,
+        label_col=label_col,
+        label_map=label_map,
+        n_classes=n_classes,
         split_col=cfg.get("split_col", "split"),
         subset_k=cfg.get("subset_k", 4000),
         batch_size=cfg.get("batch_size", 32),
@@ -324,17 +329,27 @@ def main(cfg: DictConfig):
     )
     data.setup()
 
+    # ── Class weights (inverse frequency) ────────────────────────────────────
+    import collections
+    label_counts = collections.Counter(data.train_dataset.labels.tolist())
+    total = sum(label_counts.values())
+    class_weights = torch.tensor(
+        [total / (n_classes * label_counts.get(i, 1)) for i in range(n_classes)],
+        dtype=torch.float32,
+    )
+    logger.info(f"Class weights: {class_weights.tolist()}")
+
     # ── Model ─────────────────────────────────────────────────────────────────
     model_config = _build_encoder_config()
     encoder = _load_wced_encoder(cfg.checkpoint_path, model_config, cfg)
 
-    steps_per_epoch = len(data.train_dataset) // (cfg.get("batch_size", 32) * cfg.get("accumulate_grad_batches", 1))
+    steps_per_epoch = max(1, len(data.train_dataset) // (cfg.get("batch_size", 32) * cfg.get("accumulate_grad_batches", 1)))
     total_steps = cfg.get("finetune_epochs", 100) * steps_per_epoch
 
     model = SmokingClassifier(
         encoder=encoder,
         hidden_size=model_config.hidden_size,
-        n_classes=3,
+        n_classes=n_classes,
         head_dropout=cfg.get("head_dropout", 0.1),
         learning_rate=cfg.get("learning_rate", 1e-4),
         weight_decay=cfg.get("weight_decay", 0.01),
@@ -342,6 +357,7 @@ def main(cfg: DictConfig):
         max_steps=total_steps,
         freeze_encoder=cfg.get("freeze_encoder", True),
         unfreeze_encoder_epoch=cfg.get("unfreeze_encoder_epoch", 5),
+        class_weights=class_weights,
     )
 
     # ── Logger ────────────────────────────────────────────────────────────────

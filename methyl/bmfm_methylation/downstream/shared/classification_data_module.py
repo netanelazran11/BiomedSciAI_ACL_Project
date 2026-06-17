@@ -27,6 +27,7 @@ from bmfm_methylation.shared.data_module import _read_h5ad_robust
 
 
 SMOKING_LABEL_MAP = {"current": 0, "former": 1, "never": 2}
+EVER_NEVER_LABEL_MAP = {"current": 1, "former": 1, "never": 0}  # binary: ever vs never
 SEX_LABEL_MAP = {"M": 0, "F": 1, "male": 0, "female": 1, "0": 0, "1": 1}
 
 
