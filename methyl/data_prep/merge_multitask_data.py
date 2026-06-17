@@ -30,25 +30,32 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def load_and_align_smoking(smk_adata: ad.AnnData, age_adata: ad.AnnData) -> ad.AnnData:
-    """Filter smoking h5ad to pretraining vocab CpGs and remap token IDs."""
-    # Build vocab: cpg_name -> pretraining token_id
-    vocab = age_adata.var["cpg_id"].to_dict()  # {cpg_name: int}
+def build_vocab_from_tokenizer(tokenizer_path: str) -> dict:
+    """Load tokenizer and return {cpg_name: token_id} vocab dict."""
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    tok = MultiFieldTokenizer.from_pretrained(tokenizer_path)
+    vocab = tok.tokenizers["cpg_sites"].get_vocab()
+    # Remove special tokens (non-CpG keys like [UNK], [CLS], etc.)
+    vocab = {k: v for k, v in vocab.items() if k.startswith("cg")}
+    logger.info(f"Tokenizer vocab: {len(vocab)} CpG tokens")
+    return vocab
 
+
+def load_and_align_smoking(smk_adata: ad.AnnData, age_adata: ad.AnnData,
+                           vocab: dict) -> ad.AnnData:
+    """Filter smoking h5ad to pretraining vocab CpGs and assign correct token IDs."""
     common_cpgs = [c for c in smk_adata.var_names if c in vocab]
     logger.info(
         f"CpG intersection: {len(common_cpgs)} "
-        f"(age vocab={len(age_adata.var)}, smoking={len(smk_adata.var)})"
+        f"(tokenizer vocab={len(vocab)}, smoking={len(smk_adata.var)})"
     )
     if len(common_cpgs) == 0:
         raise ValueError(
-            "No CpG overlap between age and smoking datasets. "
-            "Check that both use the same probe naming (e.g. cg00000029)."
+            "No CpG overlap between tokenizer vocab and smoking dataset. "
+            "Check that smoking CpGs use standard probe naming (e.g. cg00000029)."
         )
 
     smk_aligned = smk_adata[:, common_cpgs].copy()
-
-    # Remap cpg_ids to pretraining token IDs
     smk_aligned.var["cpg_id"] = [vocab[c] for c in common_cpgs]
     logger.info(f"Aligned smoking dataset: {smk_aligned.shape}")
     return smk_aligned
@@ -58,6 +65,8 @@ def main():
     parser = argparse.ArgumentParser(description="Merge age + smoking h5ad for multi-task training")
     parser.add_argument("--age_h5ad", required=True, help="Age h5ad with pretraining vocab CpGs")
     parser.add_argument("--smoking_h5ad", required=True, help="Raw smoking h5ad (482k CpGs)")
+    parser.add_argument("--tokenizer_path", required=True,
+                        help="Path to MultiFieldTokenizer directory (contains cpg_sites/)")
     parser.add_argument("--output_merged", required=True, help="Output path for merged multi-task h5ad")
     parser.add_argument("--output_aligned", default=None,
                         help="Optional: save aligned smoking h5ad for Task A/C")
@@ -73,7 +82,8 @@ def main():
     smk_adata = ad.read_h5ad(args.smoking_h5ad)
     logger.info(f"Smoking dataset: {smk_adata.shape}, obs cols: {list(smk_adata.obs.columns)}")
 
-    smk_aligned = load_and_align_smoking(smk_adata, age_adata)
+    vocab = build_vocab_from_tokenizer(args.tokenizer_path)
+    smk_aligned = load_and_align_smoking(smk_adata, age_adata, vocab)
 
     if args.output_aligned:
         out_aligned = Path(args.output_aligned)
@@ -114,7 +124,12 @@ def main():
     combined_X = np.vstack([X_age, X_smk]).astype(np.float32)
 
     combined_obs = pd.concat([age_obs, smk_obs], axis=0)
-    var = age_aligned.var[["cpg_id"]].copy()
+
+    # Build var with correct tokenizer-based cpg_ids for the intersection CpGs
+    var = pd.DataFrame(
+        {"cpg_id": [vocab[c] for c in common_cpgs]},
+        index=common_cpgs,
+    )
 
     combined = ad.AnnData(X=combined_X, obs=combined_obs, var=var)
     logger.info(f"Merged dataset: {combined.shape}")
