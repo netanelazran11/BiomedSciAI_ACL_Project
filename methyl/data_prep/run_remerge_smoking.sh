@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=remerge-smoking
 #SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
