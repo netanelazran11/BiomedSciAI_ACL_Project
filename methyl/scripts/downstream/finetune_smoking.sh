@@ -62,10 +62,10 @@ python -m bmfm_methylation.downstream.smoking.finetune_smoking \
     subset_k=4000 \
     batch_size=32 \
     finetune_epochs=100 \
-    learning_rate=1e-4 \
+    learning_rate=3e-4 \
     freeze_encoder=true \
-    unfreeze_encoder_epoch=5 \
-    early_stop_patience=20 \
+    unfreeze_encoder_epoch=999 \
+    early_stop_patience=30 \
     use_wandb=true \
     wandb_project="${WANDB_PROJECT}" \
     wandb_entity="${WANDB_ENTITY}" \

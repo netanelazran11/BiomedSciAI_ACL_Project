@@ -25,7 +25,7 @@ weight_decay: 0.01
 warmup_steps: 200
 head_dropout: 0.1
 freeze_encoder: true
-unfreeze_encoder_epoch: 5
+unfreeze_encoder_epoch: 999
 early_stop_patience: 20
 
 # ── W&B ────────────────────────────────────────────────────────────────────
