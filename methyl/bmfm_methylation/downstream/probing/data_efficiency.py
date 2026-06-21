@@ -40,7 +40,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 N_SAMPLES_LIST = [10, 25, 50, 100, 250, 500, 1000, None]  # None = all
 N_SEEDS = 3          # average over seeds to reduce variance at small N
-EPOCHS = 50
+TARGET_STEPS = 3000  # fixed gradient steps regardless of N — ensures small N gets enough updates
+VALIDATE_EVERY = 500 # validate every N steps (6 checkpoints per run)
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
 SUBSET_K = 4000
@@ -73,8 +74,32 @@ def _encode(encoder, batch, device):
     return encoder(input_ids, attention_mask=attn).pooler_output
 
 
-def _train_one_run(encoder, head, train_ds, val_ds, task, device, n_epochs=EPOCHS):
-    """Train head (encoder frozen) for n_epochs. Return best val metric."""
+def _validate(head, encoder, val_dl, task, device, age_mean=0.0, age_std=1.0):
+    head.eval()
+    all_preds, all_labels = [], []
+    with torch.no_grad():
+        for batch in val_dl:
+            cls = _encode(encoder, batch, device)
+            all_preds.append(head(cls).cpu())
+            all_labels.append(batch["class_label"].cpu())
+    preds = torch.cat(all_preds)
+    labels = torch.cat(all_labels)
+    if task == "smoking":
+        return (preds.argmax(1) == labels).float().mean().item()
+    else:
+        # MAE in original years
+        pred_years = preds.squeeze(-1) * age_std + age_mean
+        return (pred_years - labels.float()).abs().mean().item()
+
+
+def _train_one_run(encoder, head, train_ds, val_ds, task, device,
+                   n_steps=TARGET_STEPS, age_mean=0.0, age_std=1.0):
+    """Train head (encoder frozen) for exactly n_steps gradient steps.
+
+    Using fixed steps (not fixed epochs) ensures small-N experiments get
+    enough gradient updates: with N=10 and epoch-based training, 50 epochs
+    = 50 steps, which is far too few for the MLP head to converge.
+    """
     head = head.to(device)
     encoder = encoder.to(device)
     encoder.eval()
@@ -86,45 +111,42 @@ def _train_one_run(encoder, head, train_ds, val_ds, task, device, n_epochs=EPOCH
     val_dl = _make_loader(val_ds, shuffle=False)
 
     best_metric = -np.inf if task == "smoking" else np.inf
+    validate_every = max(100, n_steps // 6)
 
-    for epoch in range(n_epochs):
+    step = 0
+    train_iter = iter(train_dl)
+
+    while step < n_steps:
         head.train()
-        for batch in train_dl:
-            opt.zero_grad()
-            with torch.no_grad():
-                cls = _encode(encoder, batch, device)
-            logits = head(cls)
+        try:
+            batch = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_dl)
+            batch = next(train_iter)
 
-            if task == "smoking":
-                loss = F.cross_entropy(logits, batch["class_label"].to(device))
-            else:  # age regression
-                labels = batch["class_label"].float().to(device)
-                loss = F.mse_loss(logits.squeeze(-1), labels)
-
-            loss.backward()
-            opt.step()
-
-        # Validate
-        head.eval()
-        all_preds, all_labels = [], []
+        opt.zero_grad()
         with torch.no_grad():
-            for batch in val_dl:
-                cls = _encode(encoder, batch, device)
-                logits = head(cls)
-                all_preds.append(logits.cpu())
-                all_labels.append(batch["class_label"].cpu())
-
-        preds = torch.cat(all_preds)
-        labels = torch.cat(all_labels)
+            cls = _encode(encoder, batch, device)
 
         if task == "smoking":
-            acc = (preds.argmax(1) == labels).float().mean().item()
-            if acc > best_metric:
-                best_metric = acc
+            loss = F.cross_entropy(head(cls), batch["class_label"].to(device))
         else:
-            mae = (preds.squeeze(-1) - labels.float()).abs().mean().item()
-            if mae < best_metric:
-                best_metric = mae
+            raw = batch["class_label"].float().to(device)
+            normalized = (raw - age_mean) / age_std
+            loss = F.mse_loss(head(cls).squeeze(-1), normalized)
+
+        loss.backward()
+        opt.step()
+        step += 1
+
+        if step % validate_every == 0 or step == n_steps:
+            metric = _validate(head, encoder, val_dl, task, device, age_mean, age_std)
+            if task == "smoking":
+                if metric > best_metric:
+                    best_metric = metric
+            else:
+                if metric < best_metric:
+                    best_metric = metric
 
     return best_metric
 
@@ -215,14 +237,23 @@ def main():
     parser.add_argument("--data_path", required=True)
     parser.add_argument("--task", default="smoking", choices=["smoking", "age"])
     parser.add_argument("--output_dir", default="./outputs/downstream/probing/data_efficiency")
-    parser.add_argument("--n_epochs", type=int, default=EPOCHS)
+    parser.add_argument("--n_steps", type=int, default=TARGET_STEPS,
+                        help="Fixed gradient steps per run (replaces epoch-based training)")
+    parser.add_argument("--n_epochs", type=int, default=None,
+                        help="Deprecated: use --n_steps instead")
     parser.add_argument("--n_seeds", type=int, default=N_SEEDS)
+    parser.add_argument("--init_type", default="both", choices=["wced_pretrained", "random_init", "both"],
+                        help="Which encoder init to evaluate (split jobs to fit time limits)")
     args = parser.parse_args()
+
+    # n_epochs is kept for backward compat but n_steps takes precedence
+    n_steps = args.n_steps
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
+    logger.info(f"Training: {n_steps} fixed steps per run, {args.n_seeds} seeds")
 
     # ── Build datasets ────────────────────────────────────────────────────────
     from bmfm_methylation.downstream.shared.classification_data_module import (
@@ -247,12 +278,21 @@ def main():
 
     logger.info(f"Full train: {len(full_train)}, val: {len(val_ds)}, test: {len(test_ds)}")
 
+    # ── Age normalization (z-score from full training set) ────────────────────
+    age_mean, age_std = 0.0, 1.0
+    if args.task == "age":
+        all_ages = full_train.labels.astype(np.float32)
+        age_mean = float(all_ages.mean())
+        age_std = float(all_ages.std()) + 1e-8
+        logger.info(f"Age normalization: mean={age_mean:.1f}yr, std={age_std:.1f}yr")
+
     n_classes = 3 if args.task == "smoking" else 1
     hidden = 512  # matches pretrain config
 
     results = []
+    init_types = ["wced_pretrained", "random_init"] if args.init_type == "both" else [args.init_type]
 
-    for init_type in ["wced_pretrained", "random_init"]:
+    for init_type in init_types:
         logger.info(f"\n{'='*50}")
         logger.info(f"Init: {init_type}")
 
@@ -290,7 +330,8 @@ def main():
                 else:
                     head = nn.Sequential(nn.Linear(hidden, 64), nn.GELU(), nn.Linear(64, 1))
 
-                metric = _train_one_run(encoder, head, train_ds, val_ds, args.task, device, args.n_epochs)
+                metric = _train_one_run(encoder, head, train_ds, val_ds, args.task, device,
+                                       n_steps=n_steps, age_mean=age_mean, age_std=age_std)
                 seed_metrics.append(metric)
                 logger.info(f"    seed={seed} → val_metric={metric:.4f}")
 
