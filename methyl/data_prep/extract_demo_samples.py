@@ -164,6 +164,11 @@ def stratified_sample(adata: ad.AnnData, n_samples: int, seed: int = 42) -> ad.A
         unique_idx = unique_idx[:n_samples]
 
     subset = adata[unique_idx].copy()
+    # Copy computed columns into subset.obs so we can log stats before dropping them
+    for col in ["age_num", "nan_frac", "age_bin"]:
+        if col in obs.columns:
+            subset.obs[col] = obs.loc[unique_idx, col].values
+
     logger.info(f"\nFinal subset: {subset.shape[0]} samples × {subset.shape[1]} CpGs")
     if tissue_col:
         logger.info("Tissue distribution:\n" + str(subset.obs[tissue_col].value_counts().head(15)))
@@ -172,7 +177,7 @@ def stratified_sample(adata: ad.AnnData, n_samples: int, seed: int = 42) -> ad.A
                 f"max={subset.obs['age_num'].max():.1f}, "
                 f"mean={subset.obs['age_num'].mean():.1f}")
 
-    # Drop temporary columns added during selection
+    # Drop temporary columns before saving
     drop_cols = [c for c in ["age_num", "nan_frac", "age_bin"] if c in subset.obs.columns]
     subset.obs.drop(columns=drop_cols, inplace=True)
 
