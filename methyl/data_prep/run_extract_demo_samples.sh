@@ -8,14 +8,19 @@
 #SBATCH --time=1:00:00
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs/extract_demo_%j.log
 
-REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
-INPUT="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_8k_h5ad/methylgpt_8k_altumage_combined.h5ad"
+# Detect repo root from the script's own location so this works from any clone
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(dirname "${SCRIPT_DIR}")"
+INPUT="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 OUTPUT="${REPO}/methylllama_demo_120samples.h5ad"
 
 cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 
 echo "=== Extracting demo samples ==="
+echo "REPO:   ${REPO}"
+echo "INPUT:  ${INPUT}"
+echo "OUTPUT: ${OUTPUT}"
 python data_prep/extract_demo_samples.py \
     --input  "${INPUT}" \
     --output "${OUTPUT}" \
