@@ -48,4 +48,4 @@ lightning_logs/
 *.npz
 
 # Tokenizer (generated at runtime)
-tokenizer/
+
