@@ -239,7 +239,7 @@ def main():
     pca = PCA(n_components=n_comp, random_state=42)
     pca.fit(emb)
 
-    sv = np.sqrt(pca.explained_variance_ * (pca.n_samples_in_ - 1))
+    sv = np.sqrt(pca.explained_variance_ * (pca.n_samples_ - 1))
     eff_rank_val = effective_rank(sv)
     log.info(f"  Effective rank : {eff_rank_val:.1f}")
     log.info(f"  Top-1 PC       : {pca.explained_variance_ratio_[0]*100:.1f}%")
