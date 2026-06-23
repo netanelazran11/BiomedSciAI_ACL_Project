@@ -25,28 +25,32 @@ OUTDIR="${REPO}/outputs/repr_analysis/cls_rank_figures_${SLURM_JOB_ID}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo " MethylLlama — CLS Rank Visualization"
+echo " MethylLlama — CLS Rank Visualization (stratified)"
 echo " Job : ${SLURM_JOB_ID}  Host: $(hostname)  Time: $(date)"
 echo "============================================================"
-echo " Embeddings : ${CLS_NPY}"
-echo " Metadata   : ${METADATA}"
-echo " Outdir     : ${OUTDIR}"
+echo " Embeddings    : ${CLS_NPY}"
+echo " Metadata      : ${METADATA}"
+echo " Outdir        : ${OUTDIR}"
+echo " Tissue sample : 300 per tissue  (all tissues equally visible)"
+echo " Age sample    : 400 per bin × 15 bins  (all ages equally visible)"
 echo "============================================================"
 
 python scripts/repr_analysis/visualize_cls_rank.py \
-    --embeddings  "${CLS_NPY}"   \
-    --metadata    "${METADATA}"  \
-    --outdir      "${OUTDIR}"    \
-    --n_pca       100            \
-    --n_samples   50000
+    --embeddings    "${CLS_NPY}"   \
+    --metadata      "${METADATA}"  \
+    --outdir        "${OUTDIR}"    \
+    --n_pca         100            \
+    --n_per_tissue  300            \
+    --n_per_age_bin 400            \
+    --n_age_bins    15
 
 echo ""
 echo "============================================================"
 echo " DONE: $(date)"
 echo " Figures → ${OUTDIR}/"
-echo "   cls_rank_analysis.png    — 4-panel combined figure"
-echo "   panel_A_scree.png        — singular value spectrum"
-echo "   panel_B_cumvar.png       — cumulative variance"
-echo "   panel_C_pca_tissue.png   — PCA coloured by tissue"
-echo "   panel_D_pca_age.png      — PCA coloured by age"
+echo "   cls_rank_analysis.png    — 4-panel combined"
+echo "   panel_A_scree.png        — singular value spectrum + eff.rank"
+echo "   panel_B_cumvar.png       — cumulative variance (90/95/99%)"
+echo "   panel_C_pca_tissue.png   — stratified: 300/tissue (all visible)"
+echo "   panel_D_pca_age.png      — stratified: 400/age-bin (all ages)"
 echo "============================================================"
