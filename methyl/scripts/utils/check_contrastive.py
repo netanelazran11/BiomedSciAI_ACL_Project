@@ -99,8 +99,8 @@ def main():
     log.info(f"Device: {device}")
 
     # ── Load pretrained model ─────────────────────────────────────────────────
-    from bmfm_methylation.wced.pretrain_wced import WCEDTrainingModule
-    model = WCEDTrainingModule.load_from_checkpoint(args.checkpoint, strict=False)
+    from bmfm_methylation.llama.finetune_llama import load_wced_llama_checkpoint
+    model = load_wced_llama_checkpoint(args.checkpoint)
     encoder = model.encoder.eval().to(device)
     log.info("Pretrained encoder loaded")
 
