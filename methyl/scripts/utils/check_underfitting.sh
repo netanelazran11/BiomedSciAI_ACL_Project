@@ -1,6 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=check-underfitting
 #SBATCH --partition=catfish
+#SBATCH --gres=gpu:l4:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
