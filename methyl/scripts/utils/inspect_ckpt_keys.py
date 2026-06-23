@@ -3,7 +3,7 @@ import sys
 import torch
 
 ckpt_path = sys.argv[1]
-ckpt = torch.load(ckpt_path, map_location="cpu")
+ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 sd = ckpt["state_dict"]
 
 print("=== ALL UNIQUE KEY PREFIXES (first 3 segments) ===")
