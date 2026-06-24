@@ -17,7 +17,7 @@ cd "${REPO}"
 source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
-CKPT="${REPO}/outputs/pretrain-wced-bmfm/wced-contrastive-k8000-w0.1-44206138/pretrain/checkpoints/epoch=epoch=190-val_loss=validation/loss=0.1264.ckpt"
+CKPT="${REPO}/outputs/pretrain-llama-wced/llama-small-all49k-r0.5-w0.0-44450919/checkpoints/epoch=98-val_loss=0.0059.ckpt"
 
 echo "Inspecting: ${CKPT}"
 python scripts/utils/inspect_ckpt_keys.py "${CKPT}"
