@@ -483,6 +483,9 @@ def main(cfg: DictConfig):
     # find_unused_parameters=True: projection_head and age_head are disabled
     # (contrastive_weight=0, age_weight=0) so DDP must not error on unused params.
     from pytorch_lightning.strategies import DDPStrategy
+    limit_train_batches = cfg.get("limit_train_batches", 1.0)
+    limit_val_batches   = cfg.get("limit_val_batches",   1.0)
+
     trainer = pl.Trainer(
         max_epochs=cfg.get("pretrain_epochs", 300),
         accelerator="auto",
@@ -496,6 +499,8 @@ def main(cfg: DictConfig):
         log_every_n_steps=10,
         val_check_interval=1.0,
         enable_progress_bar=True,
+        limit_train_batches=limit_train_batches,
+        limit_val_batches=limit_val_batches,
     )
 
     # Resume from checkpoint if provided
