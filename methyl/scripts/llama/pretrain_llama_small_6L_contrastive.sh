@@ -134,9 +134,6 @@ python -m bmfm_methylation.llama.pretrain_llama \
     output_directory="${OUTDIR}" \
     pretraining_mode=wced \
     data_module.subset_k="${SUBSET_K}" \
-    data_module.fixed_subset=true \
-    data_module.fixed_subset_seed=42 \
-    data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=14 \
     data_module.bmfm_style=false \
