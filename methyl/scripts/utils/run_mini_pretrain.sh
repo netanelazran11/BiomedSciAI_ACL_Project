@@ -103,7 +103,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     pretraining_mode=wced \
     data_module.subset_k="${SUBSET_K}" \
     data_module.batch_size="${BATCH_SIZE}" \
-    data_module.num_workers=2 \
+    data_module.num_workers=4 \
     data_module.bmfm_style=false \
     model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
