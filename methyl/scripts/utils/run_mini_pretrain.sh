@@ -57,7 +57,11 @@ ACCUM=1                    # no accumulation (single GPU, single step)
 EARLY_STOP=10
 LR=3e-4
 
-OUTDIR="${REPO}/outputs/mini-pretrain-check/mini-${SLURM_JOB_ID}"
+WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
+WANDB_PROJECT="pretrain-llama-wced"
+WANDB_RUN_NAME="mini-6L-genomic-contrastive-${SLURM_JOB_ID}"
+
+OUTDIR="${REPO}/outputs/mini-pretrain-check/${WANDB_RUN_NAME}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
@@ -130,7 +134,10 @@ python -m bmfm_methylation.llama.pretrain_llama \
     precision="16-mixed" \
     limit_train_batches="${LIMIT_TRAIN_BATCHES}" \
     limit_val_batches="${LIMIT_VAL_BATCHES}" \
-    track_wandb.enabled=false
+    track_wandb.enabled=true \
+    track_wandb.project="${WANDB_PROJECT}" \
+    track_wandb.entity="${WANDB_ENTITY}" \
+    track_wandb.name="${WANDB_RUN_NAME}"
 
 echo "============================================================"
 echo " Mini pretrain done: $(date)"
