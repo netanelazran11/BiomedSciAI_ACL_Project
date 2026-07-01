@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=mini-pretrain-check
-#SBATCH --partition=catfish
-#SBATCH --gres=gpu:l4:1
+#SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
