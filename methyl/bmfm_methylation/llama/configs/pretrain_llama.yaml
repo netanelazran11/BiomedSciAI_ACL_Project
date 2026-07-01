@@ -57,6 +57,7 @@ data_module:
   subset_k: 49156            # Use ALL 49k CpGs
   fixed_subset: true         # Use the same CpG subset across epochs
   fixed_subset_seed: 42
+  bmfm_style: false          # false = WCEDCollator (supports genomic RoPE); true = BMFMWCEDCollator
   mask_ratio: 0.3            # Only used for MLM mode
   change_ratio: 0.1          # Only used for MLM mode
   switch_ratio: 0.0          # Only used for MLM mode
@@ -71,6 +72,7 @@ wced_contrastive_temp: 0.1         # InfoNCE temperature
 wced_normalize_loss: false         # Per-sample normalize (removes "predict averages" shortcut)
 wced_age_weight: 1.0               # λ for age MSE (forces CLS to encode age)
 wced_decoder_dropout: 0.1
+wced_genomic_rank_path: null       # Path to cpg_genomic_rank.npy; null = sequential RoPE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Trainer
@@ -88,6 +90,8 @@ accumulate_grad_batches: 8   # Effective batch = 16 × 8 = 128
 gradient_clip_val: 1.0
 early_stop_patience: 60
 precision: "16-mixed"        # BFloat16 or FP16 mixed precision
+limit_train_batches: 1.0     # 1.0 = use all batches; int N = use N batches/epoch
+limit_val_batches: 1.0       # 1.0 = use all batches; int N = use N batches/epoch
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Seed
