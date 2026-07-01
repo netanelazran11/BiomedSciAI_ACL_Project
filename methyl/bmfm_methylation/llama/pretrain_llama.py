@@ -460,6 +460,28 @@ def main(cfg: DictConfig):
         except Exception as _we:
             logger.warning(f"WandB sanity log failed (non-fatal): {_we}")
 
+    class EpochLogger(pl.Callback):
+        """Prints epoch metrics explicitly to stdout (SLURM log-friendly)."""
+        def on_validation_epoch_end(self, trainer, pl_module):
+            if trainer.sanity_checking:
+                return
+            m = trainer.callback_metrics
+            ep = trainer.current_epoch
+            tr_loss  = m.get("train/loss",             float("nan"))
+            tr_recon = m.get("train/recon_loss",        float("nan"))
+            tr_ctr   = m.get("train/contrastive_loss",  float("nan"))
+            vl_loss  = m.get("validation/loss",         float("nan"))
+            vl_recon = m.get("validation/recon_loss",   float("nan"))
+            vl_ctr   = m.get("validation/contrastive_loss", float("nan"))
+            lr       = m.get("lr-AdamW",                float("nan"))
+            print(
+                f"[Epoch {ep:3d}] "
+                f"train_loss={float(tr_loss):.4f}  recon={float(tr_recon):.4f}  ctr={float(tr_ctr):.4f} | "
+                f"val_loss={float(vl_loss):.4f}  recon={float(vl_recon):.4f}  ctr={float(vl_ctr):.4f} | "
+                f"lr={float(lr):.2e}",
+                flush=True,
+            )
+
     # Callbacks
     callbacks = [
         pl.callbacks.ModelCheckpoint(
@@ -474,9 +496,10 @@ def main(cfg: DictConfig):
             monitor="validation/loss",
             patience=cfg.get("early_stop_patience", 60),
             mode="min",
-            check_on_train_epoch_end=False,  # check after validation, not before
+            check_on_train_epoch_end=False,
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
+        EpochLogger(),
     ]
 
     # Trainer
