@@ -222,13 +222,14 @@ def main(cfg: DictConfig):
     )
 
     # WCED settings
-    wced_input_ratio     = cfg.get("wced_input_ratio", 0.5)
-    wced_contrastive     = cfg.get("wced_contrastive", False)
-    wced_contrastive_wt  = cfg.get("wced_contrastive_weight", 0.0)
-    wced_contrastive_temp= cfg.get("wced_contrastive_temp", 0.1)
-    wced_normalize_loss  = cfg.get("wced_normalize_loss", False)
-    wced_age_weight      = cfg.get("wced_age_weight", 1.0)
-    wced_decoder_dropout = cfg.get("wced_decoder_dropout", 0.1)
+    wced_input_ratio       = cfg.get("wced_input_ratio", 0.5)
+    wced_contrastive       = cfg.get("wced_contrastive", False)
+    wced_contrastive_wt    = cfg.get("wced_contrastive_weight", 0.0)
+    wced_contrastive_temp  = cfg.get("wced_contrastive_temp", 0.1)
+    wced_normalize_loss    = cfg.get("wced_normalize_loss", False)
+    wced_age_weight        = cfg.get("wced_age_weight", 1.0)
+    wced_decoder_dropout   = cfg.get("wced_decoder_dropout", 0.1)
+    wced_genomic_rank_path = cfg.get("wced_genomic_rank_path", None)
 
     def _wrap_collator():
         base_collator = data_module.collator
@@ -263,6 +264,7 @@ def main(cfg: DictConfig):
                     input_ratio=wced_input_ratio,
                     fixed_subset_seed=fixed_subset_seed,
                     contrastive=wced_contrastive,
+                    genomic_rank_path=wced_genomic_rank_path,
                 )
 
             data_module.collator = lambda examples: wced_collator(examples)

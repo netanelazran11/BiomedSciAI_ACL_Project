@@ -867,6 +867,7 @@ class WCEDCollator:
         pad_beta: float = -3.0,
         fixed_subset_seed: int = 42,
         contrastive: bool = True,  # Enable contrastive learning
+        genomic_rank_path: Optional[str] = None,  # If set, sort selected CpGs by genomic position
     ):
         self.tokenizer = tokenizer
         self.cpg_sites = cpg_sites
@@ -876,6 +877,18 @@ class WCEDCollator:
         self.pad_beta = pad_beta
         self.contrastive = contrastive
         self._call_count = 0
+
+        # Genomic rank array: genomic_rank[col_i] = genomic rank of data column i.
+        # When set, selected CpGs are placed in sequence in genomic order so that
+        # RoPE encodes chromosomal proximity rather than arbitrary probe-ID order.
+        if genomic_rank_path is not None:
+            self.genomic_rank = np.load(genomic_rank_path)
+            assert len(self.genomic_rank) == len(cpg_sites), (
+                f"genomic_rank length {len(self.genomic_rank)} != n_cpgs {len(cpg_sites)}"
+            )
+            logger.info(f"WCEDCollator: genomic ordering enabled ({genomic_rank_path})")
+        else:
+            self.genomic_rank = None
 
         # Use CpG tokenizer from MultiFieldTokenizer
         self.cpg_tokenizer = self.tokenizer.tokenizers["cpg_sites"]
@@ -977,9 +990,12 @@ class WCEDCollator:
             #   50% × 49156 = 24578 > 19608 valid → all valid go to input → recon_mask=0
             n_input = int(len(valid_indices) * self.input_ratio)
 
-            # View 1: Random subset of valid CpGs (unsorted — random order forces
-            # model to rely on token IDs not positions, avoids positional shortcuts)
+            # View 1: Random subset of valid CpGs.
+            # If genomic_rank is set, sort by genomic position so RoPE encodes
+            # chromosomal proximity. Otherwise random order (original behaviour).
             indices_v1 = rng.choice(valid_indices, size=n_input, replace=False)
+            if self.genomic_rank is not None:
+                indices_v1 = indices_v1[np.argsort(self.genomic_rank[indices_v1])]
 
             ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v1, max_input_len)
             cpg_ids_v1[i] = ids
@@ -993,6 +1009,8 @@ class WCEDCollator:
                 # Overlap is fine: model must still encode the full profile in CLS
                 # so that both views produce similar embeddings.
                 indices_v2 = rng.choice(valid_indices, size=n_input, replace=False)
+                if self.genomic_rank is not None:
+                    indices_v2 = indices_v2[np.argsort(self.genomic_rank[indices_v2])]
 
                 ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v2, max_input_len)
                 cpg_ids_v2[i] = ids

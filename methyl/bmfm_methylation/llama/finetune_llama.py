@@ -463,9 +463,9 @@ def load_wced_llama_checkpoint(checkpoint_path: str) -> WCEDLlamaModule:
     n_sin_basis = sd.get("encoder.embeddings.beta_values_embeddings.basis", torch.zeros(48)).shape[0]
 
     # num_attention_heads cannot be inferred from weight shapes (all projections are [D, D]).
-    # Use intermediate_size as proxy: small model (256D, intermediate=320) → 4 heads;
-    # full model (512D, intermediate=1408) → 8 heads.
-    num_attention_heads = 4 if intermediate_size == 320 else 8
+    # Convention: head_dim = 64 throughout all model variants → heads = hidden_size // 64.
+    # e.g. 256D → 4 heads (head_dim=64), 512D → 8 heads (head_dim=64).
+    num_attention_heads = hidden_size // 64
 
     model_config = MethylLlamaConfig(
         vocab_size=vocab_size,
@@ -515,7 +515,7 @@ def load_finetune_llama_checkpoint(checkpoint_path: str) -> "MethylationAgeRegre
     n_sin_basis = sd.get(
         "encoder.embeddings.beta_values_embeddings.basis", torch.zeros(48)
     ).shape[0]
-    num_attention_heads = 4 if intermediate_size == 320 else 8
+    num_attention_heads = hidden_size // 64
 
     model_config = MethylLlamaConfig(
         vocab_size=vocab_size,
