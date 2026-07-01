@@ -51,9 +51,18 @@ def chrom_sort_key(chrom: str) -> int:
 def load_probe_ids(csv_path: Path) -> list:
     """Read the probe_ids CSV → list of cg... probe ID strings."""
     df = pd.read_csv(csv_path)
+    # Try known column names first
+    for col in ("illumina_probe_id", "probe_id", "cpg_id", "IlmnID", "Name"):
+        if col in df.columns:
+            ids = df[col].dropna().astype(str).tolist()
+            if ids and ids[0].startswith("cg"):
+                log.info(f"Probe IDs loaded from column '{col}': {len(ids):,}  "
+                         f"(first: {ids[0]}, last: {ids[-1]})")
+                return ids
+    # Fallback: find any column where non-NaN values all start with "cg"
     for col in df.columns:
-        vals = df[col].astype(str)
-        if vals.str.startswith("cg").all():
+        vals = df[col].dropna().astype(str)
+        if len(vals) > 0 and vals.str.startswith("cg").all():
             ids = vals.tolist()
             log.info(f"Probe IDs loaded from column '{col}': {len(ids):,}  "
                      f"(first: {ids[0]}, last: {ids[-1]})")
