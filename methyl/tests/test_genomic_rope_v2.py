@@ -53,27 +53,37 @@ import os
 import tempfile
 
 # ---------------------------------------------------------------------------
-# Stub minimal packages so model.py and data_module.py load without the
-# full cluster environment (anndata, bmfm_targets, etc.)
+# Smart stub: import the real package if available, otherwise create a stub.
+# This lets sections D/E run on the cluster (where bmfm_targets is installed)
+# while sections A-C still work locally (Mac, no cluster packages).
 # ---------------------------------------------------------------------------
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-_STUBS = [
-    "bmfm_methylation", "bmfm_methylation.llama", "bmfm_methylation.shared",
+
+def _ensure(pkg: str):
+    """Import pkg if available; fall back to a stub module."""
+    if pkg in sys.modules:
+        return
+    try:
+        __import__(pkg)
+    except (ImportError, ModuleNotFoundError):
+        sys.modules[pkg] = types.ModuleType(pkg)
+
+
+# These cluster packages are optional — stub them only when not installed.
+for _pkg in [
     "bmfm_targets", "bmfm_targets.config", "bmfm_targets.tokenization",
     "bmfm_targets.dataset", "anndata", "anndata.logging",
     "lightning", "lightning.pytorch", "lightning.pytorch.core",
     "pytorch_lightning", "wandb",
-]
-for _pkg in _STUBS:
-    sys.modules.setdefault(_pkg, types.ModuleType(_pkg))
+]:
+    _ensure(_pkg)
 
-# Provide the minimal attributes that might be needed at import time
-_lt = sys.modules["bmfm_targets"]
-for _sub in ["FieldInfo", "LabelColumnInfo"]:
-    setattr(sys.modules["bmfm_targets.config"], _sub, type(_sub, (), {}))
-for _sub in ["MultiFieldTokenizer", "MultiFieldInstance"]:
-    setattr(sys.modules["bmfm_targets.tokenization"], _sub, type(_sub, (), {}))
+# bmfm_methylation's own __init__ chain imports data_module which pulls in
+# bmfm_targets — we bypass it by loading individual .py files directly, so
+# we register placeholder parent packages without running __init__.py.
+for _pkg in ["bmfm_methylation", "bmfm_methylation.llama", "bmfm_methylation.shared"]:
+    sys.modules.setdefault(_pkg, types.ModuleType(_pkg))
 
 
 def _load_file(module_name: str, rel_path: str, package: str):
@@ -100,6 +110,7 @@ _model_mod = _load_file(
 
 # data_module has heavier deps; load with exception guard
 _dm_mod = None
+_dm_import_error = "unknown"
 try:
     _dm_mod = _load_file(
         "bmfm_methylation.shared.data_module",
@@ -107,7 +118,7 @@ try:
         "bmfm_methylation.shared",
     )
 except Exception as _dm_err:
-    pass  # collator tests will be skipped below with a message
+    _dm_import_error = repr(_dm_err)  # surfaced in the SKIP message
 
 # ---------------------------------------------------------------------------
 import numpy as np
@@ -459,7 +470,7 @@ def section_d():
     print("\n=== D  WCEDCollator position_ids ===")
 
     if _dm_mod is None:
-        print(f"  SKIP  (data_module not importable in this env — run on cluster)")
+        print(f"  SKIP  data_module failed to load: {_dm_import_error}")
         return
 
     WCEDCollator = _dm_mod.WCEDCollator
@@ -590,7 +601,7 @@ def section_e():
     print("\n=== E  End-to-end (collator → model) ===")
 
     if _dm_mod is None:
-        print("  SKIP  (data_module not importable in this env — run on cluster)")
+        print(f"  SKIP  data_module failed to load: {_dm_import_error}")
         return
 
     WCEDCollator = _dm_mod.WCEDCollator
