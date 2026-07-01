@@ -437,6 +437,7 @@ class MethylationDataModule(pl.LightningDataModule):
         fixed_subset_seed: int = 42,  # Seed for selecting fixed subset
         use_wced_collator: bool = False,  # Use WCEDCollator (provides all_betas + input_mask)
         wced_input_ratio: float = 0.5,    # Fraction of vocab per view (matches pretraining)
+        wced_contrastive: bool = False,   # Enable contrastive mode (produces v1+v2 views for InfoNCE)
         min_age: Optional[float] = None,  # Exclude samples below this age from age loss (e.g. 1.0 removes placenta/sperm)
         bmfm_style: bool = False,         # Use BMFM-style dataset + BMFMWCEDCollator
         filter_age_outliers: bool = False, # Remove age<0 and age>120 samples entirely
@@ -497,6 +498,7 @@ class MethylationDataModule(pl.LightningDataModule):
         self.fixed_subset_seed = fixed_subset_seed
         self.use_wced_collator = use_wced_collator
         self.wced_input_ratio = wced_input_ratio
+        self.wced_contrastive = wced_contrastive
         self.min_age = min_age
         self.bmfm_style = bmfm_style
         self.filter_age_outliers = filter_age_outliers
@@ -587,7 +589,7 @@ class MethylationDataModule(pl.LightningDataModule):
                     cpg_sites=cpg_sites,
                     vocab_size=self.subset_k,
                     input_ratio=self.wced_input_ratio,
-                    contrastive=False,
+                    contrastive=self.wced_contrastive,
                     fixed_subset_seed=self.fixed_subset_seed,
                 )
             else:
@@ -597,7 +599,7 @@ class MethylationDataModule(pl.LightningDataModule):
                     cpg_sites=cpg_sites,
                     vocab_size=self.subset_k,
                     input_ratio=self.wced_input_ratio,
-                    contrastive=False,
+                    contrastive=self.wced_contrastive,
                     fixed_subset_seed=self.fixed_subset_seed,
                 )
             return
