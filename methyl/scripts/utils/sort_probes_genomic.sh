@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=sort-cpg-genomic
-#SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:1
+#SBATCH --partition=catfish
+#SBATCH --gres=gpu:l4:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
