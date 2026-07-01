@@ -196,6 +196,7 @@ class WCEDLlamaModule(pl.LightningModule):
         cpg_ids: torch.Tensor,       # [B, L]
         beta_values: torch.Tensor,   # [B, L]
         attention_mask: Optional[torch.Tensor] = None,  # [B, L]
+        position_ids: Optional[torch.Tensor] = None,    # [B, L] genomic ranks (Level 2 RoPE)
     ) -> Dict[str, torch.Tensor]:
         """Encode one view → CLS embedding, beta predictions, age prediction."""
         # Stack dual-field input: [B, 2, L]
@@ -204,6 +205,7 @@ class WCEDLlamaModule(pl.LightningModule):
         encoder_out = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
+            position_ids=position_ids,
         )
 
         cls_embedding  = encoder_out.pooler_output              # [B, D]
@@ -292,6 +294,7 @@ class WCEDLlamaModule(pl.LightningModule):
         cpg_ids_v1        = batch["cpg_ids"]
         beta_values_v1    = batch["beta_values"]
         attention_mask_v1 = batch.get("attention_mask")
+        position_ids_v1   = batch.get("position_ids")        # [B, L] or None (Level 2 RoPE)
         age_labels        = batch.get("age")
 
         # ── Resolve reconstruction mask and targets (format-agnostic) ──────────
@@ -310,7 +313,7 @@ class WCEDLlamaModule(pl.LightningModule):
             target_v1  = all_betas
 
         # ── Encode view 1 ────────────────────────────────────────────────────────
-        out_v1      = self.encode(cpg_ids_v1, beta_values_v1, attention_mask_v1)
+        out_v1      = self.encode(cpg_ids_v1, beta_values_v1, attention_mask_v1, position_ids=position_ids_v1)
         pred_v1     = out_v1["predicted_betas"]
         z1          = out_v1["projection"]
         age_pred_v1 = out_v1["predicted_age"]
@@ -344,6 +347,7 @@ class WCEDLlamaModule(pl.LightningModule):
                 batch["cpg_ids_v2"],
                 batch["beta_values_v2"],
                 batch.get("attention_mask_v2"),
+                position_ids=batch.get("position_ids_v2"),   # Level 2 RoPE for view 2
             )
             pred_v2 = out_v2["predicted_betas"]
 

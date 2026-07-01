@@ -890,6 +890,13 @@ class WCEDCollator:
         else:
             self.genomic_rank = None
 
+        # NOTE: genomic_rank is indexed by DATA COLUMN index, but indices_v1/v2 produced
+        # during __call__ are VOCABULARY-SLOT indices (0..actual_vocab_size-1).  These
+        # coincide only when vocab_cpg_indices is the identity (all CpGs, no subsetting).
+        # If vocab_size < n_cpgs this class would need genomic_rank[vocab_cpg_indices[idx]].
+        # We assert the identity case here; if subsetting is ever added, update the lookups.
+        self._genomic_rank_requires_identity_vocab = (self.genomic_rank is not None)
+
         # Use CpG tokenizer from MultiFieldTokenizer
         self.cpg_tokenizer = self.tokenizer.tokenizers["cpg_sites"]
         self.vocab = self.cpg_tokenizer.get_vocab()
@@ -904,6 +911,16 @@ class WCEDCollator:
         else:
             rng = np.random.default_rng(fixed_subset_seed)
             self.vocab_cpg_indices = np.sort(rng.choice(n_cpgs, size=vocab_size, replace=False))
+
+        if self._genomic_rank_requires_identity_vocab:
+            is_identity = (len(self.vocab_cpg_indices) == n_cpgs and
+                           self.vocab_cpg_indices[0] == 0 and
+                           self.vocab_cpg_indices[-1] == n_cpgs - 1)
+            assert is_identity, (
+                f"genomic_rank_path requires vocab_size >= n_cpgs (identity vocabulary mapping). "
+                f"Got vocab_size={vocab_size}, n_cpgs={n_cpgs}. "
+                f"Remove genomic_rank_path or set vocab_size to cover all CpGs."
+            )
 
         self.actual_vocab_size = len(self.vocab_cpg_indices)
         self.max_seq_len = self.actual_vocab_size + 1  # +1 for CLS
@@ -964,6 +981,14 @@ class WCEDCollator:
             attention_mask_v2 = torch.zeros((batch_size, max_input_len), dtype=torch.long)
             input_mask_v2 = torch.zeros((batch_size, self.actual_vocab_size), dtype=torch.bool)
 
+        # Level 2 genomic RoPE: position IDs (0=CLS/PAD, genomic_rank+1 for each CpG).
+        # +1 shift ensures CLS at position 0 never collides with the rank-0 CpG.
+        # Only allocated when genomic_rank is available.
+        if self.genomic_rank is not None:
+            position_ids_v1 = torch.zeros((batch_size, max_input_len), dtype=torch.long)
+            if self.contrastive:
+                position_ids_v2 = torch.zeros((batch_size, max_input_len), dtype=torch.long)
+
         seed = (torch.initial_seed() + self._call_count) % (2**32)
         self._call_count += 1
         rng = np.random.default_rng(seed)
@@ -996,6 +1021,12 @@ class WCEDCollator:
             indices_v1 = rng.choice(valid_indices, size=n_input, replace=False)
             if self.genomic_rank is not None:
                 indices_v1 = indices_v1[np.argsort(self.genomic_rank[indices_v1])]
+                # Level 2 RoPE: slot 0 = CLS (position 0), slots 1..n = CpG (rank+1).
+                # PAD slots stay at 0 (attention_mask=0, so RoPE value is irrelevant).
+                n_real = min(len(indices_v1), max_input_len - 1)
+                position_ids_v1[i, 1:n_real + 1] = torch.from_numpy(
+                    (self.genomic_rank[indices_v1[:n_real]] + 1).astype(np.int64)
+                )
 
             ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v1, max_input_len)
             cpg_ids_v1[i] = ids
@@ -1011,6 +1042,10 @@ class WCEDCollator:
                 indices_v2 = rng.choice(valid_indices, size=n_input, replace=False)
                 if self.genomic_rank is not None:
                     indices_v2 = indices_v2[np.argsort(self.genomic_rank[indices_v2])]
+                    n_real_v2 = min(len(indices_v2), max_input_len - 1)
+                    position_ids_v2[i, 1:n_real_v2 + 1] = torch.from_numpy(
+                        (self.genomic_rank[indices_v2[:n_real_v2]] + 1).astype(np.int64)
+                    )
 
                 ids, vals, attn, mask = self._build_view(vocab_betas_clean, indices_v2, max_input_len)
                 cpg_ids_v2[i] = ids
@@ -1040,12 +1075,17 @@ class WCEDCollator:
             "age": age_tensor,
         }
 
+        if self.genomic_rank is not None:
+            result["position_ids"] = position_ids_v1
+
         if self.contrastive:
             # View 2 (for contrastive learning)
             result["cpg_ids_v2"] = cpg_ids_v2
             result["beta_values_v2"] = beta_values_v2
             result["attention_mask_v2"] = attention_mask_v2
             result["input_mask_v2"] = input_mask_v2
+            if self.genomic_rank is not None:
+                result["position_ids_v2"] = position_ids_v2
 
         return result
 

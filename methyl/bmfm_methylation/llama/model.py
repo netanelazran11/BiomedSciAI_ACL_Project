@@ -170,8 +170,27 @@ class RotaryEmbedding(nn.Module):
         self.register_buffer("cos_table", emb.cos(), persistent=False)
         self.register_buffer("sin_table", emb.sin(), persistent=False)
 
-    def forward(self, seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Return (cos, sin) tables for positions 0..seq_len-1."""
+    def forward(
+        self,
+        seq_len: int = None,
+        position_ids: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return (cos, sin) for the given positions.
+
+        Sequential mode (seq_len): returns tables for positions 0..seq_len-1,
+        shape [seq_len, dim].  Existing behaviour — Level 1 / no genomic RoPE.
+
+        Arbitrary mode (position_ids): indexes the table at the given position
+        values, shape matches position_ids → [..., dim].  Level 2 genomic RoPE.
+        CLS token should be given position_id=0; CpG at genomic rank r gets
+        position_id=r+1 so CLS never collides with rank-0 CpGs.
+        """
+        if position_ids is not None:
+            max_pos = int(position_ids.max().item()) + 1
+            if max_pos > self.cos_table.shape[0]:
+                self._precompute_table(max_pos)
+            return self.cos_table[position_ids], self.sin_table[position_ids]
+
         if seq_len > self.cos_table.shape[0]:
             self._precompute_table(seq_len)
         return self.cos_table[:seq_len], self.sin_table[:seq_len]  # [seq_len, dim]
@@ -194,13 +213,19 @@ def apply_rotary_pos_emb(
 
     Args:
         q, k:     [B, H, L, Dh]
-        cos, sin: [L, Dh]         (from RotaryEmbedding)
+        cos, sin: [L, Dh]    — sequential mode (one set of positions for all batch items)
+                  [B, L, Dh] — arbitrary-position mode (position_ids per batch item)
     Returns:
         q_rot, k_rot: [B, H, L, Dh]
     """
-    # [L, Dh] → [1, 1, L, Dh] for broadcasting
-    cos = cos.unsqueeze(0).unsqueeze(0)
-    sin = sin.unsqueeze(0).unsqueeze(0)
+    if cos.dim() == 2:
+        # Sequential: [L, Dh] → [1, 1, L, Dh] broadcasts over B and H
+        cos = cos.unsqueeze(0).unsqueeze(0)
+        sin = sin.unsqueeze(0).unsqueeze(0)
+    else:
+        # Arbitrary positions: [B, L, Dh] → [B, 1, L, Dh] broadcasts over H
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
     q_rot = (q * cos) + (_rotate_half(q) * sin)
     k_rot = (k * cos) + (_rotate_half(k) * sin)
     return q_rot, k_rot
@@ -250,6 +275,7 @@ class MethylLlamaAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,            # [B, L, D]
         attention_mask: Optional[torch.Tensor] = None,  # [B, L] int 1=attend, 0=pad
+        position_ids: Optional[torch.Tensor] = None,    # [B, L] int — genomic ranks (Level 2)
     ) -> torch.Tensor:
         B, L, D = hidden_states.shape
 
@@ -263,8 +289,13 @@ class MethylLlamaAttention(nn.Module):
         k = k.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Apply RoPE to Q and K (encodes position without lookup table)
-        cos, sin = self.rotary_emb(L)
+        # Apply RoPE to Q and K.
+        # Level 1 (position_ids=None): sequential positions 0..L-1.
+        # Level 2 (position_ids set):  actual genomic rank values per token.
+        if position_ids is not None:
+            cos, sin = self.rotary_emb(position_ids=position_ids)
+        else:
+            cos, sin = self.rotary_emb(seq_len=L)
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
         # Prepare SDPA attention mask
@@ -344,11 +375,12 @@ class MethylLlamaLayer(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # Attention block (Pre-LN)
         residual = hidden_states
         hidden_states = self.attn_norm(hidden_states)
-        hidden_states = self.attn(hidden_states, attention_mask=attention_mask)
+        hidden_states = self.attn(hidden_states, attention_mask=attention_mask, position_ids=position_ids)
         hidden_states = self.dropout(hidden_states) + residual
 
         # MLP block (Pre-LN)
@@ -479,9 +511,10 @@ class MethylLlamaEncoder(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         for layer in self.layers:
-            hidden_states = layer(hidden_states, attention_mask=attention_mask)
+            hidden_states = layer(hidden_states, attention_mask=attention_mask, position_ids=position_ids)
         return self.norm(hidden_states)
 
 
@@ -556,6 +589,7 @@ class MethylLlamaModel(nn.Module):
         input_ids: Optional[torch.Tensor] = None,        # [B, 2, L]
         attention_mask: Optional[torch.Tensor] = None,   # [B, L]
         inputs_embeds: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,     # [B, L] genomic ranks (Level 2 RoPE)
         **kwargs,   # Accept extra BERT kwargs (token_type_ids, etc.) silently
     ) -> BaseModelOutputWithPoolingAndCrossAttentions:
 
@@ -569,6 +603,7 @@ class MethylLlamaModel(nn.Module):
         hidden_states = self.encoder(
             hidden_states,
             attention_mask=attention_mask,
+            position_ids=position_ids,
         )  # [B, L, D]
 
         # Pool CLS token
