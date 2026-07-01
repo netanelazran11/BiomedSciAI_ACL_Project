@@ -139,8 +139,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     data_module.max_length=$(python3 -c "import math; print(int(${SUBSET_K} * ${INPUT_RATIO}) + 1)") \
     data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=14 \
-    data_module.bmfm_style=true \
-    data_module.wced_contrastive="${CONTRASTIVE}" \
+    data_module.bmfm_style=false \
     model.hidden_size="${HIDDEN_SIZE}" \
     model.num_hidden_layers="${NUM_LAYERS}" \
     model.num_attention_heads="${NUM_HEADS}" \
