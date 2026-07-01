@@ -1,11 +1,11 @@
 #!/bin/bash -l
 #SBATCH --job-name=mini-pretrain-check
-#SBATCH --partition=salmon
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --partition=goldfish
+#SBATCH --gres=gpu:h200:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=120G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=200G
 #SBATCH --time=01:00:00
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
