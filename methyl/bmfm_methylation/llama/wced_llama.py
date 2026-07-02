@@ -210,21 +210,24 @@ class WCEDLlamaModule(pl.LightningModule):
             output_attentions=output_attentions,
         )
 
-        cls_embedding  = encoder_out.pooler_output              # [B, D]
-        projection     = self.projection_head(cls_embedding)    # [B, 128]
-        predicted_betas = self.decoder(cls_embedding)           # [B, vocab_size]
-        # Only run age head when it will actually contribute to the loss
+        hidden         = encoder_out.last_hidden_state            # [B, L, D]
+        pre_pooler_cls = hidden[:, 0, :]                          # CLS before Linear→Tanh [B, D]
+        cls_embedding  = encoder_out.pooler_output                # post-pooler CLS [B, D]
+        projection     = self.projection_head(cls_embedding)      # [B, 128]
+        predicted_betas = self.decoder(cls_embedding)             # [B, vocab_size]
+
         if self.age_weight > 0:
             predicted_age = self.age_head(cls_embedding).squeeze(-1)  # [B]
         else:
             predicted_age = torch.zeros(cls_embedding.shape[0], device=cls_embedding.device)
 
         return {
-            "cls_embedding":   cls_embedding,
+            "cls_embedding":   cls_embedding,       # post-pooler (tanh) CLS
+            "pre_pooler_cls":  pre_pooler_cls,       # CLS before Linear→Tanh
             "projection":      projection,
             "predicted_betas": predicted_betas,
             "predicted_age":   predicted_age,
-            "attentions":      encoder_out.attentions,  # None unless output_attentions=True
+            "attentions":      encoder_out.attentions,
         }
 
     def forward(

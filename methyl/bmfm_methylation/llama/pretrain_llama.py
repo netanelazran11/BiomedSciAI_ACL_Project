@@ -489,33 +489,15 @@ def main(cfg: DictConfig):
 
     class DiagnosticCallback(pl.Callback):
         """
-        Every `check_every` epochs runs a small forward pass on fixed val batches
-        and prints + logs the following to WandB / stdout:
-
-          diag/cls_attn_entropy   mean normalized entropy of CLS→CpG attention
-                                  across all layers and heads.
-                                  1.0 = perfectly uniform (BAD). Want < 0.97.
-
-          diag/best_layer_entropy lowest entropy across layers (most focused layer).
-                                  If even the best layer stays near 1.0, no layer
-                                  is learning selectivity.
-
-          diag/mse_ratio          model MSE / per-sample-mean MSE on held-out CpGs.
-                                  Old pretrain: 0.645.  Want < 0.4 with normalize_loss.
-
-          diag/pred_std_ratio     mean(std of predictions per sample) /
-                                  mean(std of targets per sample).
-                                  1.0 = perfect. < 0.5 = collapse (predicting mean).
-
-          diag/alignment          mean cosine similarity between z1 and z2 for the
-                                  same sample (contrastive view pair).
-                                  0 = views not aligned. Want > 0.7 by epoch 50.
-
-          diag/cls_norm           mean L2 norm of CLS pooler output.
-                                  Should stay in [0.3, 3.0]. Collapse or explosion
-                                  indicates training instability.
+        Every check_every epochs: forward pass on fixed val batches, print + log:
+          - Reconstruction:  mse_ratio, pred_std_ratio, PCC
+          - Attention:       entropy (mean + best layer)
+          - Contrastive:     pos_cos, neg_cos, alignment gap
+          - Pre-pooler CLS:  norm, eff_rank, part_ratio, pairwise_cos
+          - Post-pooler CLS: norm, eff_rank, part_ratio, pairwise_cos, tanh saturation
+          - Mean pool:       norm, eff_rank, part_ratio, pairwise_cos
         """
-        def __init__(self, check_every: int = 10, n_diag_batches: int = 4):
+        def __init__(self, check_every: int = 5, n_diag_batches: int = 4):
             self._check_every    = check_every
             self._n_diag_batches = n_diag_batches
             self._diag_batches   = None
@@ -533,6 +515,79 @@ def main(cfg: DictConfig):
                     break
             self._diag_batches = batches
 
+        # ── Static helpers ────────────────────────────────────────────────────
+
+        @staticmethod
+        def _eff_rank(emb: torch.Tensor) -> float:
+            """Effective rank = exp(entropy of normalised singular values). [N,D] input."""
+            emb = emb.float()
+            emb_c = emb - emb.mean(dim=0, keepdim=True)
+            try:
+                sv = torch.linalg.svdvals(emb_c).clamp(min=0)
+                sv = sv / sv.sum().clamp(min=1e-10)
+                return float(_math.exp(-(sv * (sv + 1e-10).log()).sum().item()))
+            except Exception:
+                return float("nan")
+
+        @staticmethod
+        def _part_ratio(emb: torch.Tensor) -> float:
+            """Participation ratio (normalised by D): (Σλ)² / (D·Σλ²). [N,D] input."""
+            emb = emb.float()
+            N, D = emb.shape
+            emb_c = emb - emb.mean(dim=0, keepdim=True)
+            try:
+                cov = emb_c.T @ emb_c / max(N - 1, 1)
+                ev  = torch.linalg.eigvalsh(cov).clamp(min=0)
+                s1  = ev.sum().item()
+                s2  = (ev ** 2).sum().item()
+                return (s1 ** 2) / (D * max(s2, 1e-10))
+            except Exception:
+                return float("nan")
+
+        @staticmethod
+        def _pairwise_cos(emb: torch.Tensor) -> float:
+            """Mean off-diagonal cosine similarity. [N,D] input."""
+            emb_n = torch.nn.functional.normalize(emb.float(), dim=-1)
+            cos   = emb_n @ emb_n.T
+            B     = emb.shape[0]
+            off   = 1 - torch.eye(B, device=emb.device)
+            return float((cos * off).sum() / off.sum().clamp(min=1))
+
+        @staticmethod
+        def _saturation(emb: torch.Tensor):
+            """Fraction of tanh outputs with |x| > 0.90 / 0.95 / 0.99."""
+            a = emb.float().abs()
+            n = a.numel()
+            return (
+                float((a > 0.90).sum().item() / n),
+                float((a > 0.95).sum().item() / n),
+                float((a > 0.99).sum().item() / n),
+            )
+
+        @staticmethod
+        def _pearson(pred: torch.Tensor, target: torch.Tensor,
+                     mask: torch.Tensor) -> float:
+            """Mean per-sample Pearson between pred and target over masked positions."""
+            mf  = mask.float()
+            n   = mf.sum(dim=1, keepdim=True).clamp(min=1)
+            pc  = pred   * mf - (pred   * mf).sum(dim=1, keepdim=True) / n
+            tc  = target * mf - (target * mf).sum(dim=1, keepdim=True) / n
+            num = (pc * tc * mf).sum(dim=1)
+            den = ((pc**2 * mf).sum(dim=1) * (tc**2 * mf).sum(dim=1)).sqrt() + 1e-8
+            return float((num / den).mean().item())
+
+        @staticmethod
+        def _rep_stats(emb: torch.Tensor, cb) -> dict:
+            """Convenience: compute norm, eff_rank, part_ratio, pairwise_cos."""
+            return {
+                "norm":         float(emb.float().norm(dim=-1).mean().item()),
+                "eff_rank":     cb._eff_rank(emb),
+                "part_ratio":   cb._part_ratio(emb),
+                "pairwise_cos": cb._pairwise_cos(emb),
+            }
+
+        # ── Main diagnostic ───────────────────────────────────────────────────
+
         def on_validation_epoch_end(self, trainer, pl_module):
             if trainer.sanity_checking:
                 return
@@ -545,118 +600,148 @@ def main(cfg: DictConfig):
             dev = pl_module.device
             pl_module.eval()
 
-            all_entropies    = []   # mean entropy across layers
-            best_entropies   = []   # min entropy (best layer) per batch
-            all_ratios       = []   # mse_ratio
-            all_std_ratios   = []   # pred_std / true_std
-            all_alignments   = []   # cosine_sim(z1, z2)
-            all_cls_norms    = []   # ||CLS||_2
+            # Accumulators (concatenated across batches for stable rank estimates)
+            acc_pre  = []   # pre-pooler CLS  [B, D]
+            acc_post = []   # post-pooler CLS [B, D]
+            acc_z1   = []   # projection z1   [B, 128]
+            acc_z2   = []   # projection z2   [B, 128]
+
+            layer_entropies = []
+            best_entropies  = []
+            mse_ratios      = []
+            std_ratios      = []
+            pearson_vals    = []
 
             with torch.no_grad():
                 for batch in self._diag_batches:
-                    batch = {
-                        k: v.to(dev) if isinstance(v, torch.Tensor) else v
-                        for k, v in batch.items()
-                    }
-                    cpg_ids      = batch["cpg_ids"]
-                    beta_values  = batch["beta_values"]
-                    attn_mask    = batch.get("attention_mask")
-                    pos_ids      = batch.get("position_ids")
-                    all_betas    = batch["all_betas"]        # [B, V]
-                    input_mask   = batch["input_mask"]       # [B, V]
-                    valid_mask   = batch.get("valid_mask")   # [B, V] or None
+                    batch = {k: v.to(dev) if isinstance(v, torch.Tensor) else v
+                             for k, v in batch.items()}
 
-                    # ── View 1 encode (with attention weights) ────────────────
+                    cpg_ids     = batch["cpg_ids"]
+                    beta_values = batch["beta_values"]
+                    attn_mask   = batch.get("attention_mask")
+                    pos_ids     = batch.get("position_ids")
+                    all_betas   = batch["all_betas"]
+                    input_mask  = batch["input_mask"]
+                    valid_mask  = batch.get("valid_mask")
+
+                    # ── View 1 encode ─────────────────────────────────────────
                     enc1 = pl_module.encode(
                         cpg_ids, beta_values, attn_mask,
-                        position_ids=pos_ids,
-                        output_attentions=True,
+                        position_ids=pos_ids, output_attentions=True,
                     )
-                    z1   = enc1["projection"]                # [B, 128]
-                    pred = enc1["predicted_betas"]           # [B, V]
-                    cls_emb = enc1["cls_embedding"]          # [B, D]
+                    acc_pre.append(enc1["pre_pooler_cls"].cpu())
+                    acc_post.append(enc1["cls_embedding"].cpu())
+                    acc_z1.append(enc1["projection"].cpu())
 
-                    # ── CLS norm ──────────────────────────────────────────────
-                    all_cls_norms.append(cls_emb.norm(dim=-1).mean().item())
+                    # ── Attention entropy ─────────────────────────────────────
+                    atts = enc1.get("attentions")
+                    if atts:
+                        le = []
+                        for la in atts:
+                            ca   = la[:, :, 0, 1:].float()
+                            hmax = _math.log(ca.shape[-1]) if ca.shape[-1] > 1 else 1.0
+                            ent  = -(ca * (ca + 1e-10).log()).sum(dim=-1)
+                            le.append((ent / hmax).mean().item())
+                        layer_entropies.append(float(_np.mean(le)))
+                        best_entropies.append(float(_np.min(le)))
 
-                    # ── Attention entropy per layer ───────────────────────────
-                    attentions = enc1.get("attentions")
-                    if attentions:
-                        layer_ents = []
-                        for layer_attn in attentions:        # [B, H, L, L] on CPU
-                            cls_attn = layer_attn[:, :, 0, 1:].float()  # [B, H, L-1]
-                            n_pos  = cls_attn.shape[-1]
-                            h_max  = _math.log(n_pos) if n_pos > 1 else 1.0
-                            eps    = 1e-10
-                            ent    = -(cls_attn * (cls_attn + eps).log()).sum(dim=-1)
-                            layer_ents.append((ent / h_max).mean().item())
-                        all_entropies.append(float(_np.mean(layer_ents)))
-                        best_entropies.append(float(_np.min(layer_ents)))
-
-                    # ── MSE ratio vs per-sample mean ──────────────────────────
+                    # ── Reconstruction ────────────────────────────────────────
+                    pred       = enc1["predicted_betas"]
                     recon_mask = ~input_mask
                     if valid_mask is not None:
                         recon_mask = recon_mask & valid_mask
                     mf = recon_mask.float()
                     n  = mf.sum(dim=1, keepdim=True).clamp(min=1)
 
-                    model_mse   = ((pred - all_betas) ** 2 * mf).sum() / mf.sum().clamp(min=1)
-                    sample_mean = (all_betas * mf).sum(dim=1, keepdim=True) / n
-                    mean_mse    = ((sample_mean - all_betas) ** 2 * mf).sum() / mf.sum().clamp(min=1)
-                    all_ratios.append((model_mse / mean_mse.clamp(min=1e-8)).item())
+                    model_mse   = ((pred - all_betas)**2 * mf).sum() / mf.sum().clamp(min=1)
+                    smean       = (all_betas * mf).sum(dim=1, keepdim=True) / n
+                    mean_mse    = ((smean - all_betas)**2 * mf).sum() / mf.sum().clamp(min=1)
+                    mse_ratios.append((model_mse / mean_mse.clamp(min=1e-8)).item())
 
-                    # ── Prediction std ratio ──────────────────────────────────
-                    pred_std = (pred * mf).std(dim=-1).mean().item()
-                    true_std = (all_betas * mf).std(dim=-1).mean().item()
-                    all_std_ratios.append(pred_std / max(true_std, 1e-8))
+                    pred_std = pred[recon_mask].std().item()
+                    true_std = all_betas[recon_mask].std().item()
+                    std_ratios.append(pred_std / max(true_std, 1e-8))
+                    pearson_vals.append(self._pearson(pred, all_betas, recon_mask))
 
-                    # ── Contrastive alignment (view 2) ────────────────────────
-                    cpg_ids_v2   = batch.get("cpg_ids_v2")
-                    beta_vals_v2 = batch.get("beta_values_v2")
-                    attn_mask_v2 = batch.get("attention_mask_v2")
-                    pos_ids_v2   = batch.get("position_ids_v2")
-                    if cpg_ids_v2 is not None:
-                        enc2 = pl_module.encode(
-                            cpg_ids_v2, beta_vals_v2, attn_mask_v2,
-                            position_ids=pos_ids_v2,
-                        )
-                        z2 = enc2["projection"]              # [B, 128]
-                        z1n = torch.nn.functional.normalize(z1, dim=-1)
-                        z2n = torch.nn.functional.normalize(z2, dim=-1)
-                        cosine_sim = (z1n * z2n).sum(dim=-1).mean().item()
-                        all_alignments.append(cosine_sim)
+                    # ── View 2 (contrastive) ──────────────────────────────────
+                    v2_ids  = batch.get("cpg_ids_v2")
+                    v2_beta = batch.get("beta_values_v2")
+                    v2_attn = batch.get("attention_mask_v2")
+                    v2_pos  = batch.get("position_ids_v2")
+                    if v2_ids is not None:
+                        enc2 = pl_module.encode(v2_ids, v2_beta, v2_attn, position_ids=v2_pos)
+                        acc_z2.append(enc2["projection"].cpu())
 
-            def _m(lst): return float(_np.mean(lst)) if lst else float("nan")
+            # ── Aggregate representations (all batches concatenated) ──────────
+            def m(lst): return float(_np.mean(lst)) if lst else float("nan")
 
-            mean_entropy  = _m(all_entropies)
-            best_entropy  = _m(best_entropies)
-            mean_ratio    = _m(all_ratios)
-            mean_std_ratio = _m(all_std_ratios)
-            mean_align    = _m(all_alignments)
-            mean_cls_norm = _m(all_cls_norms)
+            pre_all  = torch.cat(acc_pre)
+            post_all = torch.cat(acc_post)
 
+            pre_s  = self._rep_stats(pre_all,  self)
+            post_s = self._rep_stats(post_all, self)
+            sat90, sat95, sat99 = self._saturation(post_all)
+
+            # ── Positive / negative pair cosine ──────────────────────────────
+            if acc_z2:
+                z1_all = torch.cat(acc_z1).float()
+                z2_all = torch.cat(acc_z2).float()
+                z1n    = torch.nn.functional.normalize(z1_all, dim=-1)
+                z2n    = torch.nn.functional.normalize(z2_all, dim=-1)
+                pos_cos = float((z1n * z2n).sum(dim=-1).mean().item())
+                N       = z1n.shape[0]
+                off     = 1 - torch.eye(N)
+                neg_cos = float(((z1n @ z2n.T) * off).sum() / off.sum())
+                gap     = pos_cos - neg_cos
+            else:
+                pos_cos = neg_cos = gap = float("nan")
+
+            # ── Scalars ───────────────────────────────────────────────────────
+            attn_ent   = m(layer_entropies)
+            best_ent   = m(best_entropies)
+            mse_ratio  = m(mse_ratios)
+            std_ratio  = m(std_ratios)
+            pcc        = m(pearson_vals)
+
+            # ── Print table ───────────────────────────────────────────────────
             print(
-                f"[Epoch {ep:3d}] DIAG | "
-                f"attn_entropy={mean_entropy:.4f} best_layer={best_entropy:.4f} (1=uniform) | "
-                f"mse_ratio={mean_ratio:.3f} pred_std_ratio={mean_std_ratio:.3f} | "
-                f"alignment={mean_align:.3f} (cosine z1↔z2) | "
-                f"cls_norm={mean_cls_norm:.3f}",
+                f"\n[Epoch {ep:3d}] ══════════ DIAGNOSTICS ══════════\n"
+                f"  Reconstruction  mse_ratio={mse_ratio:.3f}  pred_std={std_ratio:.3f}  PCC={pcc:.4f}\n"
+                f"  Attention       entropy={attn_ent:.4f}  best_layer={best_ent:.4f}  (1=uniform)\n"
+                f"  Contrastive     pos_cos={pos_cos:.3f}  neg_cos={neg_cos:.3f}  gap={gap:.3f}\n"
+                f"  Pre-pooler CLS  norm={pre_s['norm']:.2f}  eff_rank={pre_s['eff_rank']:.1f}"
+                f"  part_ratio={pre_s['part_ratio']:.3f}  pair_cos={pre_s['pairwise_cos']:.3f}\n"
+                f"  Post-pooler CLS norm={post_s['norm']:.2f}  eff_rank={post_s['eff_rank']:.1f}"
+                f"  part_ratio={post_s['part_ratio']:.3f}  pair_cos={post_s['pairwise_cos']:.3f}\n"
+                f"  Tanh saturation sat_90={sat90:.1%}  sat_95={sat95:.1%}  sat_99={sat99:.1%}",
                 flush=True,
             )
 
+            # ── WandB ─────────────────────────────────────────────────────────
             if trainer.logger is not None:
                 try:
-                    trainer.logger.log_metrics(
-                        {
-                            "diag/cls_attn_entropy":  mean_entropy,
-                            "diag/best_layer_entropy": best_entropy,
-                            "diag/mse_ratio":         mean_ratio,
-                            "diag/pred_std_ratio":    mean_std_ratio,
-                            "diag/alignment":         mean_align,
-                            "diag/cls_norm":          mean_cls_norm,
-                        },
-                        step=trainer.global_step,
-                    )
+                    trainer.logger.log_metrics({
+                        "diag/mse_ratio":           mse_ratio,
+                        "diag/pred_std_ratio":      std_ratio,
+                        "diag/pcc":                 pcc,
+                        "diag/attn_entropy":        attn_ent,
+                        "diag/best_layer_entropy":  best_ent,
+                        "diag/pos_cos":             pos_cos,
+                        "diag/neg_cos":             neg_cos,
+                        "diag/alignment_gap":       gap,
+                        "diag/pre_cls_norm":        pre_s["norm"],
+                        "diag/pre_cls_eff_rank":    pre_s["eff_rank"],
+                        "diag/pre_cls_part_ratio":  pre_s["part_ratio"],
+                        "diag/pre_cls_pair_cos":    pre_s["pairwise_cos"],
+                        "diag/post_cls_norm":       post_s["norm"],
+                        "diag/post_cls_eff_rank":   post_s["eff_rank"],
+                        "diag/post_cls_part_ratio": post_s["part_ratio"],
+                        "diag/post_cls_pair_cos":   post_s["pairwise_cos"],
+                        "diag/sat_90":              sat90,
+                        "diag/sat_95":              sat95,
+                        "diag/sat_99":              sat99,
+                    }, step=trainer.global_step)
                 except Exception:
                     pass
 
