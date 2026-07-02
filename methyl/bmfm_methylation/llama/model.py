@@ -304,21 +304,23 @@ class MethylLlamaAttention(nn.Module):
         if attention_mask is not None:
             sdpa_mask = attention_mask.bool().unsqueeze(1).unsqueeze(2)
 
+        # Scaled dot-product attention (Flash Attention when available) — always used
+        attn_out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=sdpa_mask,
+            dropout_p=self.attn_dropout if self.training else 0.0,
+        )  # [B, H, L, Dh]
+
         if output_attentions:
-            # Manual attention — SDPA doesn't expose weights; only used for diagnostics
+            # Compute only the CLS row of the attention matrix (position 0 → all keys).
+            # Full L×L matrix (L≈24k) would be ~144 GiB — only 1 row is needed.
+            # Memory: [B, H, 1, L] × 4 bytes ≈ 6 MB.
             scale = 1.0 / math.sqrt(self.head_dim)
-            scores = torch.matmul(q, k.transpose(-2, -1)) * scale  # [B, H, L, L]
+            cls_scores = torch.matmul(q[:, :, 0:1, :], k.transpose(-2, -1)) * scale  # [B,H,1,L]
             if sdpa_mask is not None:
-                scores = scores.masked_fill(~sdpa_mask, float("-inf"))
-            attn_weights = torch.softmax(scores.float(), dim=-1).to(q.dtype)  # [B, H, L, L]
-            attn_out = torch.matmul(attn_weights, v)  # [B, H, L, Dh]
+                cls_scores = cls_scores.masked_fill(~sdpa_mask, float("-inf"))
+            attn_weights = torch.softmax(cls_scores.float(), dim=-1).to(q.dtype)  # [B,H,1,L]
         else:
-            # Scaled dot-product attention (Flash Attention when available)
-            attn_out = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=sdpa_mask,
-                dropout_p=self.attn_dropout if self.training else 0.0,
-            )  # [B, H, L, Dh]
             attn_weights = None
 
         # Reshape back: [B, H, L, Dh] → [B, L, D]
