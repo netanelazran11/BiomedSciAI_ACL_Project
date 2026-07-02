@@ -56,8 +56,9 @@ AGE_WEIGHT="${AGE_WEIGHT:-0.0}"           # no age labels in 169k pretrain data
 CONTRASTIVE="${CONTRASTIVE:-true}"
 CONTRASTIVE_WEIGHT="${CONTRASTIVE_WEIGHT:-0.05}"
 CONTRASTIVE_TEMP="${CONTRASTIVE_TEMP:-0.1}"
-NORMALIZE_LOSS="${NORMALIZE_LOSS:-false}"
+NORMALIZE_LOSS="${NORMALIZE_LOSS:-true}"
 DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
+DIAG_CHECK_EVERY="${DIAG_CHECK_EVERY:-5}"    # print diag metrics every N epochs
 
 # ─── Training hyperparameters ─────────────────────────────────────────────────
 LR="${LR:-3e-4}"                          # lower than baseline (5e-4): deeper model
@@ -160,6 +161,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     early_stop_patience="${EARLY_STOP}" \
     gradient_clip_val=1.0 \
     precision="16-mixed" \
+    diag_check_every="${DIAG_CHECK_EVERY}" \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \

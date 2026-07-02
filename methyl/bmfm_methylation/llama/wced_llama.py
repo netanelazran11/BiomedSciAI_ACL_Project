@@ -197,6 +197,7 @@ class WCEDLlamaModule(pl.LightningModule):
         beta_values: torch.Tensor,   # [B, L]
         attention_mask: Optional[torch.Tensor] = None,  # [B, L]
         position_ids: Optional[torch.Tensor] = None,    # [B, L] genomic ranks (Level 2 RoPE)
+        output_attentions: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Encode one view → CLS embedding, beta predictions, age prediction."""
         # Stack dual-field input: [B, 2, L]
@@ -206,6 +207,7 @@ class WCEDLlamaModule(pl.LightningModule):
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            output_attentions=output_attentions,
         )
 
         cls_embedding  = encoder_out.pooler_output              # [B, D]
@@ -222,6 +224,7 @@ class WCEDLlamaModule(pl.LightningModule):
             "projection":      projection,
             "predicted_betas": predicted_betas,
             "predicted_age":   predicted_age,
+            "attentions":      encoder_out.attentions,  # None unless output_attentions=True
         }
 
     def forward(

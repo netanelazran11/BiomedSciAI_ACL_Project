@@ -473,14 +473,194 @@ def main(cfg: DictConfig):
             vl_loss  = m.get("validation/loss",         float("nan"))
             vl_recon = m.get("validation/recon_loss",   float("nan"))
             vl_ctr   = m.get("validation/contrastive_loss", float("nan"))
+            vl_pcc   = m.get("validation/pcc",          float("nan"))
+            cpg_sc   = m.get("train/cpg_scale",         float("nan"))
             lr       = m.get("lr-AdamW",                float("nan"))
             print(
                 f"[Epoch {ep:3d}] "
                 f"train_loss={float(tr_loss):.4f}  recon={float(tr_recon):.4f}  ctr={float(tr_ctr):.4f} | "
-                f"val_loss={float(vl_loss):.4f}  recon={float(vl_recon):.4f}  ctr={float(vl_ctr):.4f} | "
-                f"lr={float(lr):.2e}",
+                f"val_loss={float(vl_loss):.4f}  recon={float(vl_recon):.4f}  ctr={float(vl_ctr):.4f}  pcc={float(vl_pcc):.4f} | "
+                f"cpg_scale={float(cpg_sc):.4f}  lr={float(lr):.2e}",
                 flush=True,
             )
+
+    import math as _math
+    import numpy as _np
+
+    class DiagnosticCallback(pl.Callback):
+        """
+        Every `check_every` epochs runs a small forward pass on fixed val batches
+        and prints + logs the following to WandB / stdout:
+
+          diag/cls_attn_entropy   mean normalized entropy of CLS→CpG attention
+                                  across all layers and heads.
+                                  1.0 = perfectly uniform (BAD). Want < 0.97.
+
+          diag/best_layer_entropy lowest entropy across layers (most focused layer).
+                                  If even the best layer stays near 1.0, no layer
+                                  is learning selectivity.
+
+          diag/mse_ratio          model MSE / per-sample-mean MSE on held-out CpGs.
+                                  Old pretrain: 0.645.  Want < 0.4 with normalize_loss.
+
+          diag/pred_std_ratio     mean(std of predictions per sample) /
+                                  mean(std of targets per sample).
+                                  1.0 = perfect. < 0.5 = collapse (predicting mean).
+
+          diag/alignment          mean cosine similarity between z1 and z2 for the
+                                  same sample (contrastive view pair).
+                                  0 = views not aligned. Want > 0.7 by epoch 50.
+
+          diag/cls_norm           mean L2 norm of CLS pooler output.
+                                  Should stay in [0.3, 3.0]. Collapse or explosion
+                                  indicates training instability.
+        """
+        def __init__(self, check_every: int = 10, n_diag_batches: int = 4):
+            self._check_every    = check_every
+            self._n_diag_batches = n_diag_batches
+            self._diag_batches   = None
+
+        def on_train_start(self, trainer, pl_module):
+            val_dl = trainer.val_dataloaders
+            if val_dl is None:
+                return
+            if not isinstance(val_dl, (list, tuple)):
+                val_dl = [val_dl]
+            batches = []
+            for batch in val_dl[0]:
+                batches.append(batch)
+                if len(batches) >= self._n_diag_batches:
+                    break
+            self._diag_batches = batches
+
+        def on_validation_epoch_end(self, trainer, pl_module):
+            if trainer.sanity_checking:
+                return
+            ep = trainer.current_epoch
+            if ep % self._check_every != 0:
+                return
+            if not self._diag_batches:
+                return
+
+            dev = pl_module.device
+            pl_module.eval()
+
+            all_entropies    = []   # mean entropy across layers
+            best_entropies   = []   # min entropy (best layer) per batch
+            all_ratios       = []   # mse_ratio
+            all_std_ratios   = []   # pred_std / true_std
+            all_alignments   = []   # cosine_sim(z1, z2)
+            all_cls_norms    = []   # ||CLS||_2
+
+            with torch.no_grad():
+                for batch in self._diag_batches:
+                    batch = {
+                        k: v.to(dev) if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()
+                    }
+                    cpg_ids      = batch["cpg_ids"]
+                    beta_values  = batch["beta_values"]
+                    attn_mask    = batch.get("attention_mask")
+                    pos_ids      = batch.get("position_ids")
+                    all_betas    = batch["all_betas"]        # [B, V]
+                    input_mask   = batch["input_mask"]       # [B, V]
+                    valid_mask   = batch.get("valid_mask")   # [B, V] or None
+
+                    # ── View 1 encode (with attention weights) ────────────────
+                    enc1 = pl_module.encode(
+                        cpg_ids, beta_values, attn_mask,
+                        position_ids=pos_ids,
+                        output_attentions=True,
+                    )
+                    z1   = enc1["projection"]                # [B, 128]
+                    pred = enc1["predicted_betas"]           # [B, V]
+                    cls_emb = enc1["cls_embedding"]          # [B, D]
+
+                    # ── CLS norm ──────────────────────────────────────────────
+                    all_cls_norms.append(cls_emb.norm(dim=-1).mean().item())
+
+                    # ── Attention entropy per layer ───────────────────────────
+                    attentions = enc1.get("attentions")
+                    if attentions:
+                        layer_ents = []
+                        for layer_attn in attentions:        # [B, H, L, L] on CPU
+                            cls_attn = layer_attn[:, :, 0, 1:].float()  # [B, H, L-1]
+                            n_pos  = cls_attn.shape[-1]
+                            h_max  = _math.log(n_pos) if n_pos > 1 else 1.0
+                            eps    = 1e-10
+                            ent    = -(cls_attn * (cls_attn + eps).log()).sum(dim=-1)
+                            layer_ents.append((ent / h_max).mean().item())
+                        all_entropies.append(float(_np.mean(layer_ents)))
+                        best_entropies.append(float(_np.min(layer_ents)))
+
+                    # ── MSE ratio vs per-sample mean ──────────────────────────
+                    recon_mask = ~input_mask
+                    if valid_mask is not None:
+                        recon_mask = recon_mask & valid_mask
+                    mf = recon_mask.float()
+                    n  = mf.sum(dim=1, keepdim=True).clamp(min=1)
+
+                    model_mse   = ((pred - all_betas) ** 2 * mf).sum() / mf.sum().clamp(min=1)
+                    sample_mean = (all_betas * mf).sum(dim=1, keepdim=True) / n
+                    mean_mse    = ((sample_mean - all_betas) ** 2 * mf).sum() / mf.sum().clamp(min=1)
+                    all_ratios.append((model_mse / mean_mse.clamp(min=1e-8)).item())
+
+                    # ── Prediction std ratio ──────────────────────────────────
+                    pred_std = (pred * mf).std(dim=-1).mean().item()
+                    true_std = (all_betas * mf).std(dim=-1).mean().item()
+                    all_std_ratios.append(pred_std / max(true_std, 1e-8))
+
+                    # ── Contrastive alignment (view 2) ────────────────────────
+                    cpg_ids_v2   = batch.get("cpg_ids_v2")
+                    beta_vals_v2 = batch.get("beta_values_v2")
+                    attn_mask_v2 = batch.get("attention_mask_v2")
+                    pos_ids_v2   = batch.get("position_ids_v2")
+                    if cpg_ids_v2 is not None:
+                        enc2 = pl_module.encode(
+                            cpg_ids_v2, beta_vals_v2, attn_mask_v2,
+                            position_ids=pos_ids_v2,
+                        )
+                        z2 = enc2["projection"]              # [B, 128]
+                        z1n = torch.nn.functional.normalize(z1, dim=-1)
+                        z2n = torch.nn.functional.normalize(z2, dim=-1)
+                        cosine_sim = (z1n * z2n).sum(dim=-1).mean().item()
+                        all_alignments.append(cosine_sim)
+
+            def _m(lst): return float(_np.mean(lst)) if lst else float("nan")
+
+            mean_entropy  = _m(all_entropies)
+            best_entropy  = _m(best_entropies)
+            mean_ratio    = _m(all_ratios)
+            mean_std_ratio = _m(all_std_ratios)
+            mean_align    = _m(all_alignments)
+            mean_cls_norm = _m(all_cls_norms)
+
+            print(
+                f"[Epoch {ep:3d}] DIAG | "
+                f"attn_entropy={mean_entropy:.4f} best_layer={best_entropy:.4f} (1=uniform) | "
+                f"mse_ratio={mean_ratio:.3f} pred_std_ratio={mean_std_ratio:.3f} | "
+                f"alignment={mean_align:.3f} (cosine z1↔z2) | "
+                f"cls_norm={mean_cls_norm:.3f}",
+                flush=True,
+            )
+
+            if trainer.logger is not None:
+                try:
+                    trainer.logger.log_metrics(
+                        {
+                            "diag/cls_attn_entropy":  mean_entropy,
+                            "diag/best_layer_entropy": best_entropy,
+                            "diag/mse_ratio":         mean_ratio,
+                            "diag/pred_std_ratio":    mean_std_ratio,
+                            "diag/alignment":         mean_align,
+                            "diag/cls_norm":          mean_cls_norm,
+                        },
+                        step=trainer.global_step,
+                    )
+                except Exception:
+                    pass
+
+    diag_check_every = cfg.get("diag_check_every", 10)
 
     # Callbacks
     callbacks = [
@@ -500,6 +680,7 @@ def main(cfg: DictConfig):
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
         EpochLogger(),
+        DiagnosticCallback(check_every=diag_check_every, n_diag_batches=4),
     ]
 
     # Trainer

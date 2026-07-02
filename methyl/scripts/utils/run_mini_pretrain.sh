@@ -56,6 +56,7 @@ WARMUP_STEPS=100           # short warmup for mini run
 ACCUM=1                    # no accumulation (single GPU, single step)
 EARLY_STOP=10
 LR=3e-4
+DIAG_CHECK_EVERY=5     # check every 5 epochs in mini run (only 20 epochs total)
 
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
 WANDB_PROJECT="pretrain-llama-wced"
@@ -124,7 +125,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     wced_contrastive="${CONTRASTIVE}" \
     wced_contrastive_weight="${CONTRASTIVE_WEIGHT}" \
     wced_contrastive_temp="${CONTRASTIVE_TEMP}" \
-    wced_normalize_loss=false \
+    wced_normalize_loss=true \
     wced_decoder_dropout=0.1 \
     wced_genomic_rank_path="${GENOMIC_RANK_NPY}" \
     pretrain_epochs="${PRETRAIN_EPOCHS}" \
@@ -132,6 +133,7 @@ python -m bmfm_methylation.llama.pretrain_llama \
     early_stop_patience="${EARLY_STOP}" \
     gradient_clip_val=1.0 \
     precision="16-mixed" \
+    diag_check_every="${DIAG_CHECK_EVERY}" \
     limit_train_batches="${LIMIT_TRAIN_BATCHES}" \
     limit_val_batches="${LIMIT_VAL_BATCHES}" \
     track_wandb.enabled=true \

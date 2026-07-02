@@ -276,7 +276,8 @@ class MethylLlamaAttention(nn.Module):
         hidden_states: torch.Tensor,            # [B, L, D]
         attention_mask: Optional[torch.Tensor] = None,  # [B, L] int 1=attend, 0=pad
         position_ids: Optional[torch.Tensor] = None,    # [B, L] int — genomic ranks (Level 2)
-    ) -> torch.Tensor:
+        output_attentions: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         B, L, D = hidden_states.shape
 
         # Project to Q, K, V
@@ -298,24 +299,31 @@ class MethylLlamaAttention(nn.Module):
             cos, sin = self.rotary_emb(seq_len=L)
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        # Prepare SDPA attention mask
-        # Input:  [B, L] with 1=attend, 0=pad
-        # SDPA boolean: True=attend, False=block (mask out)
+        # Prepare attention mask: [B, L] → [B, 1, 1, L]
         sdpa_mask = None
         if attention_mask is not None:
-            # [B, L] → [B, 1, 1, L] broadcasts to [B, H, Lq, Lk]
             sdpa_mask = attention_mask.bool().unsqueeze(1).unsqueeze(2)
 
-        # Scaled dot-product attention (automatically uses Flash Attention when available)
-        attn_out = F.scaled_dot_product_attention(
-            q, k, v,
-            attn_mask=sdpa_mask,
-            dropout_p=self.attn_dropout if self.training else 0.0,
-        )  # [B, H, L, Dh]
+        if output_attentions:
+            # Manual attention — SDPA doesn't expose weights; only used for diagnostics
+            scale = 1.0 / math.sqrt(self.head_dim)
+            scores = torch.matmul(q, k.transpose(-2, -1)) * scale  # [B, H, L, L]
+            if sdpa_mask is not None:
+                scores = scores.masked_fill(~sdpa_mask, float("-inf"))
+            attn_weights = torch.softmax(scores.float(), dim=-1).to(q.dtype)  # [B, H, L, L]
+            attn_out = torch.matmul(attn_weights, v)  # [B, H, L, Dh]
+        else:
+            # Scaled dot-product attention (Flash Attention when available)
+            attn_out = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=sdpa_mask,
+                dropout_p=self.attn_dropout if self.training else 0.0,
+            )  # [B, H, L, Dh]
+            attn_weights = None
 
         # Reshape back: [B, H, L, Dh] → [B, L, D]
         attn_out = attn_out.transpose(1, 2).contiguous().view(B, L, D)
-        return self.out_proj(attn_out)
+        return self.out_proj(attn_out), attn_weights
 
 
 # ---------------------------------------------------------------------------
@@ -376,12 +384,18 @@ class MethylLlamaLayer(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        output_attentions: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         # Attention block (Pre-LN)
         residual = hidden_states
-        hidden_states = self.attn_norm(hidden_states)
-        hidden_states = self.attn(hidden_states, attention_mask=attention_mask, position_ids=position_ids)
-        hidden_states = self.dropout(hidden_states) + residual
+        hidden_states_norm = self.attn_norm(hidden_states)
+        attn_out, attn_weights = self.attn(
+            hidden_states_norm,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            output_attentions=output_attentions,
+        )
+        hidden_states = self.dropout(attn_out) + residual
 
         # MLP block (Pre-LN)
         residual = hidden_states
@@ -389,7 +403,7 @@ class MethylLlamaLayer(nn.Module):
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.dropout(hidden_states) + residual
 
-        return hidden_states
+        return hidden_states, attn_weights
 
 
 # ---------------------------------------------------------------------------
@@ -512,10 +526,19 @@ class MethylLlamaEncoder(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        output_attentions: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[list]]:
+        all_attentions = [] if output_attentions else None
         for layer in self.layers:
-            hidden_states = layer(hidden_states, attention_mask=attention_mask, position_ids=position_ids)
-        return self.norm(hidden_states)
+            hidden_states, attn_weights = layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_attentions=output_attentions,
+            )
+            if output_attentions:
+                all_attentions.append(attn_weights.detach().cpu())
+        return self.norm(hidden_states), all_attentions
 
 
 # ---------------------------------------------------------------------------
@@ -590,6 +613,7 @@ class MethylLlamaModel(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,   # [B, L]
         inputs_embeds: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,     # [B, L] genomic ranks (Level 2 RoPE)
+        output_attentions: bool = False,                 # return per-layer CLS attention weights
         **kwargs,   # Accept extra BERT kwargs (token_type_ids, etc.) silently
     ) -> BaseModelOutputWithPoolingAndCrossAttentions:
 
@@ -600,10 +624,11 @@ class MethylLlamaModel(nn.Module):
         )  # [B, L, D]
 
         # Encode through transformer layers
-        hidden_states = self.encoder(
+        hidden_states, all_attentions = self.encoder(
             hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            output_attentions=output_attentions,
         )  # [B, L, D]
 
         # Pool CLS token
@@ -614,6 +639,7 @@ class MethylLlamaModel(nn.Module):
         return BaseModelOutputWithPoolingAndCrossAttentions(
             last_hidden_state=hidden_states,
             pooler_output=pooler_output,
+            attentions=tuple(all_attentions) if all_attentions is not None else None,
         )
 
 

@@ -60,7 +60,7 @@ wced_input_ratio: 0.5                 # each view sees 50% of valid CpGs
 wced_contrastive: true                # InfoNCE between two random 50% views
 wced_contrastive_weight: 0.05         # loss = recon + 0.05 × InfoNCE
 wced_contrastive_temp: 0.1            # InfoNCE temperature τ
-wced_normalize_loss: false
+wced_normalize_loss: true
 wced_age_weight: 0.0                  # no age labels in 169k pretrain data
 wced_decoder_dropout: 0.1
 wced_genomic_rank_path: null          # path to cpg_genomic_rank.npy; null = sequential RoPE
@@ -80,6 +80,7 @@ pretrain_epochs: 300
 accumulate_grad_batches: 2            # eff batch = 32 × 4 GPUs × 2 = 256
 gradient_clip_val: 1.0
 early_stop_patience: 60
+diag_check_every: 5               # print attention entropy + MSE ratio every N epochs
 precision: "16-mixed"
 limit_train_batches: 1.0             # 1.0 = all; int N = N batches/epoch (mini runs)
 limit_val_batches: 1.0
