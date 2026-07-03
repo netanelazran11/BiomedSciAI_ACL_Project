@@ -495,7 +495,6 @@ def main(cfg: DictConfig):
           - Contrastive:     pos_cos, neg_cos, alignment gap
           - Pre-pooler CLS:  norm, eff_rank, part_ratio, pairwise_cos
           - Post-pooler CLS: norm, eff_rank, part_ratio, pairwise_cos, tanh saturation
-          - Mean pool:       norm, eff_rank, part_ratio, pairwise_cos
         """
         def __init__(self, check_every: int = 5, n_diag_batches: int = 4):
             self._check_every    = check_every
