@@ -79,7 +79,10 @@ trainer:
 pretrain_epochs: 300
 accumulate_grad_batches: 2            # eff batch = 32 × 4 GPUs × 2 = 256
 gradient_clip_val: 1.0
-early_stop_patience: 60
+early_stop_patience: 30           # stop if val/recon_loss does not improve for N epochs
+early_stop_min_delta: 1.0e-4      # minimum improvement to count as progress
+save_top_k: 6                     # keep top-6 checkpoints by val/recon_loss
+checkpoint_every_n_epochs: 25     # also save periodic snapshots for analysis
 diag_check_every: 5               # print attention entropy + MSE ratio every N epochs
 precision: "16-mixed"
 limit_train_batches: 1.0             # 1.0 = all; int N = N batches/epoch (mini runs)

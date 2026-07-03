@@ -411,34 +411,78 @@ def main(cfg: DictConfig):
         else:
             print(f"[Data]   {split_name}: None")
 
-    # Batch smoke-test — run one batch through model to check shapes
+    # Batch smoke-test — shapes, position_ids, masking ratio, encoder forward
     try:
         _loader = data_module.train_dataloader()
         _batch  = next(iter(_loader))
+        _cpg_ids = _batch["cpg_ids"]
+        _betas   = _batch["beta_values"]
+        _mask    = _batch.get("attention_mask")
         print(f"[Batch]  keys: {list(_batch.keys())}")
-        _cpg_ids    = _batch["cpg_ids"]       # [B, L]
-        _betas      = _batch["beta_values"]   # [B, L]
-        _mask       = _batch.get("attention_mask")
-        print(f"[Batch]  cpg_ids shape:     {list(_cpg_ids.shape)}")
-        print(f"[Batch]  beta_values shape: {list(_betas.shape)}")
+        print(f"[Batch]  cpg_ids:        {list(_cpg_ids.shape)}")
+        print(f"[Batch]  beta_values:    {list(_betas.shape)}")
         if _mask is not None:
-            print(f"[Batch]  attention_mask:   {list(_mask.shape)}")
+            print(f"[Batch]  attention_mask: {list(_mask.shape)}")
         if "all_betas" in _batch:
-            print(f"[Batch]  all_betas shape:  {list(_batch['all_betas'].shape)}")
+            _ab = _batch["all_betas"]
+            print(f"[Batch]  all_betas:      {list(_ab.shape)}  "
+                  f"(expected [B, {subset_k}])")
+        if "input_mask" in _batch:
+            _im = _batch["input_mask"]
+            print(f"[Batch]  input_mask:     {list(_im.shape)}")
+        if "cpg_ids_v2" in _batch:
+            print(f"[Batch]  cpg_ids_v2:     {list(_batch['cpg_ids_v2'].shape)}  "
+                  f"(contrastive view 2 present)")
+
+        # ── Level 2 RoPE / position_ids ──────────────────────────────────────
+        _pos = _batch.get("position_ids")
+        if _pos is not None:
+            _cls_ok  = (_pos[:, 0] == 0).all().item()
+            _max_pos = int(_pos.max().item())
+            print(f"[RoPE]   position_ids:   {list(_pos.shape)}  "
+                  f"max={_max_pos}  CLS@0={_cls_ok}  (expected max<={subset_k})")
+            if not _cls_ok:
+                print("[RoPE]   WARNING: CLS position_id != 0 — RoPE CLS position wrong!")
+            if _max_pos > subset_k:
+                print(f"[RoPE]   WARNING: max position_id={_max_pos} > subset_k={subset_k}!")
+        else:
+            print("[RoPE]   position_ids: NOT present — Level 2 Genomic RoPE DISABLED!")
+
+        # ── Input / reconstruction masking ratio ──────────────────────────────
+        if "input_mask" in _batch and "valid_mask" in _batch:
+            _im  = _batch["input_mask"].float()
+            _vm  = _batch["valid_mask"].float()
+            _n_valid  = _vm.sum(dim=1)
+            _n_input  = _im.sum(dim=1)
+            _ratio    = (_n_input / _n_valid.clamp(min=1)).mean().item()
+            _n_recon  = ((~_batch["input_mask"]) & _batch["valid_mask"]).float().sum(dim=1)
+            print(f"[Mask]   input CpGs/sample:  {_n_input.mean():.0f}  "
+                  f"({_ratio:.1%} of valid)  (expected ≈50%)")
+            print(f"[Mask]   recon CpGs/sample:  {_n_recon.mean():.0f}  "
+                  f"(expected ≈{int(subset_k * wced_input_ratio)})")
+            if abs(_ratio - wced_input_ratio) > 0.05:
+                print(f"[Mask]   WARNING: input ratio {_ratio:.2f} deviates from "
+                      f"wced_input_ratio={wced_input_ratio}!")
+
+        # ── Encoder forward pass ──────────────────────────────────────────────
         with torch.no_grad():
             _dev = next(module.encoder.parameters()).device
-            _out = module.encoder(
+            _pos2 = _pos[:2].to(_dev) if _pos is not None else None
+            _enc_out = module.encoder(
                 input_ids=torch.stack([_cpg_ids[:2].float(), _betas[:2]], dim=1).to(_dev),
                 attention_mask=_mask[:2].to(_dev) if _mask is not None else None,
+                position_ids=_pos2,
             )
-        print(f"[Batch]  last_hidden_state: {list(_out.last_hidden_state.shape)}")
-        print(f"[Batch]  pooler_output:     {list(_out.pooler_output.shape)}")
+        print(f"[Fwd]    last_hidden_state: {list(_enc_out.last_hidden_state.shape)}")
+        print(f"[Fwd]    pooler_output:     {list(_enc_out.pooler_output.shape)}")
         print("[Batch]  Smoke-test PASSED")
         _sanity_stats = {
-            "sanity/train_samples": len(data_module.train_dataset),
-            "sanity/val_samples":   len(data_module.val_dataset) if data_module.val_dataset else 0,
-            "sanity/seq_len": _cpg_ids.shape[-1],
-            "sanity/model_total_params_M": round(_total_params / 1e6, 1),
+            "sanity/train_samples":          len(data_module.train_dataset),
+            "sanity/val_samples":            len(data_module.val_dataset) if data_module.val_dataset else 0,
+            "sanity/seq_len":                int(_cpg_ids.shape[-1]),
+            "sanity/model_total_params_M":   round(_total_params / 1e6, 1),
+            "sanity/position_ids_present":   int(_pos is not None),
+            "sanity/contrastive_view2":      int("cpg_ids_v2" in _batch),
         }
     except Exception as _e:
         print(f"[Batch]  Smoke-test FAILED: {_e}")
@@ -760,20 +804,105 @@ def main(cfg: DictConfig):
 
     diag_check_every = cfg.get("diag_check_every", 10)
 
-    # Callbacks
+    # ── Run-mode detection and limits (needed for startup summary) ────────────
+    from pytorch_lightning.strategies import DDPStrategy
+    limit_train_batches = cfg.get("limit_train_batches", 1.0)
+    limit_val_batches   = cfg.get("limit_val_batches",   1.0)
+
+    # ── Comprehensive startup configuration summary ───────────────────────────
+    _sl = "━" * 70
+    _is_full_run = (limit_train_batches == 1.0 or limit_train_batches is True)
+    _run_tag     = "FULL RUN" if _is_full_run else f"MINI/DEBUG  limit={limit_train_batches}"
+    _n_gpus      = torch.cuda.device_count()
+    _bs          = dm_cfg.get("batch_size", 32)
+    _accum       = cfg.get("accumulate_grad_batches", 2)
+    _eff_bs      = _bs * max(_n_gpus, 1) * _accum
+    _n_train     = len(data_module.train_dataset) if data_module.train_dataset else 0
+    _batches_ep  = _n_train // (_bs * max(_n_gpus, 1)) if _n_gpus > 0 else _n_train // _bs
+    _steps_ep    = max(_batches_ep // max(_accum, 1), 1)
+    _max_ep      = cfg.get("pretrain_epochs", 300)
+    _total_steps = _steps_ep * _max_ep
+    _n_val  = len(data_module.val_dataset)  if data_module.val_dataset  else 0
+    _n_test = len(data_module.test_dataset) if data_module.test_dataset else 0
+    _n_cpgs = data_module.train_dataset.num_cpg_sites if data_module.train_dataset else "?"
+    print(
+        f"\n{_sl}\n"
+        f"PRETRAIN CONFIGURATION SUMMARY  [{_run_tag}]\n"
+        f"{_sl}\n"
+        f"[Dataset]  {cfg.data_path}\n"
+        f"           train={_n_train}  val={_n_val}  test={_n_test}  CpGs={_n_cpgs}\n"
+        f"[GPU]      count={_n_gpus}  batch_per_gpu={_bs}  accum={_accum}"
+        f"  eff_batch={_eff_bs}\n"
+        f"[Training] batches/epoch≈{_batches_ep}  steps/epoch≈{_steps_ep}"
+        f"  total_steps≈{_total_steps}\n"
+        f"           max_epochs={_max_ep}  limit_train={limit_train_batches}\n"
+        f"[WCED]     normalize_loss={wced_normalize_loss}  input_ratio={wced_input_ratio}\n"
+        f"           contrastive={wced_contrastive}"
+        f"  w={wced_contrastive_wt}  T={wced_contrastive_temp}"
+        f"  age_weight={wced_age_weight}\n"
+        f"           genomic_RoPE={'ENABLED  path=' + str(wced_genomic_rank_path) if wced_genomic_rank_path else 'DISABLED'}\n"
+        f"[Model]    {model_config.num_hidden_layers}L x {model_config.hidden_size}D"
+        f" x {model_config.num_attention_heads}H  FFN={model_config.intermediate_size}\n"
+        f"[LR]       lr={tr_cfg.get('learning_rate','?')}"
+        f"  warmup={tr_cfg.get('warmup_steps','?')} steps"
+        f"  wd={tr_cfg.get('weight_decay','?')}  clip={cfg.get('gradient_clip_val','?')}\n"
+        f"[Ckpt]     top-{cfg.get('save_top_k',6)} by val/recon  +"
+        f" top-3 by val/loss  +"
+        f" periodic every {cfg.get('checkpoint_every_n_epochs',25)} epochs  + save_last\n"
+        f"[Stop]     monitor=validation/recon_loss"
+        f"  patience={cfg.get('early_stop_patience',30)}"
+        f"  min_delta={cfg.get('early_stop_min_delta',1e-4)}\n"
+        f"[Misc]     precision={cfg.get('precision','?')}"
+        f"  seed={cfg.get('seed',{}).get('seed_value',42)}"
+        f"  diag_every={diag_check_every}"
+        f"  wandb={cfg.get('track_wandb',{}).get('enabled',False)}\n"
+        f"{_sl}",
+        flush=True,
+    )
+    if not _is_full_run:
+        print(
+            f"*** WARNING: limit_train_batches={limit_train_batches}"
+            f" — NOT a full pretraining run! ***",
+            flush=True,
+        )
+
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+    _ckpt_dir = str(output_dir / "checkpoints")
     callbacks = [
+        # Primary: top-N by validation reconstruction loss (main pretraining objective)
         pl.callbacks.ModelCheckpoint(
-            dirpath=str(output_dir / "checkpoints"),
-            filename="epoch={epoch}-val_loss={validation/loss:.4f}",
+            dirpath=_ckpt_dir,
+            filename="epoch={epoch}-recon={validation/recon_loss:.4f}-pcc={validation/pcc:.4f}",
+            monitor="validation/recon_loss",
+            mode="min",
+            save_top_k=cfg.get("save_top_k", 6),
+            save_last=True,
+            auto_insert_metric_name=False,
+        ),
+        # Secondary: top-3 by combined validation loss (recon + contrastive)
+        pl.callbacks.ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "by_loss"),
+            filename="epoch={epoch}-loss={validation/loss:.4f}",
             monitor="validation/loss",
             mode="min",
             save_top_k=3,
             auto_insert_metric_name=False,
         ),
+        # Periodic: every N epochs regardless of loss (for representation analysis)
+        pl.callbacks.ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "periodic"),
+            filename="epoch={epoch}-periodic",
+            every_n_epochs=cfg.get("checkpoint_every_n_epochs", 25),
+            save_top_k=-1,
+            auto_insert_metric_name=False,
+        ),
+        # Early stopping: monitor val reconstruction loss, not combined loss
         pl.callbacks.EarlyStopping(
-            monitor="validation/loss",
-            patience=cfg.get("early_stop_patience", 60),
+            monitor="validation/recon_loss",
+            patience=cfg.get("early_stop_patience", 30),
+            min_delta=cfg.get("early_stop_min_delta", 1e-4),
             mode="min",
+            strict=True,
             check_on_train_epoch_end=False,
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
@@ -782,16 +911,12 @@ def main(cfg: DictConfig):
                            output_dir=str(output_dir)),
     ]
 
-    # Trainer
-    # find_unused_parameters=True: projection_head and age_head are disabled
-    # (contrastive_weight=0, age_weight=0) so DDP must not error on unused params.
-    from pytorch_lightning.strategies import DDPStrategy
-    limit_train_batches = cfg.get("limit_train_batches", 1.0)
-    limit_val_batches   = cfg.get("limit_val_batches",   1.0)
-
+    # ── Trainer ───────────────────────────────────────────────────────────────
+    # find_unused_parameters=True: projection_head and age_head params that receive
+    # no gradient when contrastive_weight=0 or age_weight=0 must not block DDP sync.
     trainer = pl.Trainer(
         max_epochs=cfg.get("pretrain_epochs", 300),
-        accelerator="auto",
+        accelerator="gpu",
         devices="auto",
         strategy=DDPStrategy(find_unused_parameters=True),
         precision=cfg.get("precision", "16-mixed"),
