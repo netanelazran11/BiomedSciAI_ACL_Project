@@ -496,10 +496,12 @@ def main(cfg: DictConfig):
           - Pre-pooler CLS:  norm, eff_rank, part_ratio, pairwise_cos
           - Post-pooler CLS: norm, eff_rank, part_ratio, pairwise_cos, tanh saturation
         """
-        def __init__(self, check_every: int = 5, n_diag_batches: int = 4):
+        def __init__(self, check_every: int = 5, n_diag_batches: int = 4,
+                     output_dir: str = None):
             self._check_every    = check_every
             self._n_diag_batches = n_diag_batches
             self._diag_batches   = None
+            self._output_dir     = output_dir
 
         def on_train_start(self, trainer, pl_module):
             val_dl = trainer.val_dataloaders
@@ -717,6 +719,18 @@ def main(cfg: DictConfig):
                 flush=True,
             )
 
+            # ── Save CLS tensors to disk ──────────────────────────────────────
+            if self._output_dir is not None:
+                save_dir = Path(self._output_dir) / "diag_cls"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                torch.save(pre_all,  save_dir / f"epoch_{ep:04d}_pre.pt")
+                torch.save(post_all, save_dir / f"epoch_{ep:04d}_post.pt")
+                print(
+                    f"  Saved CLS → {save_dir}/epoch_{ep:04d}_{{pre,post}}.pt"
+                    f"  shape={list(pre_all.shape)}",
+                    flush=True,
+                )
+
             # ── WandB ─────────────────────────────────────────────────────────
             if trainer.logger is not None:
                 try:
@@ -764,7 +778,8 @@ def main(cfg: DictConfig):
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
         EpochLogger(),
-        DiagnosticCallback(check_every=diag_check_every, n_diag_batches=4),
+        DiagnosticCallback(check_every=diag_check_every, n_diag_batches=4,
+                           output_dir=str(output_dir)),
     ]
 
     # Trainer
