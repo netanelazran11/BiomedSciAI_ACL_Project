@@ -33,6 +33,11 @@ LOGDIR="${REPO}/logs_llama-wced"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 
+# Genomic rank for fine-tune CpGs — produced by scripts/llama/create_finetune_genomic_rank.py
+# Maps each fine-tune CpG column to its genomic rank from the 49k pretrain ordering.
+# Required so RoPE position encodings match what the 6L pretrain model learned.
+GENOMIC_RANK_FT_NPY="${REPO}/outputs/cpg_genomic_sort/cpg_genomic_rank_finetune.npy"
+
 # ── Set CHECKPOINT to the best epoch from the 6L pretrain run ────────────────
 # Pattern: outputs/pretrain-llama-wced/llama-6L-all49k-r0.5-w0.05-genomic-<JOB_ID>/checkpoints/epoch=XX-val_loss=X.XXXX.ckpt
 # Override at submit time: CHECKPOINT=/path/to/ckpt sbatch finetune_llama_small_v7.sh
@@ -77,6 +82,11 @@ OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
+if [ ! -f "${GENOMIC_RANK_FT_NPY}" ]; then
+    echo "Genomic rank file not found — generating: ${GENOMIC_RANK_FT_NPY}"
+    python scripts/llama/create_finetune_genomic_rank.py
+fi
+
 echo "============================================================"
 echo "METHYLLAMA V7 FINE-TUNING (from 6L pretrain)"
 echo "============================================================"
@@ -86,6 +96,7 @@ echo "Pooling: ${POOLING} | Loss: ${LOSS_TYPE}"
 echo "epochs=${FINETUNE_EPOCHS} | early_stop=${EARLY_STOP} | warmup=${WARMUP_STEPS}"
 echo "batch=${BATCH_SIZE}×${ACCUM}=$(( BATCH_SIZE * ACCUM )) eff"
 echo "lr=${LR} | encoder_lr=${ENCODER_LR} | unfreeze_epoch=${UNFREEZE_EPOCH}"
+echo "Genomic RoPE (ft): ${GENOMIC_RANK_FT_NPY}"
 echo "Data: ${DATA}"
 echo "Output: ${OUTDIR}"
 echo "============================================================"
@@ -117,6 +128,7 @@ python -m bmfm_methylation.llama.finetune_llama \
     data_module.filter_age_outliers=true \
     "data_module.duplicate_pairs_csv='${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv'" \
     wced_input_ratio="${INPUT_RATIO}" \
+    wced_genomic_rank_path="${GENOMIC_RANK_FT_NPY}" \
     finetune.head_hidden_size="${HEAD_HIDDEN}" \
     finetune.head_dropout="${HEAD_DROPOUT}" \
     finetune.learning_rate="${LR}" \

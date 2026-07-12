@@ -213,16 +213,20 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
         cpg_ids: torch.Tensor,
         beta_values: torch.Tensor,
         attention_mask: Optional[torch.Tensor],
+        position_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Run encoder and return pooled representation."""
         input_ids = torch.stack([cpg_ids.float(), beta_values], dim=1)  # [B, 2, L]
-        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        out = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,   # genomic rank RoPE — None → sequential fallback
+        )
 
         if self.pooling == "mean":
-            # Mean over all non-padding tokens (exclude CLS at pos 0)
-            hidden = out.last_hidden_state[:, 1:, :]   # [B, L-1, D]
-            mask   = attention_mask[:, 1:].unsqueeze(-1).float()  # [B, L-1, 1]
-            return (hidden * mask).sum(1) / mask.sum(1).clamp(min=1)  # [B, D]
+            hidden = out.last_hidden_state[:, 1:, :]
+            mask   = attention_mask[:, 1:].unsqueeze(-1).float()
+            return (hidden * mask).sum(1) / mask.sum(1).clamp(min=1)
         else:
             return out.pooler_output  # [B, D]
 
@@ -240,12 +244,13 @@ class MethylationAgeRegressorLlama(pl.LightningModule):
             ).clamp(0.0, 1.0)
 
         attn_mask    = batch.get("attention_mask")
+        position_ids = batch.get("position_ids")   # genomic rank RoPE; None if collator lacks rank file
         all_betas    = batch.get("all_betas")
         input_mask   = batch.get("input_mask")
         age_labels   = batch["age"]
 
         # Encode
-        cls = self._encode_cls(cpg_ids, beta_values, attn_mask)  # [B, D]
+        cls = self._encode_cls(cpg_ids, beta_values, attn_mask, position_ids=position_ids)  # [B, D]
 
         # Age prediction (primary task)
         # age_labels from dataset are z-scored: (age - mean) / std
@@ -640,6 +645,8 @@ def main(cfg: DictConfig):
         duplicate_pairs_csv=duplicate_pairs_csv,
     )
 
+    genomic_rank_path_ft = cfg.get("wced_genomic_rank_path", None)
+
     def _wrap_collator():
         cpg_sites = None
         for ds in [data_module.train_dataset, data_module.val_dataset, data_module.test_dataset]:
@@ -665,6 +672,7 @@ def main(cfg: DictConfig):
                 input_ratio=wced_input_ratio,
                 fixed_subset_seed=fixed_subset_seed,
                 contrastive=False,
+                genomic_rank_path=genomic_rank_path_ft,  # None → sequential RoPE fallback
             )
         data_module.collator = wced_collator
 
