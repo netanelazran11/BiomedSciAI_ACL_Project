@@ -34,16 +34,17 @@ model_arch:
 data_module:
   batch_size: 32
   num_workers: 4
-  max_length: 8002
-  subset_k: 8000
+  max_length: 21369                # 19,608 fine-tune CpGs + 1 CLS + padding
+  subset_k: 49156                  # use ALL available CpGs (caps at dataset size)
   fixed_subset_seed: 42
-  filter_age_outliers: false      # Remove age<0 and age>120 samples entirely
-  duplicate_pairs_csv: null       # Path to duplicate_pairs.csv for deduplication
+  filter_age_outliers: false
+  duplicate_pairs_csv: null
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WCED collator settings
 # ─────────────────────────────────────────────────────────────────────────────
-wced_input_ratio: 0.5    # Match pretraining distribution (4000 input CpGs)
+wced_input_ratio: 1.0             # ALL CpGs as input (no masking — age task, not reconstruction)
+wced_genomic_rank_path: null      # Override with cpg_genomic_rank_finetune.npy for 6L model
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Age normalization
@@ -67,11 +68,11 @@ finetune:
   # Encoder: keep frozen (M1 strategy — WCED CLS already encodes age from pretraining)
   # Set to false for M2 strategy (fine-tune encoder too, but risks corrupting WCED repr)
   freeze_encoder: true
-  unfreeze_encoder_epoch: 9999  # Set to e.g. 5 for M2-style gradual unfreeze
+  unfreeze_encoder_epoch: 10    # Freeze head-only for 10 epochs, then unfreeze encoder at lr=encoder_lr
   # Decoder regularizer weight (keeps reconstruction objective alive during fine-tuning)
   recon_weight: 0.0              # 0.0 when input_ratio=1.0 (no held-out CpGs to reconstruct)
-  pooling: mean               # mean pooling over all tokens (better than CLS-only)
-  loss_type: mse              # mse or huber (huber delta must be in normalized space)
+  pooling: cls                # CLS pooling — matches WCED pretraining objective
+  loss_type: huber            # huber loss — robust to age outliers
   beta_noise: 0.0             # Gaussian noise σ on real CpG beta values during training only
 
 finetune_epochs: 100
