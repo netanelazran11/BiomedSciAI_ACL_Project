@@ -67,7 +67,7 @@ WARMUP_STEPS="${WARMUP_STEPS:-3000}"      # longer warmup: more params to stabil
 BATCH_SIZE="${BATCH_SIZE:-32}"
 ACCUM="${ACCUM:-2}"                       # eff batch = 32 × 4 GPUs × 2 = 256
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-300}"
-EARLY_STOP="${EARLY_STOP:-60}"
+EARLY_STOP="${EARLY_STOP:-30}"
 
 # ─── Resume (optional) ───────────────────────────────────────────────────────
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
