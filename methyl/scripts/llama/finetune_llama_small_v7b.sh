@@ -75,11 +75,6 @@ WANDB_RUN_NAME="llama-small-ft-v7b-6L-cls-huber-h${HEAD_HIDDEN}-do${HEAD_DROPOUT
 OUTROOT="${REPO}/outputs/${WANDB_PROJECT}"
 OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 
-if [ ! -f "${GENOMIC_RANK_FT_NPY}" ]; then
-    echo "Genomic rank file not found — generating: ${GENOMIC_RANK_FT_NPY}"
-    python scripts/llama/create_finetune_genomic_rank.py
-fi
-
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
 echo "============================================================"
@@ -104,6 +99,11 @@ module load cuda/12.3.2-gcc-5bv3kyh
 
 cd "${REPO}"
 source bmfm_methyl_env/bin/activate
+
+if [ ! -f "${GENOMIC_RANK_FT_NPY}" ]; then
+    echo "Genomic rank file not found — generating: ${GENOMIC_RANK_FT_NPY}"
+    python scripts/llama/create_finetune_genomic_rank.py
+fi
 
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_ALLOC_CONF="expandable_segments:True"

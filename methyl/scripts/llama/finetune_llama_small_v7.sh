@@ -82,11 +82,6 @@ OUTDIR="${OUTROOT}/${WANDB_RUN_NAME}"
 
 mkdir -p "${LOGDIR}" "${OUTDIR}"
 
-if [ ! -f "${GENOMIC_RANK_FT_NPY}" ]; then
-    echo "Genomic rank file not found — generating: ${GENOMIC_RANK_FT_NPY}"
-    python scripts/llama/create_finetune_genomic_rank.py
-fi
-
 echo "============================================================"
 echo "METHYLLAMA V7 FINE-TUNING (from 6L pretrain)"
 echo "============================================================"
@@ -109,6 +104,11 @@ module load cuda/12.3.2-gcc-5bv3kyh
 
 cd "${REPO}"
 source bmfm_methyl_env/bin/activate
+
+if [ ! -f "${GENOMIC_RANK_FT_NPY}" ]; then
+    echo "Genomic rank file not found — generating: ${GENOMIC_RANK_FT_NPY}"
+    python scripts/llama/create_finetune_genomic_rank.py
+fi
 
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_ALLOC_CONF="expandable_segments:True"
