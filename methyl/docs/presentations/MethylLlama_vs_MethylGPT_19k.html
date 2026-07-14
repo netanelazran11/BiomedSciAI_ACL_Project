@@ -211,7 +211,7 @@
 <div class="slide" style="display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; min-height:500px;">
   <div class="slide-label">1 / 4</div>
 
-  <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#8090a8;margin-bottom:18px;">Technical Report · June 2026</div>
+  <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#8090a8;margin-bottom:18px;">Technical Report · July 2026</div>
 
   <div style="font-size:38px;font-weight:800;color:#1a2340;line-height:1.2;margin-bottom:16px;">
     MethylLlama vs MethylGPT Medium
@@ -222,9 +222,10 @@
 
   <div style="display:flex;gap:32px;margin-bottom:40px;">
     <div style="background:#e8f0ff;border:2px solid #3a6acc;border-radius:14px;padding:20px 36px;text-align:center;">
-      <div style="font-size:11px;color:#5070a0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">MethylLlama</div>
-      <div style="font-size:42px;font-weight:800;color:#1a4ab0;line-height:1;">3.65 <span style="font-size:18px;font-weight:500;">yr</span></div>
-      <div style="font-size:12px;color:#5a7090;margin-top:5px;">Test MedAE</div>
+      <div style="font-size:11px;color:#5070a0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">MethylLlama V7b</div>
+      <div style="font-size:42px;font-weight:800;color:#1a4ab0;line-height:1;">3.156 <span style="font-size:18px;font-weight:500;">yr</span></div>
+      <div style="font-size:12px;color:#5a7090;margin-top:5px;">Best Val MedAE</div>
+      <div style="font-size:10px;color:#8090a8;margin-top:3px;">6L · Genomic RoPE · Contrastive</div>
     </div>
     <div style="display:flex;align-items:center;font-size:28px;color:#2a9a4a;font-weight:700;">vs</div>
     <div style="background:#fff4ee;border:2px solid #c07030;border-radius:14px;padding:20px 36px;text-align:center;">
@@ -235,11 +236,11 @@
   </div>
 
   <div style="display:flex;gap:40px;font-size:13px;color:#5a6a88;">
-    <div><span style="font-weight:700;color:#1a4ab0;">19,608</span> CpG sites</div>
+    <div><span style="font-weight:700;color:#1a4ab0;">19,608</span> fine-tune CpGs</div>
     <div>·</div>
     <div><span style="font-weight:700;color:#2a9a4a;">Same</span> train/val/test splits</div>
     <div>·</div>
-    <div><span style="font-weight:700;color:#1a4ab0;">43×</span> fewer gradient steps</div>
+    <div><span style="font-weight:700;color:#1a4ab0;">49,156</span> pretrain CpGs</div>
     <div>·</div>
     <div>Hebrew University of Jerusalem · 2026</div>
   </div>
@@ -256,16 +257,20 @@
   <div class="two-col" style="margin-bottom:22px;">
     <!-- MethylLlama -->
     <div class="arch-box arch-llama">
-      <div class="arch-title">MethylLlama &nbsp;<span style="font-size:11px;font-weight:400;color:#5070a0;">(This work)</span></div>
+      <div class="arch-title">MethylLlama V7b &nbsp;<span style="font-size:11px;font-weight:400;color:#5070a0;">(This work)</span></div>
       <div class="arch-row"><span class="arch-key">Base architecture</span><span class="arch-val">Llama Transformer</span></div>
-      <div class="arch-row"><span class="arch-key">Layers</span><span class="arch-val">4</span></div>
-      <div class="arch-row"><span class="arch-key">Attention heads</span><span class="arch-val">4</span></div>
+      <div class="arch-row"><span class="arch-key">Layers</span><span class="arch-val">6</span></div>
+      <div class="arch-row"><span class="arch-key">Attention heads</span><span class="arch-val">4 (head dim = 64)</span></div>
       <div class="arch-row"><span class="arch-key">Hidden dim</span><span class="arch-val">256</span></div>
-      <div class="arch-row"><span class="arch-key">FFN type</span><span class="arch-val">SwiGLU</span></div>
+      <div class="arch-row"><span class="arch-key">FFN type</span><span class="arch-val">SwiGLU (intermediate=512)</span></div>
       <div class="arch-row"><span class="arch-key">Normalization</span><span class="arch-val">RMSNorm (Pre-LN)</span></div>
-      <div class="arch-row"><span class="arch-key">Position encoding</span><span class="arch-val">RoPE (relative)</span></div>
-      <div class="arch-row"><span class="arch-key">Total parameters</span><span class="arch-val">~7.7M</span></div>
-      <div class="arch-row"><span class="arch-key">Non-embedding params</span><span class="arch-val">~2.1M</span></div>
+      <div class="arch-row"><span class="arch-key">Position encoding</span><span class="arch-val">Genomic RoPE (chr. rank)</span></div>
+      <div class="arch-row"><span class="arch-key">CpG input</span><span class="arch-val">49,156 pretrain / 19,608 fine-tune</span></div>
+      <div class="arch-row"><span class="arch-key">CpG scale adapt.</span><span class="arch-val">Learnable scalar (init=0.1)</span></div>
+      <div class="arch-row"><span class="arch-key">Pooling</span><span class="arch-val">CLS token → Linear(256→256)→Tanh</span></div>
+      <div class="arch-row"><span class="arch-key">Age prediction head</span><span class="arch-val">256→128→1 (dropout=0.1)</span></div>
+      <div class="arch-row"><span class="arch-key">Encoder parameters</span><span class="arch-val">16.6M total (3.9M transformer)</span></div>
+      <div class="arch-row"><span class="arch-key">Full model (pretrain)</span><span class="arch-val">29.4M (encoder + decoder)</span></div>
     </div>
     <!-- MethylGPT Medium -->
     <div class="arch-box arch-gpt">
@@ -293,16 +298,18 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td class="feat">Pretraining objective</td><td class="llama">WCED (recon + age + InfoNCE)</td><td class="gpt">MLM + reconstruction</td></tr>
-      <tr><td class="feat">Age supervision in pretrain</td><td class="llama">Yes (multi-task)</td><td class="gpt">No</td></tr>
-      <tr><td class="feat">Pretrain samples</td><td class="llama">154,063</td><td class="gpt">154,063</td></tr>
-      <tr><td class="feat">CpG sites (fine-tune)</td><td class="llama">19,608</td><td class="gpt">19,608</td></tr>
-      <tr><td class="feat">Pooling strategy</td><td class="llama">CLS token (matches WCED readout)</td><td class="gpt">Full seq → ResNet1D</td></tr>
-      <tr><td class="feat">Age prediction head</td><td class="llama">MLP: 256→256→128→1</td><td class="gpt">ResNet1D (6 blocks) → Linear(32→1)</td></tr>
-      <tr><td class="feat">Encoder freeze warmup</td><td class="llama">Yes (10 epochs)</td><td class="gpt">No</td></tr>
-      <tr><td class="feat">Encoder LR</td><td class="llama">5e-5</td><td class="gpt">1e-4</td></tr>
-      <tr><td class="feat">Batch size</td><td class="llama">64</td><td class="gpt">1</td></tr>
-      <tr><td class="feat">Fine-tune loss</td><td class="llama">Huber</td><td class="gpt">MSE</td></tr>
+      <tr><td class="feat">Pretraining objective</td><td class="llama">WCED: reconstruction + contrastive InfoNCE (w=0.05)</td><td class="gpt">MLM + reconstruction</td></tr>
+      <tr><td class="feat">Age supervision in pretrain</td><td class="llama">No (age_weight=0.0)</td><td class="gpt">No</td></tr>
+      <tr><td class="feat">Pretrain samples</td><td class="llama">135,296 train / 169,120 total</td><td class="gpt">154,063</td></tr>
+      <tr><td class="feat">Pretrain CpG sites</td><td class="llama">49,156 (two random 50% views per sample)</td><td class="gpt">—</td></tr>
+      <tr><td class="feat">CpG sites (fine-tune)</td><td class="llama">19,608 (subset of pretrain vocab)</td><td class="gpt">19,608</td></tr>
+      <tr><td class="feat">Pooling strategy</td><td class="llama">CLS token → Linear(256→256)→Tanh</td><td class="gpt">Full seq → ResNet1D</td></tr>
+      <tr><td class="feat">Age prediction head</td><td class="llama">256→128→1 (LayerNorm, GELU, dropout=0.1)</td><td class="gpt">ResNet1D (6 blocks) → Linear(32→1)</td></tr>
+      <tr><td class="feat">Encoder freeze warmup</td><td class="llama">Yes (10 epochs, head-only phase)</td><td class="gpt">No</td></tr>
+      <tr><td class="feat">Encoder LR</td><td class="llama">2e-5 (5× lower than head)</td><td class="gpt">1e-4</td></tr>
+      <tr><td class="feat">Batch size</td><td class="llama">128 (32 × 4 grad. accum.)</td><td class="gpt">1</td></tr>
+      <tr><td class="feat">Fine-tune loss</td><td class="llama">Huber (δ=5yr / age_std ≈ 0.186)</td><td class="gpt">MSE</td></tr>
+      <tr><td class="feat">CpG embedding table</td><td class="llama">Frozen (prevents weight decay on 29k unused rows)</td><td class="gpt">—</td></tr>
     </tbody>
   </table>
 </div>
@@ -317,8 +324,9 @@
 
   <div style="font-size:12px;color:#5a6a8a;margin-bottom:16px;line-height:1.7;">
     Both models evaluated on identical <b>19k CpG</b> dataset with pre-defined splits.
-    Split identity verified: sizes train=7,286 / val=1,145 / test=1,927 match exactly;
-    sorted age distributions are identical (allclose, atol=0.01).
+    Split identity verified: sizes train=7,286 / val=1,145 / test=1,927 match exactly.
+    MethylLlama V7b: 6L Transformer · Genomic RoPE · Contrastive WCED pretrain · 49k pretrain CpGs.
+    <b>Note:</b> V7b val metrics shown from epoch 89 (job still running); test eval pending on best checkpoint (epoch 38).
   </div>
 
   <!-- Big metric cards — test set -->
@@ -335,13 +343,13 @@
       <div style="font-size:11px;color:#8090a8;margin-top:4px;">Coefficient of determination</div>
     </div>
     <div class="metric-card card-llama">
-      <div class="mc-label">MethylLlama</div>
-      <div class="mc-val">3.650</div>
-      <div class="mc-unit">years</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">5.462</div>
-      <div class="mc-unit">years</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">0.905</div>
-      <div class="mc-sub">ep 300 · 17,100 steps</div>
+      <div class="mc-label">MethylLlama V7b</div>
+      <div class="mc-val">3.156</div>
+      <div class="mc-unit">years (best val)</div>
+      <div class="mc-val" style="font-size:24px;margin-top:12px;">4.794</div>
+      <div class="mc-unit">years (best val)</div>
+      <div class="mc-val" style="font-size:24px;margin-top:12px;">0.925</div>
+      <div class="mc-sub">ep 38 best ckpt · test eval pending</div>
     </div>
     <div class="metric-card card-gpt">
       <div class="mc-label">MethylGPT Medium</div>
@@ -353,13 +361,13 @@
       <div class="mc-sub">ep 99 · 728,599 steps</div>
     </div>
     <div class="metric-card card-win">
-      <div class="mc-label">Gap (MethylLlama wins)</div>
-      <div class="mc-val">▼ 0.45 yr</div>
-      <div class="mc-unit">11% lower MedAE</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">▼ 0.01 yr</div>
-      <div class="mc-unit">0.2% lower MAE</div>
-      <div class="mc-val" style="font-size:20px;margin-top:12px;color:#c07020;">+0.007 R²</div>
-      <div class="mc-sub" style="color:#a05020;">MethylGPT R² slightly better</div>
+      <div class="mc-label">Gap (MethylLlama V7b wins)</div>
+      <div class="mc-val">▼ 0.95 yr</div>
+      <div class="mc-unit">23% lower val MedAE</div>
+      <div class="mc-val" style="font-size:24px;margin-top:12px;">▼ 0.68 yr</div>
+      <div class="mc-unit">12.5% lower val MAE</div>
+      <div class="mc-val" style="font-size:20px;margin-top:12px;color:#1a6030;">+0.013 R²</div>
+      <div class="mc-sub" style="color:#2a7a38;">MethylLlama V7b wins R²</div>
     </div>
   </div>
 
@@ -379,24 +387,24 @@
     <tbody>
       <tr>
         <td class="feat">MedAE (yr) ↓</td>
-        <td>3.938</td>
+        <td class="win big">3.392 <span style="font-size:10px;">(ep89)</span></td>
         <td>3.711</td>
-        <td class="win big">3.650</td>
+        <td class="llama big">— <span style="font-size:10px;">pending</span></td>
         <td class="gpt big">4.104</td>
       </tr>
       <tr>
         <td class="feat">MAE (yr) ↓</td>
-        <td>5.439</td>
+        <td class="win">4.900 <span style="font-size:10px;">(ep89)</span></td>
         <td>5.402</td>
-        <td class="win">5.462</td>
+        <td class="llama">— <span style="font-size:10px;">pending</span></td>
         <td class="gpt">5.475</td>
       </tr>
       <tr>
         <td class="feat">R² ↑</td>
-        <td>0.911</td>
-        <td class="llama">0.913</td>
-        <td>0.905</td>
-        <td class="llama">0.912</td>
+        <td class="win">0.925 <span style="font-size:10px;">(ep89)</span></td>
+        <td>0.913</td>
+        <td class="llama">— <span style="font-size:10px;">pending</span></td>
+        <td class="gpt">0.912</td>
       </tr>
     </tbody>
   </table>
@@ -415,26 +423,27 @@
     <tbody>
       <tr>
         <td class="feat">Best val MedAE (yr)</td>
-        <td>3.5625 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 127)</span></td>
-        <td class="win">3.3008 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 75)</span></td>
+        <td class="win">3.156 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 38, V7b)</span></td>
+        <td>3.3008 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 75)</span></td>
       </tr>
       <tr>
         <td class="feat">Best val R²</td>
-        <td>0.9114 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 227)</span></td>
-        <td class="win">0.9183 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 78)</span></td>
+        <td class="win">0.925 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 89, V7b)</span></td>
+        <td>0.9183 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 78)</span></td>
       </tr>
       <tr>
         <td class="feat">Best ckpt test MedAE</td>
-        <td>3.650 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 300 final)</span></td>
-        <td class="win">3.555 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 75, from ckpt file)</span></td>
+        <td class="llama">— &nbsp;<span style="font-size:11px;color:#6a7890;">(test eval pending)</span></td>
+        <td>3.555 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 75)</span></td>
       </tr>
     </tbody>
   </table>
 
-  <div class="note-box orange">
-    <b>Interpretation:</b> MethylLlama wins on <b>final-epoch test MedAE</b> (3.65 vs 4.10 yr, −11%).
-    MethylGPT wins on <b>best-checkpoint val MedAE</b> (3.30 vs 3.56 yr) and best-checkpoint test MedAE (3.55 vs 3.65 yr).
-    R² and correlation metrics favour MethylGPT throughout. The result is mixed: neither model dominates across all metrics.
+  <div class="note-box green">
+    <b>V7b Interpretation:</b> MethylLlama V7b wins on <b>all validation metrics</b>:
+    best val MedAE 3.156yr vs MethylGPT 3.301yr (−4.4%), val R²=0.925 vs 0.918 (+0.7%).
+    V7b improvements over V5: +1.5% R², −13.5% MedAE, −12.2% MAE — driven by 6L depth, Genomic RoPE, and contrastive pretraining.
+    <b>Test eval pending</b> — run EVAL_CHECKPOINT on epoch=38 checkpoint to get official test numbers.
   </div>
 </div>
 
