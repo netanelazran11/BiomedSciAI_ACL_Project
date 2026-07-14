@@ -93,13 +93,16 @@ LABELS = {
 # WandB data download
 # ─────────────────────────────────────────────────────────────────────────────
 
-SCAN_THRESHOLD = 50_000   # above this use sampled history to avoid OOM
-SAMPLE_SIZE    = 10_000   # number of points to sample for large runs
+STREAM_THRESHOLD = 50_000   # above this, stream to disk instead of RAM
+STREAM_CHUNK     = 10_000   # rows per chunk written to disk
 
 
 def download_run_history(run_id_or_name: str, label: str, project: str = "finetune-llama-small") -> pd.DataFrame:
-    """Download history for a WandB run. Uses scan_history for small runs,
-    sampled history for large runs (>50k steps) to avoid OOM."""
+    """Download full history for a WandB run.
+    Small runs (<50k steps): accumulate in RAM.
+    Large runs (>=50k steps): stream row-by-row to a temp CSV on disk, then read back.
+    This avoids OOM for runs with millions of steps (e.g. MethylGPT batch_size=1).
+    """
     api = wandb.Api(timeout=120)
 
     try:
@@ -115,9 +118,28 @@ def download_run_history(run_id_or_name: str, label: str, project: str = "finetu
     print(f"  [{label}] run: {run.name}  id={run.id}  state={run.state}")
     print(f"  [{label}] total steps logged: {run.lastHistoryStep}")
 
-    if run.lastHistoryStep > SCAN_THRESHOLD:
-        print(f"  [{label}] large run — using sampled history ({SAMPLE_SIZE} points)")
-        df = run.history(samples=SAMPLE_SIZE, pandas=True)
+    if run.lastHistoryStep >= STREAM_THRESHOLD:
+        # Stream to disk to avoid OOM
+        csv_path = OUT_DIR / f"raw_history_{label}.csv"
+        print(f"  [{label}] large run — streaming to disk: {csv_path}")
+        header_written = False
+        chunk = []
+        n_rows = 0
+        for row in run.scan_history():
+            chunk.append(row)
+            if len(chunk) >= STREAM_CHUNK:
+                chunk_df = pd.DataFrame(chunk)
+                chunk_df.to_csv(csv_path, mode="a", header=not header_written, index=False)
+                header_written = True
+                n_rows += len(chunk)
+                chunk = []
+                print(f"    ... {n_rows:,} rows written", end="\r")
+        if chunk:
+            chunk_df = pd.DataFrame(chunk)
+            chunk_df.to_csv(csv_path, mode="a", header=not header_written, index=False)
+            n_rows += len(chunk)
+        print(f"  [{label}] streamed {n_rows:,} rows → reading back from disk")
+        df = pd.read_csv(csv_path)
     else:
         rows = []
         for row in run.scan_history():
@@ -624,7 +646,8 @@ def main():
             continue
 
         csv_path = OUT_DIR / f"raw_history_{label}.csv"
-        raw.to_csv(csv_path, index=False)
+        if not csv_path.exists():   # large runs already streamed to this path
+            raw.to_csv(csv_path, index=False)
         print(f"  Saved raw → {csv_path}")
 
         col_map = detect_columns(raw)
