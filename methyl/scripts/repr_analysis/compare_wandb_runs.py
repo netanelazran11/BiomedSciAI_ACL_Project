@@ -41,16 +41,18 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 
 ENTITY  = "netanelazran11-hebrew-university-of-jerusalem"
-PROJECT = "finetune-llama-small"
 
-# V5: 4L pretrain, no genomic RoPE, no contrastive (job 44895876, WandB id 3t5eve7t)
-# V7b: 6L pretrain, genomic RoPE, contrastive InfoNCE, simpler head+dropout (job 45485187)
+# Per-run: (project, run_id)
+# V5:       4L, no genomic RoPE, no contrastive   (finetune-llama-small / 3t5eve7t)
+# V7b:      6L, genomic RoPE, contrastive InfoNCE  (finetune-llama-small / zdmqngxe)
+# MethylGPT: baseline comparison model             (methylGPT_medium_19k / yny3obvg)
 RUNS = {
-    "pretrained_v5":  "3t5eve7t",
-    "pretrained_v7b": "zdmqngxe",
+    "methylgpt":      ("methylGPT_medium_19k", "yny3obvg"),
+    "pretrained_v5":  ("finetune-llama-small",  "3t5eve7t"),
+    "pretrained_v7b": ("finetune-llama-small",  "zdmqngxe"),
 }
 
-OUT_DIR = Path("wandb_run_comparison_v5_vs_v7b")
+OUT_DIR = Path("wandb_run_comparison_methylgpt_v5_v7b")
 OUT_DIR.mkdir(exist_ok=True)
 
 SMOOTH_WINDOW = 5   # rolling average window for plots
@@ -75,23 +77,31 @@ MEDAE_THRESHOLDS = [20, 15, 10, 7.5, 5, 4, 3.5, 3.2]
 R2_THRESHOLDS    = [0.2, 0.4, 0.6, 0.8, 0.9, 0.92]
 EARLY_EPOCHS     = [5, 10, 20, 50]
 
-COLORS = {"pretrained_v5": "#4DBBD5", "pretrained_v7b": "#E64B35"}
-LABELS = {"pretrained_v5": "MethylLlama V5 (4L baseline)", "pretrained_v7b": "MethylLlama V7b (6L + Genomic RoPE + Contrastive)"}
+COLORS = {
+    "methylgpt":      "#F39B7F",
+    "pretrained_v5":  "#4DBBD5",
+    "pretrained_v7b": "#E64B35",
+}
+LABELS = {
+    "methylgpt":      "MethylGPT Medium (baseline)",
+    "pretrained_v5":  "MethylLlama V5 (4L)",
+    "pretrained_v7b": "MethylLlama V7b (6L + Genomic RoPE + Contrastive)",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WandB data download
 # ─────────────────────────────────────────────────────────────────────────────
 
-def download_run_history(run_id_or_name: str, label: str) -> pd.DataFrame:
+def download_run_history(run_id_or_name: str, label: str, project: str = "finetune-llama-small") -> pd.DataFrame:
     """Download full (non-sampled) history for a WandB run."""
     api = wandb.Api(timeout=120)
 
     # Try direct run ID first, then search by name
     try:
-        run = api.run(f"{ENTITY}/{PROJECT}/{run_id_or_name}")
+        run = api.run(f"{ENTITY}/{project}/{run_id_or_name}")
     except Exception:
-        runs = api.runs(f"{ENTITY}/{PROJECT}",
+        runs = api.runs(f"{ENTITY}/{project}",
                         filters={"display_name": {"$regex": run_id_or_name}})
         run_list = list(runs)
         if not run_list:
@@ -365,8 +375,8 @@ def make_plots(epoch_dfs: dict):
     # ── Panel 1: loss / MAE / MedAE / R² ──────────────────────────────────
     fig, axes = plt.subplots(2, 3, figsize=(16, 9))
     fig.patch.set_facecolor("white")
-    fig.suptitle("MethylLlama V5 (4L baseline) vs V7b (6L + Genomic RoPE + Contrastive)",
-                 fontsize=13, fontweight="bold")
+    fig.suptitle("MethylGPT vs MethylLlama V5 (4L) vs MethylLlama V7b (6L + Genomic RoPE + Contrastive)",
+                 fontsize=11, fontweight="bold")
 
     plot_metric(axes[0,0], epoch_dfs, "train_loss", "Train Loss", "Huber Loss")
     plot_metric(axes[0,1], epoch_dfs, "val_loss",   "Val Loss",   "Huber Loss")
@@ -584,9 +594,10 @@ def interpret(summary_df: pd.DataFrame, conv_df: pd.DataFrame,
 
 def main():
     print("=" * 60)
-    print("MethylLlama V5 vs V7b — WandB Run Comparison")
-    print("V5:  4L · no RoPE · no contrastive  (run: 3t5eve7t)")
-    print("V7b: 6L · Genomic RoPE · contrastive (run: zdmqngxe)")
+    print("MethylGPT vs MethylLlama V5 vs V7b — WandB Comparison")
+    print("MethylGPT: methylGPT_medium_19k / yny3obvg")
+    print("V5:        finetune-llama-small  / 3t5eve7t  (4L, no RoPE)")
+    print("V7b:       finetune-llama-small  / zdmqngxe  (6L, RoPE, contrastive)")
     print("=" * 60)
 
     api = wandb.Api(timeout=120)
@@ -596,10 +607,10 @@ def main():
     col_maps = {}
     encoder_valid = {}
 
-    for label, run_id in RUNS.items():
-        print(f"\nDownloading [{label}] ...")
+    for label, (project, run_id) in RUNS.items():
+        print(f"\nDownloading [{label}] project={project} run={run_id} ...")
         try:
-            raw = download_run_history(run_id, label)
+            raw = download_run_history(run_id, label, project=project)
         except Exception as e:
             print(f"  ERROR: {e}")
             continue
