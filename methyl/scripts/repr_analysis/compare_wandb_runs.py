@@ -93,11 +93,15 @@ LABELS = {
 # WandB data download
 # ─────────────────────────────────────────────────────────────────────────────
 
+SCAN_THRESHOLD = 50_000   # above this use sampled history to avoid OOM
+SAMPLE_SIZE    = 10_000   # number of points to sample for large runs
+
+
 def download_run_history(run_id_or_name: str, label: str, project: str = "finetune-llama-small") -> pd.DataFrame:
-    """Download full (non-sampled) history for a WandB run."""
+    """Download history for a WandB run. Uses scan_history for small runs,
+    sampled history for large runs (>50k steps) to avoid OOM."""
     api = wandb.Api(timeout=120)
 
-    # Try direct run ID first, then search by name
     try:
         run = api.run(f"{ENTITY}/{project}/{run_id_or_name}")
     except Exception:
@@ -111,11 +115,15 @@ def download_run_history(run_id_or_name: str, label: str, project: str = "finetu
     print(f"  [{label}] run: {run.name}  id={run.id}  state={run.state}")
     print(f"  [{label}] total steps logged: {run.lastHistoryStep}")
 
-    rows = []
-    for row in run.scan_history():
-        rows.append(row)
+    if run.lastHistoryStep > SCAN_THRESHOLD:
+        print(f"  [{label}] large run — using sampled history ({SAMPLE_SIZE} points)")
+        df = run.history(samples=SAMPLE_SIZE, pandas=True)
+    else:
+        rows = []
+        for row in run.scan_history():
+            rows.append(row)
+        df = pd.DataFrame(rows)
 
-    df = pd.DataFrame(rows)
     print(f"  [{label}] downloaded {len(df)} rows × {len(df.columns)} columns")
     return df
 
