@@ -219,6 +219,7 @@ class MethylationDataset(Dataset):
         bmfm_style: bool = False,
         filter_age_outliers: bool = False,
         exclude_ids: Optional[set] = None,
+        override_obs_names: Optional[np.ndarray] = None,
     ):
         """
         Args:
@@ -234,6 +235,9 @@ class MethylationDataset(Dataset):
             filter_age_outliers: If True, remove samples with age < 0 or age > 120
                 entirely before splitting (not just set to NaN).
             exclude_ids: Set of sample obs_names to exclude entirely (e.g. duplicates).
+            override_obs_names: If provided, select exactly these obs_names (GSM IDs)
+                instead of using the split column. Used for k-fold cross-validation.
+                Applied after age-outlier and dedup filters.
         """
         self.h5ad_path = h5ad_path
         self.split = split
@@ -266,9 +270,21 @@ class MethylationDataset(Dataset):
                 logger.info(f"Duplicate exclusion: removing {n_removed} samples")
             self.adata = self.adata[keep].copy()
 
-        # Filter by split if specified
+        # K-fold override: filter by explicit obs_names, bypassing split column
+        if override_obs_names is not None:
+            keep = np.isin(self.adata.obs_names, override_obs_names)
+            n_found = int(keep.sum())
+            if n_found != len(override_obs_names):
+                logger.warning(
+                    f"K-fold override: requested {len(override_obs_names)} samples, "
+                    f"found {n_found} after pre-split filters (age/dedup)"
+                )
+            self.adata = self.adata[keep].copy()
+            logger.info(f"K-fold override: {len(self.adata)} samples selected")
+
+        # Filter by split if specified (skipped when override_obs_names is used)
         split_applied = False
-        if split is not None:
+        if override_obs_names is None and split is not None:
             if split_column in self.adata.obs.columns:
                 mask = self.adata.obs[split_column] == split
                 if mask.sum() > 0:
@@ -442,6 +458,8 @@ class MethylationDataModule(pl.LightningDataModule):
         bmfm_style: bool = False,         # Use BMFM-style dataset + BMFMWCEDCollator
         filter_age_outliers: bool = False, # Remove age<0 and age>120 samples entirely
         duplicate_pairs_csv: Optional[str] = None,  # CSV of duplicate pairs to deduplicate
+        fold_train_ids_npy: Optional[str] = None,  # k-fold: .npy of train obs_names (GSM IDs)
+        fold_val_ids_npy: Optional[str] = None,    # k-fold: .npy of val obs_names (GSM IDs)
     ):
         """
         Args:
@@ -503,6 +521,9 @@ class MethylationDataModule(pl.LightningDataModule):
         self.bmfm_style = bmfm_style
         self.filter_age_outliers = filter_age_outliers
 
+        self.fold_train_ids_npy = fold_train_ids_npy
+        self.fold_val_ids_npy = fold_val_ids_npy
+
         # Pre-compute duplicate exclusion set once at init (shared across all splits)
         self.exclude_ids: set = set()
         if duplicate_pairs_csv is not None:
@@ -526,10 +547,20 @@ class MethylationDataModule(pl.LightningDataModule):
         # Create datasets
         _exclude = self.exclude_ids if self.exclude_ids else None
 
+        # Load k-fold ID arrays if provided (None → use normal split column)
+        _train_ids = (
+            np.load(self.fold_train_ids_npy, allow_pickle=True)
+            if self.fold_train_ids_npy else None
+        )
+        _val_ids = (
+            np.load(self.fold_val_ids_npy, allow_pickle=True)
+            if self.fold_val_ids_npy else None
+        )
+
         if stage == "fit" or stage is None:
             self.train_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
-                split=self.train_split,
+                split=self.train_split if _train_ids is None else None,
                 age_column=self.age_column,
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
@@ -537,10 +568,11 @@ class MethylationDataModule(pl.LightningDataModule):
                 bmfm_style=self.bmfm_style,
                 filter_age_outliers=self.filter_age_outliers,
                 exclude_ids=_exclude,
+                override_obs_names=_train_ids,
             )
             self.val_dataset = MethylationDataset(
                 h5ad_path=self.h5ad_path,
-                split=self.val_split,
+                split=self.val_split if _val_ids is None else None,
                 age_column=self.age_column,
                 split_column=self.split_column,
                 normalize_age=self.normalize_age,
@@ -548,6 +580,7 @@ class MethylationDataModule(pl.LightningDataModule):
                 bmfm_style=self.bmfm_style,
                 filter_age_outliers=self.filter_age_outliers,
                 exclude_ids=_exclude,
+                override_obs_names=_val_ids,
             )
             # Share normalization stats from training
             self.val_dataset.age_mean = self.train_dataset.age_mean

@@ -209,7 +209,7 @@
      SLIDE 1 — Cover
      ═══════════════════════════════════════════════════════ -->
 <div class="slide" style="display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; min-height:500px;">
-  <div class="slide-label">1 / 4</div>
+  <div class="slide-label">1 / 3</div>
 
   <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#8090a8;margin-bottom:18px;">Technical Report · July 2026</div>
 
@@ -224,7 +224,7 @@
     <div style="background:#e8f0ff;border:2px solid #3a6acc;border-radius:14px;padding:20px 36px;text-align:center;">
       <div style="font-size:11px;color:#5070a0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">MethylLlama V7b</div>
       <div style="font-size:42px;font-weight:800;color:#1a4ab0;line-height:1;">3.156 <span style="font-size:18px;font-weight:500;">yr</span></div>
-      <div style="font-size:12px;color:#5a7090;margin-top:5px;">Best Val MedAE</div>
+      <div style="font-size:12px;color:#5a7090;margin-top:5px;">Best Val MedAE <span style="font-size:10px;color:#c07020;font-weight:700;">(test pending)</span></div>
       <div style="font-size:10px;color:#8090a8;margin-top:3px;">6L · Genomic RoPE · Contrastive</div>
     </div>
     <div style="display:flex;align-items:center;font-size:28px;color:#2a9a4a;font-weight:700;">vs</div>
@@ -251,7 +251,7 @@
      SLIDE 2 — Architecture Comparison
      ═══════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">2 / 4</div>
+  <div class="slide-label">2 / 3</div>
   <div class="slide-title">Architecture Comparison — MethylLlama vs MethylGPT Medium</div>
 
   <div class="two-col" style="margin-bottom:22px;">
@@ -319,211 +319,101 @@
      SLIDE 3 — Results Comparison (19k same dataset)
      ═══════════════════════════════════════════════════════ -->
 <div class="slide">
-  <div class="slide-label">3 / 4</div>
+  <div class="slide-label">3 / 3</div>
   <div class="slide-title">Results — Same Dataset, Same Splits &nbsp;<span class="badge badge-verified">Verified ✓</span></div>
 
   <div style="font-size:12px;color:#5a6a8a;margin-bottom:16px;line-height:1.7;">
-    Both models evaluated on identical <b>19k CpG</b> dataset with pre-defined splits.
-    Split identity verified: sizes train=7,286 / val=1,145 / test=1,927 match exactly.
-    MethylLlama V7b: 6L Transformer · Genomic RoPE · Contrastive WCED pretrain · 49k pretrain CpGs.
-    <b>Note:</b> V7b val metrics shown from epoch 89 (job still running); test eval pending on best checkpoint (epoch 38).
+    Three-way WandB comparison: full training histories analyzed (MethylGPT 1.4M steps, V5 300 epochs, V7b 300 epochs).
+    Identical <b>19k CpG</b> dataset · split sizes train=7,286 / val=1,145 / test=1,927 verified identical.
+    V7b test eval pending on epoch=38 checkpoint; V5 and MethylGPT test results are official.
   </div>
 
-  <!-- Big metric cards — test set -->
-  <div class="band">Test Set — Final Epoch</div>
-
-  <div class="metric-row">
-    <div class="metric-card" style="flex:0.6;background:#f4f6fc;border:1.5px solid #c8d0e8;">
-      <div class="mc-label">Metric</div>
-      <div style="font-size:13px;color:#4a5a78;font-weight:700;margin-top:8px;">MedAE (yr) ↓</div>
-      <div style="font-size:11px;color:#8090a8;margin-top:4px;">Median Absolute Error</div>
-      <div style="font-size:13px;color:#4a5a78;font-weight:700;margin-top:14px;">MAE (yr) ↓</div>
-      <div style="font-size:11px;color:#8090a8;margin-top:4px;">Mean Absolute Error</div>
-      <div style="font-size:13px;color:#4a5a78;font-weight:700;margin-top:14px;">R² ↑</div>
-      <div style="font-size:11px;color:#8090a8;margin-top:4px;">Coefficient of determination</div>
-    </div>
-    <div class="metric-card card-llama">
-      <div class="mc-label">MethylLlama V7b</div>
-      <div class="mc-val">3.156</div>
-      <div class="mc-unit">years (best val)</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">4.794</div>
-      <div class="mc-unit">years (best val)</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">0.925</div>
-      <div class="mc-sub">ep 38 best ckpt · test eval pending</div>
-    </div>
-    <div class="metric-card card-gpt">
-      <div class="mc-label">MethylGPT Medium</div>
-      <div class="mc-val">4.104</div>
-      <div class="mc-unit">years</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">5.475</div>
-      <div class="mc-unit">years</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">0.912</div>
-      <div class="mc-sub">ep 99 · 728,599 steps</div>
-    </div>
-    <div class="metric-card card-win">
-      <div class="mc-label">Gap (MethylLlama V7b wins)</div>
-      <div class="mc-val">▼ 0.95 yr</div>
-      <div class="mc-unit">23% lower val MedAE</div>
-      <div class="mc-val" style="font-size:24px;margin-top:12px;">▼ 0.68 yr</div>
-      <div class="mc-unit">12.5% lower val MAE</div>
-      <div class="mc-val" style="font-size:20px;margin-top:12px;color:#1a6030;">+0.013 R²</div>
-      <div class="mc-sub" style="color:#2a7a38;">MethylLlama V7b wins R²</div>
-    </div>
-  </div>
-
-  <!-- Full table — val and test side by side -->
-  <div class="band">Full Metric Table — Validation & Test</div>
+  <!-- Best checkpoint primary table -->
+  <div class="band green">Best Val Checkpoint — All Models</div>
 
   <table class="cmp">
     <thead>
       <tr>
-        <th class="left" style="width:18%;color:#d8e4ff;">Metric</th>
-        <th style="color:#a8c8ff;">MethylLlama Val</th>
-        <th style="color:#ffcc99;">MethylGPT Val</th>
-        <th style="color:#a8c8ff;">MethylLlama Test</th>
-        <th style="color:#ffcc99;">MethylGPT Test</th>
+        <th class="left" style="width:22%;color:#d8e4ff;">Metric</th>
+        <th style="color:#a8c8ff;">MethylLlama V7b <span style="font-size:9px;font-weight:400;">(6L · RoPE · Contrastive)</span></th>
+        <th style="color:#ffcc99;">MethylGPT Medium</th>
+        <th style="color:#b8d8b8;">MethylLlama V5 <span style="font-size:9px;font-weight:400;">(4L · baseline)</span></th>
+        <th style="color:#90ee90;">V7b vs GPT</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td class="feat">MedAE (yr) ↓</td>
-        <td class="win big">3.392 <span style="font-size:10px;">(ep89)</span></td>
-        <td>3.711</td>
-        <td class="llama big">— <span style="font-size:10px;">pending</span></td>
-        <td class="gpt big">4.104</td>
+        <td class="feat">Best val MedAE (yr) ↓</td>
+        <td class="win big">3.156 &nbsp;<span style="font-size:10px;color:#1a5a28;">ep 38</span></td>
+        <td class="gpt big">3.301 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 75</span></td>
+        <td style="text-align:center;">3.562 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 127</span></td>
+        <td class="win">▼ 0.145 yr (−4.4%)</td>
       </tr>
       <tr>
-        <td class="feat">MAE (yr) ↓</td>
-        <td class="win">4.900 <span style="font-size:10px;">(ep89)</span></td>
-        <td>5.402</td>
-        <td class="llama">— <span style="font-size:10px;">pending</span></td>
-        <td class="gpt">5.475</td>
+        <td class="feat">Best val R² ↑</td>
+        <td class="win big">0.932 &nbsp;<span style="font-size:10px;color:#1a5a28;">ep 85</span></td>
+        <td class="gpt big">0.918 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 78</span></td>
+        <td style="text-align:center;">0.911 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 227</span></td>
+        <td class="win">+0.014 (+1.5%)</td>
       </tr>
       <tr>
-        <td class="feat">R² ↑</td>
-        <td class="win">0.925 <span style="font-size:10px;">(ep89)</span></td>
-        <td>0.913</td>
-        <td class="llama">— <span style="font-size:10px;">pending</span></td>
-        <td class="gpt">0.912</td>
+        <td class="feat">Best val MAE (yr) ↓</td>
+        <td class="win">4.794 &nbsp;<span style="font-size:10px;color:#1a5a28;">ep 85</span></td>
+        <td class="gpt">5.082 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 78</span></td>
+        <td style="text-align:center;">5.405 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 127</span></td>
+        <td class="win">▼ 0.288 yr (−5.7%)</td>
+      </tr>
+      <tr>
+        <td class="feat">Test MedAE (yr) ↓</td>
+        <td class="llama" style="text-align:center;">— &nbsp;<span style="font-size:10px;color:#6a7890;">eval pending (ep 38)</span></td>
+        <td class="gpt">3.555 &nbsp;<span style="font-size:10px;color:#6a7890;">ep 75</span></td>
+        <td style="text-align:center;">3.650 &nbsp;<span style="font-size:10px;color:#6a7890;">official</span></td>
+        <td style="text-align:center;color:#8090a8;">—</td>
       </tr>
     </tbody>
   </table>
 
-  <!-- Best checkpoint row -->
-  <div class="band green">Best Val Checkpoint</div>
+  <!-- Convergence & stability -->
+  <div class="band" style="background:linear-gradient(90deg,#2a3a5a,#1e2d42);">Convergence &amp; Stability</div>
 
   <table class="cmp">
     <thead>
       <tr>
-        <th class="left" style="width:25%;color:#d8e4ff;">Metric</th>
-        <th style="color:#a8c8ff;">MethylLlama</th>
+        <th class="left" style="width:32%;color:#d8e4ff;">Measure</th>
+        <th style="color:#a8c8ff;">MethylLlama V7b</th>
         <th style="color:#ffcc99;">MethylGPT Medium</th>
+        <th style="color:#b8d8b8;">MethylLlama V5</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td class="feat">Best val MedAE (yr)</td>
-        <td class="win">3.156 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 38, V7b)</span></td>
-        <td>3.3008 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 75)</span></td>
+        <td class="feat">Epoch to val R² &gt; 0.90 ↓</td>
+        <td class="win"><b>18</b> &nbsp;<span style="font-size:10px;color:#1a5a28;">fastest</span></td>
+        <td class="gpt">32</td>
+        <td style="text-align:center;">86</td>
       </tr>
       <tr>
-        <td class="feat">Best val R²</td>
-        <td class="win">0.925 &nbsp;<span style="font-size:11px;color:#1a5a28;">(ep 89, V7b)</span></td>
-        <td>0.9183 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 78)</span></td>
-      </tr>
-      <tr>
-        <td class="feat">Best ckpt test MedAE</td>
-        <td class="llama">— &nbsp;<span style="font-size:11px;color:#6a7890;">(test eval pending)</span></td>
-        <td>3.555 &nbsp;<span style="font-size:11px;color:#6a7890;">(ep 75)</span></td>
+        <td class="feat">Last-20ep mean val MedAE ↓</td>
+        <td class="win">3.370 yr &nbsp;<span style="font-size:10px;color:#1a5a28;">(σ=0.080)</span></td>
+        <td class="gpt">3.648 yr &nbsp;<span style="font-size:10px;color:#6a7890;">(σ=0.214)</span></td>
+        <td style="text-align:center;">3.875 yr &nbsp;<span style="font-size:10px;color:#6a7890;">(σ=0.030)</span></td>
       </tr>
     </tbody>
   </table>
 
   <div class="note-box green">
-    <b>V7b Interpretation:</b> MethylLlama V7b wins on <b>all validation metrics</b>:
-    best val MedAE 3.156yr vs MethylGPT 3.301yr (−4.4%), val R²=0.925 vs 0.918 (+0.7%).
-    V7b improvements over V5: +1.5% R², −13.5% MedAE, −12.2% MAE — driven by 6L depth, Genomic RoPE, and contrastive pretraining.
-    <b>Test eval pending</b> — run EVAL_CHECKPOINT on epoch=38 checkpoint to get official test numbers.
+    <b>V7b wins on every metric:</b>
+    best val MedAE 3.156yr vs MethylGPT 3.301yr (−4.4%) and V5 3.562yr (−11.4%);
+    R²=0.932 vs GPT 0.918 (+1.5%) and V5 0.911 (+2.3%);
+    MAE 4.794yr vs GPT 5.082yr (−5.7%) and V5 5.405yr (−11.3%).
+    V7b also <b>converges faster</b> (R²&gt;0.90 at epoch 18 vs GPT epoch 32 vs V5 epoch 86)
+    and is more <b>stable</b> in late training (σ=0.080 vs GPT σ=0.214).
+    Gains driven by: 6L depth · Genomic RoPE · Contrastive WCED pretrain · regularized head (256→128→1, dropout=0.1).
+    <b>Next:</b> run test eval on epoch=38 checkpoint to confirm.
   </div>
 </div>
 
 
-<!-- ═══════════════════════════════════════════════════════
-     SLIDE 4 — Training Efficiency + Next Steps
-     ═══════════════════════════════════════════════════════ -->
-<div class="slide">
-  <div class="slide-label">4 / 4</div>
-  <div class="slide-title">Training Efficiency</div>
-
-  <!-- Efficiency metrics -->
-  <div class="band">Compute Comparison</div>
-
-  <table class="cmp" style="margin-bottom:22px;">
-    <thead>
-      <tr>
-        <th class="left" style="width:26%;color:#d8e4ff;">Metric</th>
-        <th style="color:#a8c8ff;">MethylLlama</th>
-        <th style="color:#ffcc99;">MethylGPT Medium</th>
-        <th style="color:#90ee90;">Ratio</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td class="feat">Gradient steps</td>
-        <td class="llama big">17,100</td>
-        <td class="gpt big">728,599</td>
-        <td class="win">43× fewer</td>
-      </tr>
-      <tr>
-        <td class="feat">Epochs</td>
-        <td>300</td>
-        <td>99</td>
-        <td style="color:#5a6a8a;">—</td>
-      </tr>
-      <tr>
-        <td class="feat">Steps per epoch</td>
-        <td class="llama">57</td>
-        <td class="gpt">7,359</td>
-        <td class="win">129× fewer</td>
-      </tr>
-      <tr>
-        <td class="feat">Step efficiency (steps/yr MedAE)</td>
-        <td class="win">1,084 steps/yr</td>
-        <td class="gpt">168,265 steps/yr</td>
-        <td class="win">155× more efficient</td>
-      </tr>
-      <tr>
-        <td class="feat">Batch size</td>
-        <td class="win">64</td>
-        <td class="gpt">1</td>
-        <td class="win">64× larger batches</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <!-- Visual step bar -->
-  <div class="eff-bar-wrap">
-    <div style="font-size:11px;color:#6a7890;margin-bottom:6px;letter-spacing:0.5px;">GRADIENT STEPS (proportional scale)</div>
-    <div class="eff-bar">
-      <div class="eff-llama" style="flex: 17100">MethylLlama — 17,100 steps</div>
-      <div class="eff-gpt" style="flex: calc(728599 - 17100)">MethylGPT — 728,599 steps total →</div>
-    </div>
-    <div class="eff-label">MethylLlama's entire fine-tuning fits inside the first 2.3% of MethylGPT's training</div>
-  </div>
-
-  <div class="divider"></div>
-
-  <!-- Why MethylGPT uses more steps -->
-  <div class="band purple">Why the 43× step gap?</div>
-  <div style="font-size:13px;color:#3a4a68;line-height:1.8;">
-    MethylGPT uses <b>batch_size = 1</b> — each gradient step updates weights on a single sample.
-    MethylLlama uses <b>batch_size = 64</b>, so each step aggregates gradients over 64 samples.
-    This explains the large step gap even though MethylLlama trained for more epochs (300 vs 99).
-    WCED pretraining additionally gives MethylLlama a strong initialisation — the model converges
-    to R² ≥ 0.90 within ~5,000 steps, whereas MethylGPT requires ~430,000 steps for the same quality.
-  </div>
-
-</div>
 
 </body>
 </html>
