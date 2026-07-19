@@ -42,31 +42,42 @@ OUT_DIR = Path(
 N_FOLDS = 5
 SEED    = 42
 
+def _read_categorical(grp):
+    """Read an h5ad categorical column (codes + categories) or plain string array."""
+    if isinstance(grp, h5py.Group) and "codes" in grp:
+        codes = grp["codes"][:]
+        cats  = np.array(grp["categories"][:]).astype(str)
+        return cats[codes]
+    arr = grp[:]
+    if arr.dtype.kind in ("S", "O"):
+        arr = arr.astype(str)
+    return arr
+
 # ── 1. Load obs only (skip loading the full X matrix) ────────────────────────
 print(f"Reading obs from {H5AD} ...")
 with h5py.File(H5AD, "r") as f:
     obs = f["obs"]
 
-    # GSM IDs
-    gsm_ids = np.array(obs["_index"][:]).astype(str)
+    # GSM IDs — find the index key robustly (anndata stores it in attrs["_index"])
+    idx_key = obs.attrs.get("_index", "_index")
+    if idx_key not in obs:
+        # Fall back: first string-like dataset in obs
+        idx_key = next(
+            k for k in obs.keys()
+            if isinstance(obs[k], h5py.Dataset) and obs[k].dtype.kind in ("S", "O", "U")
+        )
+    gsm_ids = np.array(obs[idx_key][:]).astype(str)
+    print(f"  Index key: '{idx_key}'  ({len(gsm_ids):,} samples)")
 
     # Age
     ages = obs["age"][:].astype(np.float32)
 
     # Split column (categorical)
-    split_codes = obs["split"]["codes"][:]
-    split_cats  = np.array(obs["split"]["categories"][:]).astype(str)
-    splits      = split_cats[split_codes]
+    splits = _read_categorical(obs["split"])
 
     # Tissue type (categorical or plain string)
     if "tissue_type" in obs:
-        tt = obs["tissue_type"]
-        if isinstance(tt, h5py.Group) and "codes" in tt:
-            tt_codes = tt["codes"][:]
-            tt_cats  = np.array(tt["categories"][:]).astype(str)
-            tissue   = tt_cats[tt_codes]
-        else:
-            tissue = np.array(tt[:]).astype(str)
+        tissue = _read_categorical(obs["tissue_type"])
     else:
         tissue = np.full(len(gsm_ids), "unknown", dtype=object)
 
