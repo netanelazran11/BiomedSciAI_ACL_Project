@@ -119,8 +119,15 @@ def extract(encoder, data_path, tokenizer_path, genomic_rank, batch_size, device
     # aligned metadata in loader (shuffle=False) order
     meta = dataset.adata.obs.copy()
     meta = meta.reset_index().rename(columns={meta.index.name or "index": "sample_id"})
+    # CpG alignment: genomic ordering requires identity vocab → token id == column idx,
+    # so cpg_embedding_matrix row i (i < n_cpgs) is cpg_sites[i] with rank gr[i].
+    gr = np.load(genomic_rank)
+    align = pd.DataFrame(
+        {"vocab_id": np.arange(len(cpg_sites)), "cpg_name": list(cpg_sites),
+         "genomic_rank": gr[: len(cpg_sites)]}
+    )
     log.info(f"Extracted CLS {cls.shape}  Mean {mean.shape}  meta {meta.shape}")
-    return cls, mean, meta
+    return cls, mean, meta, align
 
 
 # ── geometry ──────────────────────────────────────────────────────────────────
@@ -231,12 +238,13 @@ def main():
     np.save(outdir / "cpg_embedding_matrix.npy", cpg_emb)
     log.info(f"Saved cpg_embedding_matrix.npy {cpg_emb.shape}")
 
-    cls, mean, meta = extract(
+    cls, mean, meta, align = extract(
         encoder, args.data, args.tokenizer, args.genomic_rank, args.batch_size, args.device
     )
     np.save(outdir / "embeddings_cls.npy", cls)
     np.save(outdir / "embeddings_mean.npy", mean)
     meta.to_csv(outdir / "metadata.csv", index=False)
+    align.to_csv(outdir / "cpg_alignment.csv", index=False)
 
     split = np.asarray(meta[args.split_col].astype(str)) if args.split_col in meta else np.full(len(cls), "train")
     age = np.asarray(meta[args.age_col], dtype=float) if args.age_col in meta else None
