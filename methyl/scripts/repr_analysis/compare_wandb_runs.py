@@ -59,13 +59,18 @@ SMOOTH_WINDOW = 5   # rolling average window for plots
 
 # Metric name variants to search for (first match wins)
 METRIC_CANDIDATES = {
-    "train_loss":  ["train/loss_epoch", "train/loss", "train_loss", "loss/train"],
-    "val_loss":    ["val/loss", "val_loss", "validation/loss", "validation_loss"],
-    "val_mae":     ["val/mae", "val_mae", "val_MAE", "validation_mae", "validation/mae"],
-    "val_medae":   ["val/medae", "val_medae", "val_MedAE", "validation_medae", "validation/medae"],
-    "val_r2":      ["val/r2", "val_r2", "val/R2", "val_R2", "validation_r2", "r2/val"],
-    "lr_pg1":      ["lr-AdamW/pg1", "lr/pg1", "lr_pg1"],
-    "lr_pg2":      ["lr-AdamW/pg2", "lr/pg2", "lr_pg2"],
+    "train_loss":  ["train/loss_epoch", "train/loss", "train_loss", "loss/train",
+                    "train_mse_loss_epoch", "train_mae_loss_epoch"],
+    "val_loss":    ["val/loss", "val_loss", "validation/loss", "validation_loss",
+                    "valid_mse_loss/dataloader_idx_0", "valid_loss_norm/dataloader_idx_0"],
+    "val_mae":     ["val/mae", "val_mae", "val_MAE", "validation_mae", "validation/mae",
+                    "valid_mae", "valid_mae_loss/dataloader_idx_0"],
+    "val_medae":   ["val/medae", "val_medae", "val_MedAE", "validation_medae", "validation/medae",
+                    "valid_medae"],
+    "val_r2":      ["val/r2", "val_r2", "val/R2", "val_R2", "validation_r2", "r2/val",
+                    "valid_r2"],
+    "lr_pg1":      ["lr-AdamW/pg1", "lr/pg1", "lr_pg1", "lr-Adam/pg1"],
+    "lr_pg2":      ["lr-AdamW/pg2", "lr/pg2", "lr_pg2", "lr-Adam/pg2"],
     "lr_pg3":      ["lr-AdamW/pg3", "lr/pg3", "lr_pg3"],
     "lr_pg4":      ["lr-AdamW/pg4", "lr/pg4", "lr_pg4"],
     "epoch":       ["epoch"],
@@ -638,9 +643,16 @@ def main():
     encoder_valid = {}
 
     for label, (project, run_id) in RUNS.items():
-        print(f"\nDownloading [{label}] project={project} run={run_id} ...")
+        csv_cache = OUT_DIR / f"raw_history_{label}.csv"
+        if csv_cache.exists():
+            print(f"\n[{label}] cache hit — loading from {csv_cache}")
+            raw = pd.read_csv(csv_cache)
+            print(f"  [{label}] loaded {len(raw)} rows × {len(raw.columns)} columns")
+        else:
+            print(f"\nDownloading [{label}] project={project} run={run_id} ...")
         try:
-            raw = download_run_history(run_id, label, project=project)
+            if not csv_cache.exists():
+                raw = download_run_history(run_id, label, project=project)
         except Exception as e:
             print(f"  ERROR: {e}")
             continue
