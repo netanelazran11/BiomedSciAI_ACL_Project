@@ -140,6 +140,7 @@ def main():
 
     cls_sum = None
     n_seen = 0
+    ps_top1, ps_ent = [], []       # per-sample, per-layer concentration summaries
     with torch.no_grad():
         for batch in loader:
             if n_seen >= a.max_samples:
@@ -156,10 +157,39 @@ def main():
             att = torch.stack([w[:, :, 0, 1:] for w in out.attentions], dim=1)  # [B, nL, H, ncpg]
             s = att.sum(0).cpu().numpy()
             cls_sum = s if cls_sum is None else cls_sum + s
+            # per-sample per-layer concentration (mean over heads)
+            aw = att.mean(2)                                     # [B, nL, ncpg]
+            awn = aw / aw.sum(-1, keepdim=True).clamp(min=1e-12)
+            k = max(1, int(0.01 * awn.shape[-1]))
+            ps_top1.append(torch.topk(awn, k, dim=-1).values.sum(-1).cpu().numpy())   # [B, nL]
+            ps_ent.append((-(awn.clamp(min=1e-12).log() * awn).sum(-1)).cpu().numpy())  # [B, nL]
             n_seen += att.shape[0]
     mean_attn = cls_sum / max(n_seen, 1)                # [nL, H, ncpg]
     np.save(outdir / "cls_mean_attn.npy", mean_attn.astype(np.float32))
     print(f"CLS attention averaged over {n_seen} samples: {mean_attn.shape}")
+
+    # ── per-sample × layer concentration + heatmap ────────────────────────────
+    ps_top1 = np.concatenate(ps_top1)[:n_seen]          # [n_seen, nL]
+    ps_ent = np.concatenate(ps_ent)[:n_seen]
+    np.save(outdir / "cls_persample_top1pct.npy", ps_top1.astype(np.float32))
+    np.save(outdir / "cls_persample_entropy.npy", ps_ent.astype(np.float32))
+    ps_meta = ds.adata.obs.iloc[:n_seen].reset_index()
+    keep_cols = [c for c in ["index", "age", "tissue_type", "dataset"] if c in ps_meta.columns]
+    ps_meta[keep_cols].to_csv(outdir / "cls_persample_meta.csv", index=False)
+    # order samples by tissue then age so structure is visible
+    tis = ps_meta["tissue_type"].astype(str).values if "tissue_type" in ps_meta else np.zeros(n_seen, str)
+    agev = ps_meta["age"].values if "age" in ps_meta else np.zeros(n_seen)
+    order = np.lexsort((agev, tis))
+    fig, ax = plt.subplots(figsize=(6, 9))
+    im = ax.imshow(ps_top1[order], aspect="auto", cmap="inferno", vmin=0, vmax=1)
+    ax.set_xticks(range(mean_attn.shape[0])); ax.set_xticklabels([f"L{l}" for l in range(mean_attn.shape[0])])
+    ax.set_xlabel("layer"); ax.set_ylabel("sample (grouped by tissue, then age)")
+    ax.set_title("Per-sample CLS attention concentration\n(top-1% attention mass; 1=one CpG, low=spread)",
+                 fontsize=11, weight="bold")
+    plt.colorbar(im, ax=ax, fraction=0.046, label="top-1% attention mass")
+    fig.tight_layout(); fig.savefig(outdir / "fig_persample_concentration.png", dpi=160, bbox_inches="tight"); plt.close(fig)
+    print(f"per-sample concentration: mean top-1% mass by layer = "
+          f"{np.round(ps_top1.mean(0), 3).tolist()}")
 
     # ── A. selectivity metrics ────────────────────────────────────────────────
     n_cpg = mean_attn.shape[-1]
