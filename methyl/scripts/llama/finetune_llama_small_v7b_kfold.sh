@@ -178,6 +178,8 @@ if [ -n "${BEST_CKPT}" ]; then
         data_module.num_workers=8 \
         data_module.filter_age_outliers=true \
         "data_module.duplicate_pairs_csv='${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv'" \
+        "data_module.fold_train_ids_npy='${FOLD_TRAIN_NPY}'" \
+        "data_module.fold_val_ids_npy='${FOLD_VAL_NPY}'" \
         wced_input_ratio="${INPUT_RATIO}" \
         wced_genomic_rank_path="${GENOMIC_RANK_FT_NPY}" \
         finetune.head_hidden_size="${HEAD_HIDDEN}" \
