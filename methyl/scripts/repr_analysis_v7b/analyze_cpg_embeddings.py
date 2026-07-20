@@ -42,9 +42,9 @@ def main():
     a = parse_args()
     d = Path(a.dir)
     W = np.load(d / "cpg_embedding_matrix.npy").astype(np.float64)      # [vocab, 256]
-    align = pd.read_csv(d / "cpg_alignment.csv")                         # vocab_id, cpg_name, genomic_rank
+    align = pd.read_csv(d / "cpg_alignment.csv")                         # column_index, encoder_vocab_id, cpg_name, genomic_rank
     n = len(align)
-    E = W[align["vocab_id"].values]                                     # [n_cpgs, 256] CpG rows only
+    E = W[align["encoder_vocab_id"].values]                            # [n_cpgs, 256] real embedding rows
     rank = align["genomic_rank"].values.astype(np.int64)
     order = np.argsort(rank)                                            # genomic order
     Eo = E[order]                                                       # embeddings in genomic order

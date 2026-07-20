@@ -119,11 +119,15 @@ def extract(encoder, data_path, tokenizer_path, genomic_rank, batch_size, device
     # aligned metadata in loader (shuffle=False) order
     meta = dataset.adata.obs.copy()
     meta = meta.reset_index().rename(columns={meta.index.name or "index": "sample_id"})
-    # CpG alignment: genomic ordering requires identity vocab → token id == column idx,
-    # so cpg_embedding_matrix row i (i < n_cpgs) is cpg_sites[i] with rank gr[i].
+    # CpG alignment. genomic_rank is indexed by DATA COLUMN j (identity vocab slots),
+    # but the encoder embedding-table ROW for column j is the tokenizer vocab id
+    # collator.vocab_cpg_ids[j] (into the full 49,161-row table). Use that, not j.
     gr = np.load(genomic_rank)
+    encoder_vocab_ids = np.asarray(collator.vocab_cpg_ids, dtype=np.int64)
     align = pd.DataFrame(
-        {"vocab_id": np.arange(len(cpg_sites)), "cpg_name": list(cpg_sites),
+        {"column_index": np.arange(len(cpg_sites)),
+         "encoder_vocab_id": encoder_vocab_ids,
+         "cpg_name": list(cpg_sites),
          "genomic_rank": gr[: len(cpg_sites)]}
     )
     log.info(f"Extracted CLS {cls.shape}  Mean {mean.shape}  meta {meta.shape}")
