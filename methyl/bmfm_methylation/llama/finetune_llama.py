@@ -643,6 +643,8 @@ def main(cfg: DictConfig):
         bmfm_style=bmfm_style,
         filter_age_outliers=filter_age_outliers,
         duplicate_pairs_csv=duplicate_pairs_csv,
+        fold_train_ids_npy=dm_cfg.get("fold_train_ids_npy", None),
+        fold_val_ids_npy=dm_cfg.get("fold_val_ids_npy", None),
     )
 
     genomic_rank_path_ft = cfg.get("wced_genomic_rank_path", None)
