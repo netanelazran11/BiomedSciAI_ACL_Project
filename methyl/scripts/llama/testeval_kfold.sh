@@ -49,11 +49,17 @@ export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 
 for FOLD in ${FOLDS}; do
-    # locate the fold's output dir (any job id) — find is robust in batch context
-    OUTDIR=$(find "${OUTROOT}" -maxdepth 1 -type d -name "llama-v7b-kfold-fold${FOLD}-ep*" 2>/dev/null | sort | head -1)
+    # There can be MANY dirs per fold (failed/smoke submissions). Pick the one that
+    # actually has val_medae checkpoints; if several, the highest job id (newest).
+    OUTDIR=""
+    for CAND in $(find "${OUTROOT}" -maxdepth 1 -type d -name "llama-v7b-kfold-fold${FOLD}-ep*" 2>/dev/null | sort); do
+        if find "${CAND}/checkpoints" -name "epoch=*-val_medae=*.ckpt" 2>/dev/null | grep -q .; then
+            OUTDIR="${CAND}"
+        fi
+    done
     echo ">> fold ${FOLD}: OUTDIR='${OUTDIR}'"
     if [ -z "${OUTDIR}" ] || [ ! -d "${OUTDIR}/checkpoints" ]; then
-        echo "SKIP fold ${FOLD}: no output dir/checkpoints found under ${OUTROOT}"
+        echo "SKIP fold ${FOLD}: no output dir with val_medae checkpoints under ${OUTROOT}"
         continue
     fi
     # best val_medae checkpoint = lowest value in filename
