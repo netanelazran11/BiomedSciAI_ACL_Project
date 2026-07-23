@@ -49,14 +49,15 @@ export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 
 for FOLD in ${FOLDS}; do
-    # locate the fold's output dir (any job id)
-    OUTDIR=$(ls -d "${OUTROOT}"/llama-v7b-kfold-fold${FOLD}-ep*-* 2>/dev/null | head -1)
+    # locate the fold's output dir (any job id) — find is robust in batch context
+    OUTDIR=$(find "${OUTROOT}" -maxdepth 1 -type d -name "llama-v7b-kfold-fold${FOLD}-ep*" 2>/dev/null | sort | head -1)
+    echo ">> fold ${FOLD}: OUTDIR='${OUTDIR}'"
     if [ -z "${OUTDIR}" ] || [ ! -d "${OUTDIR}/checkpoints" ]; then
-        echo "SKIP fold ${FOLD}: no output dir/checkpoints found"
+        echo "SKIP fold ${FOLD}: no output dir/checkpoints found under ${OUTROOT}"
         continue
     fi
     # best val_medae checkpoint = lowest value in filename
-    BEST_CKPT=$(ls "${OUTDIR}/checkpoints/"epoch=*-val_medae=*.ckpt 2>/dev/null \
+    BEST_CKPT=$(find "${OUTDIR}/checkpoints" -name "epoch=*-val_medae=*.ckpt" 2>/dev/null \
         | sed -E 's/.*val_medae=([0-9.]+)\.ckpt/\1 &/' | sort -n | head -1 | cut -d' ' -f2-)
     if [ -z "${BEST_CKPT}" ]; then
         echo "SKIP fold ${FOLD}: no val_medae checkpoint"
