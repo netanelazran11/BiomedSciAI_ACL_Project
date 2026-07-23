@@ -29,7 +29,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 
 
@@ -45,8 +44,14 @@ def parse_args():
 
 
 def umap2d(X):
-    Xs = StandardScaler().fit_transform(X)
-    p = PCA(n_components=min(50, X.shape[1])).fit_transform(Xs)
+    # memory-safe: float32, standardize in place, PCA to 50 dims first
+    X = np.asarray(X, dtype=np.float32)
+    X -= X.mean(0, keepdims=True)
+    sd = X.std(0, keepdims=True); sd[sd == 0] = 1.0
+    X /= sd
+    p = PCA(n_components=min(50, X.shape[1]), svd_solver="randomized",
+            random_state=0).fit_transform(X)
+    del X
     try:
         import umap
         return umap.UMAP(n_neighbors=30, min_dist=0.3, random_state=0).fit_transform(p)
