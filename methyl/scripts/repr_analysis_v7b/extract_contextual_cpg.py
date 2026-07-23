@@ -1,0 +1,101 @@
+"""
+Extract CONTEXTUALIZED CpG embeddings (post-transformer) — for MethylGPT Fig 2.
+
+MethylGPT Fig 2 plots CpG embeddings that clustered by genomic context. Their
+embeddings are POST-transformer (contextualized), NOT the raw token table. Your
+earlier near-orthogonal result used the raw table — correct for that table, but
+not comparable to Fig 2. This extracts the contextualized version.
+
+Method: run the encoder over many samples with genomic ordering (input_ratio=1.0,
+so all CpGs present, sorted by genomic rank → sequence position i is the SAME CpG
+for every sample). Average last_hidden_state at each CpG position across samples
+→ one contextualized embedding per CpG. This is what Fig 2 UMAPs.
+
+Outputs (--outdir, default figures/v7b_cpg_context/):
+  contextual_cpg_emb.npy   mean contextualized CpG embedding [n_cpg, 256]
+  cpg_order.csv            sequence-position → cpg_name → genomic_rank (join key)
+
+Run on cluster (GPU):
+  python scripts/repr_analysis_v7b/extract_contextual_cpg.py \
+     --checkpoint <ep85.ckpt> --data <h5ad> --tokenizer <tok> \
+     --genomic_rank <rank.npy> --max_samples 512 --outdir figures/v7b_cpg_context
+"""
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--checkpoint", required=True)
+    p.add_argument("--data", required=True)
+    p.add_argument("--tokenizer", required=True)
+    p.add_argument("--genomic_rank", required=True)
+    p.add_argument("--outdir", default="figures/v7b_cpg_context")
+    p.add_argument("--max_samples", type=int, default=512)
+    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    return p.parse_args()
+
+
+def main():
+    a = parse_args()
+    outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
+    from bmfm_targets.tokenization import MultiFieldTokenizer
+    from bmfm_methylation.shared.data_module import MethylationDataset, WCEDCollator
+    from bmfm_methylation.llama.finetune_llama import load_wced_llama_checkpoint
+
+    module = load_wced_llama_checkpoint(a.checkpoint)
+    encoder = module.encoder.to(a.device).eval()
+    tok = MultiFieldTokenizer.from_pretrained(a.tokenizer)
+    ds = MethylationDataset(h5ad_path=a.data, split=None, normalize_age=False)
+    cpg_sites = ds.cpg_sites
+    collator = WCEDCollator(tokenizer=tok, cpg_sites=cpg_sites,
+                            vocab_size=len(cpg_sites), input_ratio=1.0,
+                            contrastive=False, genomic_rank_path=a.genomic_rank)
+    loader = DataLoader(ds, batch_size=a.batch_size, collate_fn=collator,
+                        shuffle=False, num_workers=0)
+
+    # Genomic ordering is deterministic → sequence position (after CLS) maps to a
+    # fixed CpG for all samples. Recover that mapping from the genomic rank.
+    gr = np.load(a.genomic_rank)[: len(cpg_sites)]
+    seq_order = np.argsort(gr)                       # position p in seq -> column idx
+    cpg_names_in_order = np.array(cpg_sites)[seq_order]
+
+    hid_sum = None
+    n_seen = 0
+    with torch.no_grad():
+        for batch in loader:
+            if n_seen >= a.max_samples:
+                break
+            cpg_ids = batch["cpg_ids"].to(a.device)
+            beta = batch["beta_values"].to(a.device)
+            attn = batch["attention_mask"].to(a.device)
+            pos = batch.get("position_ids")
+            pos = pos.to(a.device) if pos is not None else None
+            input_ids = torch.stack([cpg_ids.float(), beta], dim=1)
+            out = encoder(input_ids=input_ids, attention_mask=attn, position_ids=pos)
+            h = out.last_hidden_state[:, 1:, :].float()   # [B, n_cpg, D] drop CLS
+            s = h.sum(0).cpu().numpy()
+            hid_sum = s if hid_sum is None else hid_sum + s
+            n_seen += h.shape[0]
+            if n_seen % 128 == 0:
+                print(f"  {n_seen} samples")
+    ctx = hid_sum / max(n_seen, 1)                       # [n_cpg, D] in sequence order
+    np.save(outdir / "contextual_cpg_emb.npy", ctx.astype(np.float32))
+    pd.DataFrame({
+        "seq_position": np.arange(len(cpg_names_in_order)),
+        "cpg_name": cpg_names_in_order,
+        "genomic_rank": gr[seq_order],
+    }).to_csv(outdir / "cpg_order.csv", index=False)
+    print(f"Contextualized CpG embeddings: {ctx.shape} (over {n_seen} samples)")
+    print(f"Saved → {outdir}/contextual_cpg_emb.npy, cpg_order.csv")
+
+
+if __name__ == "__main__":
+    main()
