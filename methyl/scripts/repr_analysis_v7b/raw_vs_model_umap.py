@@ -138,18 +138,30 @@ def main():
     fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"saved {out}")
 
-    # ── quantify: kNN label purity raw vs model ──
-    print("\n=== kNN label purity (fraction of neighbors sharing label) ===")
-    print(f"{'label':>12} {'raw':>8} {'model':>8} {'change':>10}")
+    # ── quantify: kNN label purity in NATIVE representation space ──
+    # (2D UMAP coords distort distances; native space is the fair test.)
+    from sklearn.decomposition import PCA as _PCA
+    Xr = np.asarray(X_raw, dtype=np.float32)
+    Xr = Xr - Xr.mean(0, keepdims=True)
+    raw_native = _PCA(n_components=50, svd_solver="randomized",
+                      random_state=0).fit_transform(Xr)   # raw → PCA-50
+    del Xr
+    model_native = np.load(d / "embeddings_cls.npy")[:n].astype(np.float32)  # 256-dim CLS
+
+    print("\n=== kNN label purity in NATIVE space (raw PCA-50 vs model 256-d) ===")
+    print(f"{'label':>13} {'raw':>8} {'model':>8} {'change':>12}")
     rows = []
     for col, lbl, _ in colorings:
-        pr = knn_purity(raw_xy, meta[col], a.knn)
-        pm = knn_purity(cls_xy, meta[col], a.knn)
+        labs = meta[col].astype(str).values
+        valid = ~np.isin(labs, ["Other", "nan", "NA", "unknown", ""])
+        pr = knn_purity(raw_native[valid], labs[valid], a.knn)
+        pm = knn_purity(model_native[valid], labs[valid], a.knn)
         arrow = "up (good)" if pm > pr else "down"
         if lbl.startswith("batch"):
             arrow = "down (good)" if pm < pr else "up (bad)"
-        print(f"{lbl:>12} {pr:>8.3f} {pm:>8.3f}  {arrow}")
-        rows.append({"label": lbl, "raw_purity": round(pr, 3), "model_purity": round(pm, 3)})
+        print(f"{lbl:>13} {pr:>8.3f} {pm:>8.3f}  {arrow}")
+        rows.append({"label": lbl, "n_valid": int(valid.sum()),
+                     "raw_purity": round(pr, 3), "model_purity": round(pm, 3)})
     pd.DataFrame(rows).to_csv(d / "raw_vs_model_purity.csv", index=False)
     print(f"\nInterpretation: tissue/sex purity should RISE (model organizes biology);")
     print(f"batch/dataset purity should FALL (model removes batch effect).")
