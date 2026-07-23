@@ -1,10 +1,11 @@
 #!/bin/bash -l
 #SBATCH --job-name=v7b-raw-umap
 #SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=96G
+#SBATCH --mem=64G
 #SBATCH --time=2:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
