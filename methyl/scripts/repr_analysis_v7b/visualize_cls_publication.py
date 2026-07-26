@@ -155,6 +155,31 @@ def main():
             fig.suptitle("CLS space: before vs after fine-tuning", fontsize=14, weight="bold", y=1.01)
             fig.tight_layout(); fig.savefig(outdir / "pretrained_vs_finetuned.png", dpi=a.dpi, bbox_inches="tight"); plt.close(fig)
 
+        # quantitative before/after: geometry + age-probe from each dir's analysis_summary.json
+        import json
+        s1_path, s2_path = Path(a.dir) / "analysis_summary.json", Path(a.finetuned_dir) / "analysis_summary.json"
+        if s1_path.exists() and s2_path.exists():
+            s1, s2 = json.loads(s1_path.read_text()), json.loads(s2_path.read_text())
+            g1, g2 = s1.get("geometry_cls", {}), s2.get("geometry_cls", {})
+            a1, a2 = s1.get("age_probe_cls", {}), s2.get("age_probe_cls", {})
+            lines = ["CLS representation: pretrained vs fine-tuned", "=" * 55, ""]
+            lines += ["Geometry:",
+                      f"  {'metric':<20}{'pretrained':>14}{'fine-tuned':>14}"]
+            for k in ("effective_rank", "top1_sv_frac", "anisotropy_mean_cos", "dead_dims_lt1pct"):
+                lines.append(f"  {k:<20}{g1.get(k, 'NA'):>14}{g2.get(k, 'NA'):>14}")
+            lines += ["", "Age probe (linear ridge / replica head — proxy, not the trained head):",
+                      f"  {'metric':<20}{'pretrained':>14}{'fine-tuned':>14}"]
+            for k in ("linear_ridge_r2", "replica_head_r2", "replica_head_medae"):
+                lines.append(f"  {k:<20}{a1.get(k, 'NA'):>14}{a2.get(k, 'NA'):>14}")
+            ah2 = s2.get("age_head_actual")
+            if ah2:
+                lines += ["", "Fine-tuned model's ACTUAL trained age_head (ground truth, not a proxy):",
+                          f"  test MedAE={ah2['medae']}yr  MAE={ah2['mae']}yr  R2={ah2['r2']}  n={ah2['n_test']}",
+                          "  (should match this fold's WandB test/medae — correctness gate)"]
+            report = "\n".join(lines)
+            (outdir / "comparison_pretrain_vs_finetune.txt").write_text(report)
+            print("\n" + report + "\n")
+
     print(f"Saved publication figures → {outdir}/")
     for f in sorted(outdir.glob("*.png")):
         print(f"  {f.name}")
