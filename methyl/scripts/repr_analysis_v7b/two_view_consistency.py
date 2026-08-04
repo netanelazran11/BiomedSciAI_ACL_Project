@@ -101,6 +101,12 @@ def main():
     with open(outdir / "two_view_consistency.json", "w") as f:
         json.dump(summary, f, indent=2)
     print(json.dumps(summary, indent=2))
+
+    # Save normalized embeddings + full similarity matrix for downstream visualization
+    # (histogram of pos vs neg similarity distributions, similarity-matrix heatmap).
+    np.save(outdir / "two_view_v1n.npy", V1n.astype(np.float32))
+    np.save(outdir / "two_view_v2n.npy", V2n.astype(np.float32))
+    np.save(outdir / "two_view_simmatrix.npy", S.astype(np.float32))
     # Alignment quality is judged by pos_cos + gap. retrieval@1 is secondary: it is
     # depressed by genuine near-duplicate / highly-similar samples (batch structure),
     # not by weak alignment, so it does not gate the verdict.
