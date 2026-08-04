@@ -22,6 +22,7 @@ Run on cluster (GPU):
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -95,6 +96,10 @@ def main():
     }).to_csv(outdir / "cpg_order.csv", index=False)
     print(f"Contextualized CpG embeddings: {ctx.shape} (over {n_seen} samples)")
     print(f"Saved → {outdir}/contextual_cpg_emb.npy, cpg_order.csv")
+
+    with open(outdir / "contextual_cpg_meta.json", "w") as f:
+        json.dump({"n_samples": int(n_seen), "max_samples_requested": a.max_samples,
+                   "checkpoint": a.checkpoint}, f, indent=2)
 
 
 if __name__ == "__main__":
