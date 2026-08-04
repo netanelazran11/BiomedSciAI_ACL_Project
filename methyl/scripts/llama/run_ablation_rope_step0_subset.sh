@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=ablation-rope-subset
-#SBATCH --partition=salmon
+#SBATCH --partition=glacier
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
