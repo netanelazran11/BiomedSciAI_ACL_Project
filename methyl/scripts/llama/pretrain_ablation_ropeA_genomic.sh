@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
@@ -72,6 +72,9 @@ BATCH_SIZE="${BATCH_SIZE:-32}"
 ACCUM="${ACCUM:-2}"
 PRETRAIN_EPOCHS="${PRETRAIN_EPOCHS:-150}"
 EARLY_STOP="${EARLY_STOP:-30}"
+
+# ─── Resume (optional) — set to continue a crashed/timed-out run ────────────
+RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
 # ─── WandB — separate project, does not mix with production runs ─────────────
 WANDB_ENTITY="netanelazran11-hebrew-university-of-jerusalem"
@@ -155,7 +158,8 @@ python -m bmfm_methylation.llama.pretrain_llama \
     track_wandb.enabled=true \
     track_wandb.project="${WANDB_PROJECT}" \
     track_wandb.entity="${WANDB_ENTITY}" \
-    track_wandb.name="${WANDB_RUN_NAME}"
+    track_wandb.name="${WANDB_RUN_NAME}" \
+    ${RESUME_CHECKPOINT:+"resume_checkpoint='${RESUME_CHECKPOINT}'"}
 
 echo "============================================================"
 echo "RUN A (genomic) finished: $(date)"
