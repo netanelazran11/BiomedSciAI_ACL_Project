@@ -41,6 +41,16 @@ def parse_args():
     p.add_argument("--max_samples", type=int, default=512)
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument(
+        "--feed_position_ids", type=lambda s: s.lower() != "false", default=True,
+        help="Default True (unchanged existing behavior): pass the genomic-rank "
+             "position_ids to the encoder, matching a model trained WITH genomic "
+             "RoPE. Set --feed_position_ids false for a model trained WITHOUT "
+             "genomic RoPE (position_ids=None during training) -- --genomic_rank "
+             "is still used to fix a consistent CpG order across samples, but the "
+             "resulting position_ids are discarded before calling the encoder, so "
+             "it sees position_ids=None (its actual trained fallback), not "
+             "out-of-distribution genomic-rank values it never learned to use.")
     return p.parse_args()
 
 
@@ -77,7 +87,7 @@ def main():
             cpg_ids = batch["cpg_ids"].to(a.device)
             beta = batch["beta_values"].to(a.device)
             attn = batch["attention_mask"].to(a.device)
-            pos = batch.get("position_ids")
+            pos = batch.get("position_ids") if a.feed_position_ids else None
             pos = pos.to(a.device) if pos is not None else None
             input_ids = torch.stack([cpg_ids.float(), beta], dim=1)
             out = encoder(input_ids=input_ids, attention_mask=attn, position_ids=pos)
@@ -99,7 +109,8 @@ def main():
 
     with open(outdir / "contextual_cpg_meta.json", "w") as f:
         json.dump({"n_samples": int(n_seen), "max_samples_requested": a.max_samples,
-                   "checkpoint": a.checkpoint}, f, indent=2)
+                   "checkpoint": a.checkpoint, "fed_position_ids": bool(a.feed_position_ids)},
+                  f, indent=2)
 
 
 if __name__ == "__main__":
