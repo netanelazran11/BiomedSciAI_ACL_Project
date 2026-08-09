@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%j.err
@@ -42,6 +42,7 @@ module load cuda/12.3.2-gcc-5bv3kyh 2>/dev/null || true
 source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
 
 echo "Checkpoint: ${CKPT}"
 [ -f "${CKPT}" ] || { echo "ERROR: checkpoint not found"; exit 1; }

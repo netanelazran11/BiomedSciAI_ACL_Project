@@ -61,16 +61,22 @@ def main():
     from bmfm_methylation.shared.data_module import MethylationDataset, WCEDCollator
     from bmfm_methylation.llama.finetune_llama import load_wced_llama_checkpoint
 
+    print(f"[1/5] Loading checkpoint: {a.checkpoint}", flush=True)
     module = load_wced_llama_checkpoint(a.checkpoint)
     encoder = module.encoder.to(a.device).eval()
+    print(f"[2/5] Encoder on {a.device}, loading tokenizer: {a.tokenizer}", flush=True)
     tok = MultiFieldTokenizer.from_pretrained(a.tokenizer)
+    print(f"[3/5] Loading dataset: {a.data}", flush=True)
     ds = MethylationDataset(h5ad_path=a.data, split=None, normalize_age=False)
     cpg_sites = ds.cpg_sites
+    print(f"[4/5] Dataset loaded ({len(ds)} samples, {len(cpg_sites)} CpGs). Building collator "
+          f"(feed_position_ids={a.feed_position_ids})", flush=True)
     collator = WCEDCollator(tokenizer=tok, cpg_sites=cpg_sites,
                             vocab_size=len(cpg_sites), input_ratio=1.0,
                             contrastive=False, genomic_rank_path=a.genomic_rank)
     loader = DataLoader(ds, batch_size=a.batch_size, collate_fn=collator,
                         shuffle=False, num_workers=0)
+    print(f"[5/5] Collator + loader ready. Starting extraction loop...", flush=True)
 
     # Genomic ordering is deterministic → sequence position (after CLS) maps to a
     # fixed CpG for all samples. Recover that mapping from the genomic rank.
@@ -96,7 +102,7 @@ def main():
             hid_sum = s if hid_sum is None else hid_sum + s
             n_seen += h.shape[0]
             if n_seen % 128 == 0:
-                print(f"  {n_seen} samples")
+                print(f"  {n_seen} samples", flush=True)
     ctx = hid_sum / max(n_seen, 1)                       # [n_cpg, D] in sequence order
     np.save(outdir / "contextual_cpg_emb.npy", ctx.astype(np.float32))
     pd.DataFrame({

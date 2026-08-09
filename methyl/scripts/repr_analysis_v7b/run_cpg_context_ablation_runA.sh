@@ -33,6 +33,7 @@ module load cuda/12.3.2-gcc-5bv3kyh 2>/dev/null || true
 source bmfm_methyl_env/bin/activate
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
 
 echo "Checkpoint: ${CKPT}"
 [ -f "${CKPT}" ] || { echo "ERROR: checkpoint not found"; exit 1; }
