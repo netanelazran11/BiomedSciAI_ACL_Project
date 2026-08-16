@@ -61,6 +61,15 @@ echo "Checkpoint: ${CKPT_PATH}"
 [ -f "${CKPT_PATH}" ] || { echo "ERROR: checkpoint not found"; exit 1; }
 [ -f "${TEST_IDS}" ] || { echo "ERROR: test_ids.npy not found"; exit 1; }
 
+# Determinism only needs proving once -- nothing fold-specific affects
+# reproducibility (no dropout, no shuffling, fixed data order, same code
+# path for every fold). Restricting the (expensive, runs extraction twice)
+# check to fold 0 cuts the other 4 folds' runtime roughly in half.
+DET_FLAG=""
+if [ "${FOLD}" = "0" ]; then
+    DET_FLAG="--determinism_check"
+fi
+
 python scripts/repr_analysis/extract_kfold_test_predictions.py \
     --fold "${FOLD}" \
     --checkpoint "${CKPT_PATH}" \
@@ -71,6 +80,6 @@ python scripts/repr_analysis/extract_kfold_test_predictions.py \
     --duplicate_pairs_csv "${DUP_CSV}" \
     --outdir "${OUTDIR}" \
     --model_name "MethylLlamaV7b" \
-    --determinism_check
+    ${DET_FLAG}
 
 echo "DONE fold ${FOLD}: $(date)"
