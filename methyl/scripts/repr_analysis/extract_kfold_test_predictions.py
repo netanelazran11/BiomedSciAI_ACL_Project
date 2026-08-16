@@ -78,6 +78,7 @@ def run_extraction(a):
 
     torch.manual_seed(0)  # no stochastic ops in eval, but fixed for good measure
 
+    print(f"[1/6] Loading checkpoint: {a.checkpoint}", flush=True)
     module = load_finetune_llama_checkpoint(a.checkpoint)
     module = module.to(a.device).eval()
     encoder = module.encoder
@@ -86,8 +87,10 @@ def run_extraction(a):
     age_std = float(module.age_std)
     pooling = module.pooling
     assert pooling == "cls", f"Expected cls pooling (matches official k-fold recipe), got '{pooling}'"
+    print(f"[2/6] Model on {a.device}. pooling={pooling} age_mean={age_mean:.3f} age_std={age_std:.3f}", flush=True)
 
     test_ids = np.load(a.test_ids, allow_pickle=True).astype(str)
+    print(f"[3/6] Loaded {len(test_ids)} test IDs from {a.test_ids}", flush=True)
 
     tok = MultiFieldTokenizer.from_pretrained(a.tokenizer)
 
@@ -95,6 +98,7 @@ def run_extraction(a):
     if a.duplicate_pairs_csv:
         from bmfm_methylation.shared.data_module import _compute_dedup_exclusions
         exclude_ids = _compute_dedup_exclusions(a.duplicate_pairs_csv)
+    print(f"[4/6] Loading dataset: {a.data} (this can take a minute)", flush=True)
 
     ds = MethylationDataset(
         h5ad_path=a.data,
@@ -110,6 +114,7 @@ def run_extraction(a):
         f"(test_ids.npy) -- filters removed rows that should already be excluded "
         f"from test_ids.npy itself. Investigate before trusting predictions."
     )
+    print(f"[5/6] Dataset ready: {n_found} samples. Building collator + starting inference loop...", flush=True)
 
     # Real GSM IDs in dataset order (batch order, since shuffle=False below)
     gsm_ids_in_order = np.array(ds.adata.obs_names, dtype=str)
@@ -126,6 +131,7 @@ def run_extraction(a):
     raw_ages = np.asarray(ds.ages, dtype=np.float64)   # true ages, real years, dataset order
 
     preds_years = []
+    n_seen = 0
     with torch.no_grad():
         for batch in loader:
             cpg_ids = batch["cpg_ids"].to(a.device)
@@ -141,9 +147,13 @@ def run_extraction(a):
             pred_norm = age_head(cls).squeeze(-1)          # z-score space, same as training
             pred_years = pred_norm.double() * age_std + age_mean
             preds_years.append(pred_years.cpu().numpy())
+            n_seen += cpg_ids.shape[0]
+            if n_seen % 320 < a.batch_size:
+                print(f"    {n_seen}/{n_found} samples", flush=True)
 
     preds_years = np.concatenate(preds_years)
     assert len(preds_years) == n_found, f"{len(preds_years)} predictions for {n_found} samples"
+    print(f"[6/6] Inference complete: {n_found} predictions", flush=True)
     return gsm_ids_in_order, raw_ages, preds_years
 
 
