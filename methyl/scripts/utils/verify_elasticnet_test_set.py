@@ -88,7 +88,7 @@ def main():
     keep_age = (age >= 0) & (age <= 120)
     exclude = compute_dedup_exclusions(a.duplicate_pairs_csv)
     keep_dedup = ~adata.obs_names.isin(exclude)
-    obs = adata.obs[keep_age.values & keep_dedup.values]
+    obs = adata.obs[keep_age.values & keep_dedup]
     elasticnet_test = set(obs.index[obs["split"] == "test"].tolist())
 
     print("[4/4] Comparing sets")
