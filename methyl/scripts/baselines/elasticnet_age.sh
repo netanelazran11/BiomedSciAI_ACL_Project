@@ -16,24 +16,27 @@ mkdir -p logs
 source bmfm_methyl_env/bin/activate
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
-ALPHA="${ALPHA:-0.01}"
-L1_RATIO="${L1_RATIO:-0.5}"
-OUTDIR="${REPO}/outputs/baselines/elasticnet/alpha${ALPHA}_l1ratio${L1_RATIO}"
+DUP_CSV="${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv"
+OUTDIR="${REPO}/outputs/baselines/elasticnet/gridsearch-${SLURM_JOB_ID:-local}"
+
+# ── Fail loudly before burning a job allocation on a missing/moved path ──────
+[ -f "${DATA}" ]    || { echo "ERROR: h5ad not found: ${DATA}"; exit 1; }
+[ -f "${DUP_CSV}" ] || { echo "ERROR: duplicate_pairs_csv not found: ${DUP_CSV}"; exit 1; }
 
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "ElasticNet Age Baseline"
-echo "alpha=${ALPHA} | l1_ratio=${L1_RATIO}"
-echo "Data:  ${DATA}"
-echo "Out:   ${OUTDIR}"
+echo "ElasticNet Age Baseline — grid search, matched eval protocol"
+echo "Data:            ${DATA}"
+echo "Duplicate pairs: ${DUP_CSV}"
+echo "Out:             ${OUTDIR}"
 echo "============================================================"
 
 python scripts/baselines/elasticnet_age.py \
     --h5ad     "${DATA}" \
     --outdir   "${OUTDIR}" \
-    --alpha    "${ALPHA}" \
-    --l1_ratio "${L1_RATIO}"
+    --duplicate_pairs_csv "${DUP_CSV}" \
+    --filter_age_outliers
 
 echo "============================================================"
 echo "Done: $(date)"
