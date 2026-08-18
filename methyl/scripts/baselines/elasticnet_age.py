@@ -7,10 +7,23 @@ duplicate_pairs.csv), same age-outlier filter (age<0 or age>120 removed) --
 so the resulting test set is the identical 2,149 samples used in the
 paired-bootstrap comparison, not the raw 2,264.
 
-Hyperparameters (alpha, l1_ratio) are chosen by a small grid search selected
-on VALIDATION MedAE (never test), matching how every MethylLlama/MethylGPT
-checkpoint in this project is selected. alpha=0.01 is included as one of the
-grid points.
+Hyperparameters are chosen by scikit-learn's own ElasticNetCV -- standard
+internal k-fold cross-validation with its default automatic alpha path, and
+l1_ratio taken verbatim from sklearn's own documented example grid
+(https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.ElasticNetCV.html).
+Deliberately NOT a hand-designed or iteratively-widened grid: after an earlier
+manual grid search (job 45888519) showed ElasticNet competitive with
+MethylLlama, widening that grid further to chase a "better" number would be
+exactly the kind of post-hoc baseline tuning that undermines a fair
+comparison. This runs the standard library tool once, with its own defaults,
+and reports whatever comes out -- better than MethylLlama, worse, or a tie.
+Matches AltumAge's own paper, which used "the built-in hyperparameter tuning
+from Python glmnet" (the R equivalent of ElasticNetCV) rather than a custom
+grid.
+
+train+valid are pooled into one set for ElasticNetCV's internal CV (it does
+its own k-fold split, so a separate fixed validation set isn't needed). test
+is never touched until the single final evaluation.
 """
 
 import argparse
@@ -22,7 +35,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from scipy.stats import pearsonr
-from sklearn.linear_model import ElasticNet
+from sklearn.linear_model import ElasticNetCV
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler
 
@@ -38,15 +51,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--h5ad",     required=True)
     parser.add_argument("--outdir",   required=True)
-    parser.add_argument("--alphas",    type=float, nargs="+",
-                         default=[0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0],
-                         help="Grid of alpha values to search; best chosen by validation MedAE.")
     parser.add_argument("--l1_ratios", type=float, nargs="+",
-                         default=[0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0],
-                         help="Grid of l1_ratio values to search; best chosen by validation MedAE. "
-                              "Extended below the textbook [.1,.5,.7,.9,.95,.99,1] grid after the "
-                              "first run (job 45888519) showed val_medae still improving toward the "
-                              "Ridge end -- 0.1 was a boundary optimum, not an interior one.")
+                         default=[0.1, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0],
+                         help="l1_ratio candidates for ElasticNetCV -- verbatim from sklearn's own "
+                              "documented example, not hand-tuned for this dataset.")
+    parser.add_argument("--n_alphas", type=int, default=100,
+                         help="ElasticNetCV's automatic alpha path length (sklearn default=100).")
+    parser.add_argument("--cv_folds", type=int, default=5,
+                         help="Internal cross-validation folds for ElasticNetCV (standard default).")
     parser.add_argument("--age_col",   default="age")
     parser.add_argument("--split_col", default="split")
     parser.add_argument("--duplicate_pairs_csv",
@@ -93,70 +105,55 @@ def main():
     logger.info(f"Total after filtering: {adata.shape[0]:,} / {n_before:,} samples")
 
     # ── 2. Split by existing split column ─────────────────────────────────────
+    # train+valid are pooled: ElasticNetCV does its own internal k-fold CV, so a
+    # separate fixed validation set isn't part of this method's standard usage.
+    # test is kept completely separate and untouched until the final evaluation.
     splits = adata.obs[args.split_col]
     for name in ("train", "valid", "test"):
         logger.info(f"  {name:5s} : {int((splits == name).sum()):,} samples")
 
-    idx_train = splits == "train"
-    idx_valid = splits == "valid"
-    idx_test  = splits == "test"
+    idx_cv   = splits.isin(["train", "valid"])
+    idx_test = splits == "test"
 
     def to_dense(X):
         if hasattr(X, "toarray"):
             X = X.toarray()
         return X.astype(np.float32)
 
-    X_train = to_dense(adata[idx_train].X)
-    X_valid = to_dense(adata[idx_valid].X)
-    X_test  = to_dense(adata[idx_test].X)
+    X_cv   = to_dense(adata[idx_cv].X)
+    X_test = to_dense(adata[idx_test].X)
 
-    y_train = adata[idx_train].obs[args.age_col].values.astype(np.float32)
-    y_valid = adata[idx_valid].obs[args.age_col].values.astype(np.float32)
-    y_test  = adata[idx_test].obs[args.age_col].values.astype(np.float32)
+    y_cv   = adata[idx_cv].obs[args.age_col].values.astype(np.float32)
+    y_test = adata[idx_test].obs[args.age_col].values.astype(np.float32)
 
-    logger.info(f"Train age: mean={y_train.mean():.1f}yr  std={y_train.std():.1f}yr")
+    logger.info(f"CV pool (train+valid): {len(y_cv):,} samples, "
+                f"age mean={y_cv.mean():.1f}yr std={y_cv.std():.1f}yr")
 
     # ── 3. Feature scaling (StandardScaler — required for ElasticNet) ─────────
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_valid = scaler.transform(X_valid)
-    X_test  = scaler.transform(X_test)
+    X_cv   = scaler.fit_transform(X_cv)
+    X_test = scaler.transform(X_test)
 
-    # ── 4. Grid search over (alpha, l1_ratio), select by VALIDATION MedAE ─────
-    # Selecting on validation (never test) matches how every MethylLlama/MethylGPT
-    # checkpoint in this project is chosen (best-val_medae), so the reported
-    # ElasticNet number is comparable on equal footing, not cherry-picked on test.
-    logger.info(f"Grid search: {len(args.alphas)} alphas x {len(args.l1_ratios)} l1_ratios "
-                f"= {len(args.alphas) * len(args.l1_ratios)} fits")
-    grid_results = []
-    best = None  # (val_medae, alpha, l1_ratio, model, n_nonzero)
-    for alpha in args.alphas:
-        for l1_ratio in args.l1_ratios:
-            model = ElasticNet(
-                alpha=alpha,
-                l1_ratio=l1_ratio,
-                max_iter=10000,
-                tol=1e-4,
-                random_state=42,
-                selection="random",
-            )
-            model.fit(X_train, y_train)
-            val_pred = model.predict(X_valid)
-            val_medae = median_absolute_error(y_valid, val_pred)
-            val_mae = float(mean_absolute_error(y_valid, val_pred))
-            n_nonzero = int(np.sum(model.coef_ != 0))
-            grid_results.append({
-                "alpha": alpha, "l1_ratio": l1_ratio,
-                "val_medae": val_medae, "val_mae": val_mae, "n_nonzero_coef": n_nonzero,
-            })
-            logger.info(f"  alpha={alpha:<8} l1_ratio={l1_ratio:<5} "
-                        f"val_medae={val_medae:.3f}yr  val_mae={val_mae:.3f}yr  "
-                        f"nonzero={n_nonzero}/{X_train.shape[1]}")
-            if best is None or val_medae < best[0]:
-                best = (val_medae, alpha, l1_ratio, model, n_nonzero)
-
-    best_val_medae, best_alpha, best_l1_ratio, model, n_nonzero = best
-    logger.info(f"Best: alpha={best_alpha}, l1_ratio={best_l1_ratio} (val_medae={best_val_medae:.3f}yr)")
+    # ── 4. ElasticNetCV: standard library tool, standard defaults, run once ───
+    # alpha: sklearn's own automatic path (n_alphas points, log-spaced, range
+    # derived from the data). l1_ratio: sklearn's own documented example list.
+    # Neither was hand-tuned for this dataset or adjusted after seeing results.
+    logger.info(f"ElasticNetCV: l1_ratio candidates={args.l1_ratios}, "
+                f"n_alphas={args.n_alphas} (auto path), cv={args.cv_folds}-fold")
+    model = ElasticNetCV(
+        l1_ratio=args.l1_ratios,
+        n_alphas=args.n_alphas,
+        cv=args.cv_folds,
+        max_iter=10000,
+        tol=1e-4,
+        random_state=42,
+        selection="random",
+        n_jobs=-1,
+    )
+    model.fit(X_cv, y_cv)
+    n_nonzero = int(np.sum(model.coef_ != 0))
+    logger.info(f"Selected by internal CV: alpha={model.alpha_:.6g}, l1_ratio={model.l1_ratio_}, "
+                f"nonzero={n_nonzero}/{X_cv.shape[1]}")
 
     # ── 5. Evaluate the selected model ────────────────────────────────────────
     def evaluate(X, y, name):
@@ -169,17 +166,18 @@ def main():
         return {"mae": mae, "medae": medae, "r2": r2, "pcc": float(pcc), "n": int(len(y))}
 
     logger.info("=" * 60)
-    logger.info("RESULTS (best grid point, selected on validation MedAE)")
+    logger.info("RESULTS (ElasticNetCV, single run, standard settings)")
     logger.info("=" * 60)
     results = {
         "model": "ElasticNet",
-        "alpha": best_alpha,
-        "l1_ratio": best_l1_ratio,
-        "n_features": int(X_train.shape[1]),
+        "selection_method": "sklearn.linear_model.ElasticNetCV, single run, standard settings "
+                             "(l1_ratio grid from sklearn docs, automatic alpha path, "
+                             f"{args.cv_folds}-fold internal CV on pooled train+valid)",
+        "alpha": float(model.alpha_),
+        "l1_ratio": float(model.l1_ratio_),
+        "n_features": int(X_cv.shape[1]),
         "n_nonzero_coef": n_nonzero,
-        "grid_search": grid_results,
-        "train": evaluate(X_train, y_train, "train"),
-        "valid": evaluate(X_valid, y_valid, "valid"),
+        "cv_pool": evaluate(X_cv, y_cv, "cv_pool"),
         "test":  evaluate(X_test,  y_test,  "test"),
     }
 
@@ -189,15 +187,14 @@ def main():
 
     summary = (
         f"\n{'='*60}\n"
-        f"ElasticNet Baseline — selected alpha={best_alpha}, l1_ratio={best_l1_ratio} "
-        f"(best of {len(grid_results)} grid points by validation MedAE)\n"
-        f"Non-zero CpGs : {n_nonzero:,} / {X_train.shape[1]:,}\n"
+        f"ElasticNet Baseline — ElasticNetCV selected alpha={model.alpha_:.6g}, "
+        f"l1_ratio={model.l1_ratio_} (single run, standard settings, not hand-tuned)\n"
+        f"Non-zero CpGs : {n_nonzero:,} / {X_cv.shape[1]:,}\n"
         f"{'='*60}\n"
-        f"{'Split':<8} {'N':>6} {'MAE':>8} {'MedAE':>8} {'R²':>8}\n"
-        f"{'-'*42}\n"
-        f"{'train':<8} {results['train']['n']:>6} {results['train']['mae']:>8.2f} {results['train']['medae']:>8.2f} {results['train']['r2']:>8.4f}\n"
-        f"{'valid':<8} {results['valid']['n']:>6} {results['valid']['mae']:>8.2f} {results['valid']['medae']:>8.2f} {results['valid']['r2']:>8.4f}\n"
-        f"{'test':<8} {results['test']['n']:>6} {results['test']['mae']:>8.2f} {results['test']['medae']:>8.2f} {results['test']['r2']:>8.4f}\n"
+        f"{'Split':<10} {'N':>6} {'MAE':>8} {'MedAE':>8} {'R²':>8}\n"
+        f"{'-'*44}\n"
+        f"{'cv_pool':<10} {results['cv_pool']['n']:>6} {results['cv_pool']['mae']:>8.2f} {results['cv_pool']['medae']:>8.2f} {results['cv_pool']['r2']:>8.4f}\n"
+        f"{'test':<10} {results['test']['n']:>6} {results['test']['mae']:>8.2f} {results['test']['medae']:>8.2f} {results['test']['r2']:>8.4f}\n"
         f"{'='*60}\n"
     )
     print(summary)

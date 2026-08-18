@@ -18,7 +18,7 @@ export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 DUP_CSV="${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv"
-OUTDIR="${REPO}/outputs/baselines/elasticnet/gridsearch-${SLURM_JOB_ID:-local}"
+OUTDIR="${REPO}/outputs/baselines/elasticnet/elasticnetcv-${SLURM_JOB_ID:-local}"
 
 # ── Fail loudly before burning a job allocation on a missing/moved path ──────
 [ -f "${DATA}" ]    || { echo "ERROR: h5ad not found: ${DATA}"; exit 1; }
@@ -27,7 +27,7 @@ OUTDIR="${REPO}/outputs/baselines/elasticnet/gridsearch-${SLURM_JOB_ID:-local}"
 mkdir -p "${OUTDIR}"
 
 echo "============================================================"
-echo "ElasticNet Age Baseline — grid search, matched eval protocol"
+echo "ElasticNet Age Baseline — sklearn ElasticNetCV, single run, standard settings"
 echo "Data:            ${DATA}"
 echo "Duplicate pairs: ${DUP_CSV}"
 echo "Out:             ${OUTDIR}"
