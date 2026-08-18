@@ -14,6 +14,7 @@ REPO="/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl"
 cd "$REPO"
 mkdir -p logs
 source bmfm_methyl_env/bin/activate
+export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 
 DATA="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_21k_h5ad/altumage_21k_3way.h5ad"
 DUP_CSV="${REPO}/dataset_fingerprint_outputs/duplicate_pairs.csv"
