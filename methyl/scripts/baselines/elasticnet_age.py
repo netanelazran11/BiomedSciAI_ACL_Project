@@ -42,8 +42,11 @@ def main():
                          default=[0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0],
                          help="Grid of alpha values to search; best chosen by validation MedAE.")
     parser.add_argument("--l1_ratios", type=float, nargs="+",
-                         default=[0.1, 0.5, 0.9, 1.0],
-                         help="Grid of l1_ratio values to search; best chosen by validation MedAE.")
+                         default=[0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0],
+                         help="Grid of l1_ratio values to search; best chosen by validation MedAE. "
+                              "Extended below the textbook [.1,.5,.7,.9,.95,.99,1] grid after the "
+                              "first run (job 45888519) showed val_medae still improving toward the "
+                              "Ridge end -- 0.1 was a boundary optimum, not an interior one.")
     parser.add_argument("--age_col",   default="age")
     parser.add_argument("--split_col", default="split")
     parser.add_argument("--duplicate_pairs_csv",
