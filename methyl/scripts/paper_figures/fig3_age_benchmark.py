@@ -17,7 +17,7 @@ the same seed, then asserted against the stored summary -- the panel therefore
 cannot drift from the reported confidence intervals.
 
 Sources:
-  kfold_full_history_analysis/fold_test_results.csv
+  outputs/bootstrap_predictions/methyllama/fold_*_predictions.csv
   outputs/bootstrap_predictions/paired_per_subject_predictions.csv
   outputs/bootstrap_predictions/paired_bootstrap_summary.json
   outputs/baselines/elasticnet/elasticnetcv-45888710/elasticnet_results.json
@@ -40,7 +40,12 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 REPO = Path(__file__).resolve().parents[2]
-FOLDS_CSV = REPO / "kfold_full_history_analysis/fold_test_results.csv"
+# Per-fold metrics are RECOMPUTED from the saved per-sample predictions rather
+# than read from the WandB-logged summary. The two differ in the third decimal
+# (e.g. fold 2 MedAE 3.209 vs 3.216) because the logged values come from
+# torchmetrics accumulation in float32. Recomputing keeps this panel, Table 1,
+# and the ensemble numbers all derived from one released artifact.
+FOLD_PRED_DIR = REPO / "outputs/bootstrap_predictions/methyllama"
 PAIRED_CSV = REPO / "outputs/bootstrap_predictions/paired_per_subject_predictions.csv"
 BOOT_JSON = REPO / "outputs/bootstrap_predictions/paired_bootstrap_summary.json"
 ENET_JSON = REPO / "outputs/baselines/elasticnet/elasticnetcv-45888710/elasticnet_results.json"
@@ -85,8 +90,16 @@ def main():
     apply_style()
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
-    folds = pd.read_csv(FOLDS_CSV)
-    assert len(folds) == 5 and (folds["status"] == "done").all()
+    rows = []
+    for f in range(5):
+        d = pd.read_csv(FOLD_PRED_DIR / f"fold_{f}_predictions.csv")
+        assert len(d) == 2149, f"fold {f}: expected 2149 rows, got {len(d)}"
+        m = metrics(d["true_age"].to_numpy(float), d["predicted_age"].to_numpy(float))
+        rows.append({"fold": f, "test_medae": m[0], "test_mae": m[1], "test_r2": m[2]})
+    folds = pd.DataFrame(rows)
+    print("Per-fold (recomputed from per-sample predictions):")
+    print(folds.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+
     paired = pd.read_csv(PAIRED_CSV)
     assert len(paired) == 2149
     boot = json.loads(BOOT_JSON.read_text())
@@ -220,7 +233,8 @@ def main():
     save(fig, str(OUTDIR / "fig3_age_benchmark_paired_comparison"))
 
     prov = {
-        "panel_A": str(FOLDS_CSV.relative_to(REPO)),
+        "panel_A": {"recomputed_from": str(FOLD_PRED_DIR.relative_to(REPO)),
+                     "note": "recomputed from per-sample predictions, not WandB-logged values"},
         "panel_B": str(PAIRED_CSV.relative_to(REPO)),
         "panel_C": {"MethylLlama_MethylGPT": str(BOOT_JSON.relative_to(REPO)),
                      "ElasticNet": str(ENET_JSON.relative_to(REPO))},

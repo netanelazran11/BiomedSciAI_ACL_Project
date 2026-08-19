@@ -226,6 +226,10 @@ def main(cfg: DictConfig):
     wced_contrastive       = cfg.get("wced_contrastive", False)
     wced_contrastive_wt    = cfg.get("wced_contrastive_weight", 0.0)
     wced_contrastive_temp  = cfg.get("wced_contrastive_temp", 0.1)
+    # scConcept-style variants (Bahrami et al. 2025); both default to the
+    # original behaviour so existing runs are unaffected.
+    wced_same_view_neg     = cfg.get("wced_contrastive_same_view_negatives", False)
+    wced_disjoint_views    = cfg.get("wced_disjoint_views", False)
     wced_normalize_loss    = cfg.get("wced_normalize_loss", False)
     wced_age_weight        = cfg.get("wced_age_weight", 1.0)
     wced_decoder_dropout   = cfg.get("wced_decoder_dropout", 0.1)
@@ -265,6 +269,7 @@ def main(cfg: DictConfig):
                     fixed_subset_seed=fixed_subset_seed,
                     contrastive=wced_contrastive,
                     genomic_rank_path=wced_genomic_rank_path,
+                    disjoint_views=wced_disjoint_views,
                 )
 
             data_module.collator = lambda examples: wced_collator(examples)
@@ -340,6 +345,7 @@ def main(cfg: DictConfig):
             vocab_size=wced_vocab_size,   # decoder output size = subset_k
             contrastive_weight=wced_contrastive_wt,
             contrastive_temp=wced_contrastive_temp,
+            contrastive_same_view_negatives=wced_same_view_neg,
             normalize_loss=wced_normalize_loss,
             age_weight=wced_age_weight,
             decoder_dropout=wced_decoder_dropout,

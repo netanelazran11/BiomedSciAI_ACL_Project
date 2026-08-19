@@ -59,6 +59,13 @@ wced_input_ratio: 0.5
 wced_contrastive: true
 wced_contrastive_weight: 0.1
 wced_contrastive_temp: 0.1
+# scConcept-style variants (Bahrami et al. 2025). Both false = published behaviour.
+#   same_view_negatives: also contrast an anchor against its own view's other
+#     samples, so the model cannot win by encoding which CpG subset it saw.
+#   disjoint_views: partition valid CpGs between the two views instead of
+#     drawing them independently, so the views share no site.
+wced_contrastive_same_view_negatives: false
+wced_disjoint_views: false
 wced_normalize_loss: true
 wced_age_weight: 0.5
 wced_decoder_dropout: 0.1

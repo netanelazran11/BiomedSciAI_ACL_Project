@@ -125,6 +125,7 @@ class WCEDLlamaModule(pl.LightningModule):
         vocab_size: int = 8000,
         contrastive_weight: float = 0.0,
         contrastive_temp: float = 0.1,
+        contrastive_same_view_negatives: bool = False,
         normalize_loss: bool = False,
         age_weight: float = 1.0,
         decoder_dropout: float = 0.1,
@@ -138,6 +139,7 @@ class WCEDLlamaModule(pl.LightningModule):
         self.vocab_size = vocab_size
         self.contrastive_weight = contrastive_weight
         self.contrastive_temp = contrastive_temp
+        self.contrastive_same_view_negatives = contrastive_same_view_negatives
         self.normalize_loss = normalize_loss
         self.age_weight = age_weight
 
@@ -249,12 +251,31 @@ class WCEDLlamaModule(pl.LightningModule):
 
         z1, z2: [B, dim] — L2-normalized projections from two views.
         Positive pairs: (z1[i], z2[i]); negatives: (z1[i], z2[j≠i]).
+
+        If self.contrastive_same_view_negatives is True, the negative set also
+        includes the anchor's OWN view (z1[i] vs z1[j≠i]), following scConcept
+        (Bahrami et al. 2025, Eq. 7). Rationale: with cross-view negatives only,
+        a model can score well by encoding *which CpG subset it saw* rather than
+        *which sample it is*; same-view negatives share the subset, so that
+        shortcut no longer separates them. Default False preserves the original
+        objective used for the published checkpoint.
         """
         B = z1.shape[0]
-        sim = torch.matmul(z1, z2.T) / self.contrastive_temp  # [B, B]
         labels = torch.arange(B, device=z1.device)
-        loss_12 = F.cross_entropy(sim, labels)
-        loss_21 = F.cross_entropy(sim.T, labels)
+        sim_12 = torch.matmul(z1, z2.T) / self.contrastive_temp  # [B, B]
+
+        if not getattr(self, "contrastive_same_view_negatives", False):
+            return (F.cross_entropy(sim_12, labels)
+                    + F.cross_entropy(sim_12.T, labels)) / 2
+
+        neg_inf = torch.finfo(sim_12.dtype).min
+        eye = torch.eye(B, dtype=torch.bool, device=z1.device)
+        # own-view similarities, self-pair masked out (it is not a negative)
+        sim_11 = (torch.matmul(z1, z1.T) / self.contrastive_temp).masked_fill(eye, neg_inf)
+        sim_22 = (torch.matmul(z2, z2.T) / self.contrastive_temp).masked_fill(eye, neg_inf)
+        # positive stays at column index i within the first block
+        loss_12 = F.cross_entropy(torch.cat([sim_12, sim_11], dim=1), labels)
+        loss_21 = F.cross_entropy(torch.cat([sim_12.T, sim_22], dim=1), labels)
         return (loss_12 + loss_21) / 2
 
     # -------------------------------------------------------------------------

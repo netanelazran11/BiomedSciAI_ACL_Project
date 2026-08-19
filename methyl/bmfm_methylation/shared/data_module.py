@@ -903,6 +903,7 @@ class WCEDCollator:
         fixed_subset_seed: int = 42,
         contrastive: bool = True,  # Enable contrastive learning
         genomic_rank_path: Optional[str] = None,  # If set, sort selected CpGs by genomic position
+        disjoint_views: bool = False,  # If True, view 2 shares no CpG with view 1
     ):
         self.tokenizer = tokenizer
         self.cpg_sites = cpg_sites
@@ -911,6 +912,12 @@ class WCEDCollator:
         self.cls_beta = cls_beta
         self.pad_beta = pad_beta
         self.contrastive = contrastive
+        # Disjoint views (scConcept-style, Bahrami et al. 2025): the two views
+        # partition the valid CpGs instead of being drawn independently, so they
+        # share no site. Makes cross-view alignment strictly harder because no
+        # information is shared through the input itself. Default False keeps the
+        # original independent-draw behaviour used for the published checkpoint.
+        self.disjoint_views = disjoint_views
         self._call_count = 0
 
         # Genomic rank array: genomic_rank[col_i] = genomic rank of data column i.
@@ -1070,11 +1077,18 @@ class WCEDCollator:
             input_mask_v1[i] = mask
 
             if self.contrastive:
-                # View 2: Independent random subset — may overlap with view 1.
-                # Each view is a fresh random sample from all valid CpGs.
-                # Overlap is fine: model must still encode the full profile in CLS
-                # so that both views produce similar embeddings.
-                indices_v2 = rng.choice(valid_indices, size=n_input, replace=False)
+                # View 2: by default an independent random subset that may overlap
+                # view 1 — the model must still encode the full profile in CLS so
+                # both views agree. With disjoint_views=True the two views instead
+                # partition the valid CpGs, so no information is shared through the
+                # input and alignment must go entirely through the representation.
+                if self.disjoint_views:
+                    remaining = np.setdiff1d(valid_indices, indices_v1,
+                                             assume_unique=False)
+                    n_v2 = min(n_input, len(remaining))
+                    indices_v2 = rng.choice(remaining, size=n_v2, replace=False)
+                else:
+                    indices_v2 = rng.choice(valid_indices, size=n_input, replace=False)
                 if self.genomic_rank is not None:
                     indices_v2 = indices_v2[np.argsort(self.genomic_rank[indices_v2])]
                     n_real_v2 = min(len(indices_v2), max_input_len - 1)
