@@ -69,14 +69,17 @@ def main():
     if not have_pilot:
         print("NOTE: pilot runs not found -- rendering panels a-c only.")
 
+    n_prof = 2000
     nrow = 2 if have_pilot else 1
-    fig = plt.figure(figsize=(7.2, 5.4 if have_pilot else 3.0))
-    gs = GridSpec(nrow, 3, figure=fig, hspace=0.6, wspace=0.45,
-                  width_ratios=[1.0, 1.15, 1.3])
+    fig = plt.figure(figsize=(7.2, 5.8 if have_pilot else 3.1))
+    gs = GridSpec(nrow, 3, figure=fig, hspace=0.65, wspace=0.5,
+                  width_ratios=[0.95, 1.1, 1.25])
 
     # ── Panel A: matched / unmatched similarity, mean +- SD over seeds ───────
+    # y-axis is not zero-anchored: the scientific point is that matched
+    # similarity barely moves between constructions, which a 0-1 axis hides.
     axA = fig.add_subplot(gs[0, 0])
-    width = 0.34
+    width = 0.36
     for j, cond in enumerate(["overlap", "disjoint"]):
         sub = df[df.condition == cond]
         for i, metric in enumerate(["pos_cos", "neg_cos"]):
@@ -84,57 +87,70 @@ def main():
             m, s = sub[metric].mean(), sub[metric].std(ddof=1)
             axA.bar(x, m, width=width, color=COND_COLOR[cond],
                     alpha=1.0 if metric == "pos_cos" else 0.45,
-                    label=COND_LABEL[cond] if i == 0 else None)
+                    label=COND_LABEL[cond].replace("\n", " ") if i == 0 else None)
             axA.errorbar(x, m, yerr=s, color="0.15", lw=0.8, capsize=2)
+            axA.text(x, m + 0.012, f"{m:.3f}", ha="center", va="bottom", fontsize=5.2)
     axA.set_xticks([0, 1])
     axA.set_xticklabels(["matched", "unmatched"])
     axA.set_ylabel("Cosine similarity")
-    axA.set_ylim(0, 1.08)
-    axA.legend(frameon=False, fontsize=5.5, loc="upper right")
-    panel_label(axA, "a", dx=-0.3)
+    axA.set_ylim(0.40, 1.06)
+    axA.set_yticks([0.4, 0.6, 0.8, 1.0])
+    panel_label(axA, "a", dx=-0.34)
 
     # ── Panel B: retrieval@k, per-seed spread ────────────────────────────────
     axB = fig.add_subplot(gs[0, 1])
     for cond in ["overlap", "disjoint"]:
         sub = df[df.condition == cond]
-        cols = [f"retrieval_at{k}" for k in KS if f"retrieval_at{k}" in sub.columns]
         ks = [k for k in KS if f"retrieval_at{k}" in sub.columns]
+        cols = [f"retrieval_at{k}" for k in ks]
         mean = [sub[c].mean() for c in cols]
         lo = [sub[c].min() for c in cols]
         hi = [sub[c].max() for c in cols]
-        axB.fill_between(ks, lo, hi, color=COND_COLOR[cond], alpha=0.2, linewidth=0)
-        axB.plot(ks, mean, "o-", color=COND_COLOR[cond], ms=3, lw=1.1,
-                 label=COND_LABEL[cond].replace("\n", " "))
+        axB.fill_between(ks, lo, hi, color=COND_COLOR[cond], alpha=0.25, linewidth=0)
+        axB.plot(ks, mean, "o-", color=COND_COLOR[cond], ms=3.5, lw=1.2,
+                 label=COND_LABEL[cond].replace("\n", " "), zorder=3)
+        axB.annotate(f"{mean[0]*100:.1f}%", (ks[0], mean[0]), xytext=(4, -1),
+                     textcoords="offset points", fontsize=5.5,
+                     color=COND_COLOR[cond], va="top")
+    axB.plot(ks, [k / n_prof for k in ks], "--", color="#b03030", lw=0.9,
+             label="chance")
     axB.set_xscale("log")
     axB.set_xticks(ks); axB.set_xticklabels([str(k) for k in ks]); axB.minorticks_off()
-    axB.set_xlabel("k (candidates considered)")
+    axB.set_xlabel(f"k (of {n_prof:,} candidate profiles)")
     axB.set_ylabel("Correct partner within top-k")
-    axB.set_ylim(0, 1.02)
-    axB.legend(frameon=False, fontsize=5.5, loc="lower right")
-    panel_label(axB, "b", dx=-0.28)
+    axB.set_ylim(0, 1.04)
+    axB.legend(frameon=False, fontsize=5.2, loc="upper left", handlelength=1.4)
+    panel_label(axB, "b", dx=-0.3)
 
     # ── Panel C: similarity matrices, shared colour scale ────────────────────
-    gsC = gs[0, 2].subgridspec(1, 2, wspace=0.15)
+    # Few enough profiles that the diagonal is legible at print size.
+    n_show = 22
+    gsC = gs[0, 2].subgridspec(1, 2, wspace=0.18)
     rng = np.random.default_rng(0)
-    ims = []
+    sel = None
+    ims, axes_c = [], []
     for j, cond in enumerate(["overlap", "disjoint"]):
         f = VD / f"simmatrix_{cond}_seed0.npy"
         ax = fig.add_subplot(gsC[0, j])
+        axes_c.append(ax)
         if not f.exists():
             ax.axis("off"); continue
         sim = np.load(f)
-        sel = np.sort(rng.choice(sim.shape[0], size=min(40, sim.shape[0]),
-                                 replace=False)) if j == 0 else sel
+        if sel is None:
+            sel = np.sort(rng.choice(sim.shape[0], size=min(n_show, sim.shape[0]),
+                                     replace=False))
         im = ax.imshow(sim[np.ix_(sel, sel)], cmap="magma", vmin=0, vmax=1,
                        interpolation="nearest")
         ims.append(im)
         ax.set_xticks([]); ax.set_yticks([])
-        ax.set_title(cond, fontsize=6, pad=2)
+        ax.set_title(COND_LABEL[cond].split("\n")[0], fontsize=5.8, pad=3)
         if j == 0:
-            panel_label(ax, "c", dx=-0.12)
+            ax.set_ylabel("View 1", fontsize=5.8)
+            panel_label(ax, "c", dx=-0.14)
+        ax.set_xlabel("View 2", fontsize=5.8)
     if ims:
-        cb = fig.colorbar(ims[0], ax=[fig.axes[-2], fig.axes[-1]],
-                          location="bottom", fraction=0.07, pad=0.12, aspect=26)
+        cb = fig.colorbar(ims[0], ax=axes_c, location="bottom",
+                          fraction=0.06, pad=0.16, aspect=30)
         cb.set_label("cosine similarity", fontsize=5.5)
         cb.ax.tick_params(labelsize=5)
 
