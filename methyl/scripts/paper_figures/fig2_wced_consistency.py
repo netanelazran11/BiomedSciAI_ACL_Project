@@ -94,8 +94,8 @@ def main():
     axA.set_yticks([0, N_HEATMAP - 1]); axA.set_yticklabels(["1", str(N_HEATMAP)])
     cb = fig.colorbar(im, ax=axA, location="bottom", fraction=0.055, pad=0.28,
                       aspect=28)
-    cb.set_label("cosine similarity", fontsize=6)
-    cb.ax.tick_params(labelsize=5.5)
+    cb.set_label("cosine similarity", fontsize=6.8)
+    cb.ax.tick_params(labelsize=6.8)
     panel_label(axA, "a", dx=-0.16)
 
     axAv = fig.add_subplot(gsA[0, 1])
@@ -108,13 +108,13 @@ def main():
     axAv.set_ylim(0.0, 1.0)
     axAv.set_xlim(-0.7, 1.7)
     axAv.set_xticks([0, 1])
-    axAv.set_xticklabels(["unmatched", "matched"], rotation=90, fontsize=5.5)
-    axAv.set_ylabel("cosine similarity", fontsize=6)
-    axAv.tick_params(axis="y", labelsize=5.5)
+    axAv.set_xticklabels(["unmatched", "matched"], rotation=90, fontsize=7.0)
+    axAv.set_ylabel("cosine similarity", fontsize=6.8)
+    axAv.tick_params(axis="y", labelsize=6.8)
     axAv.text(0.42, off.mean(), f"{off.mean():.3f}", ha="left", va="center",
-              fontsize=5.5)
+              fontsize=7.0)
     axAv.text(1.42, pos.mean(), f"{pos.mean():.3f}", ha="left", va="center",
-              fontsize=5.5, color=COL_LLAMA, fontweight="bold")
+              fontsize=7.0, color=COL_LLAMA, fontweight="bold")
 
     # ── Panel B: retrieval@k curve ───────────────────────────────────────────
     axB = fig.add_subplot(gs[0, 1])
@@ -130,7 +130,7 @@ def main():
     axB.set_ylabel("Correct partner within top-k")
     axB.set_ylim(0, 1.02)
     axB.annotate(f"top-1 = {top1*100:.1f}%", xy=(1, top1),
-                 xytext=(1.6, top1 - 0.22), fontsize=6, color=COL_LLAMA,
+                 xytext=(1.6, top1 - 0.22), fontsize=6.8, color=COL_LLAMA,
                  arrowprops=dict(arrowstyle="-", color=COL_LLAMA, lw=0.6))
     axB.legend(frameon=False, loc="lower right")
     panel_label(axB, "b", dx=-0.2)
@@ -145,12 +145,12 @@ def main():
         axC.plot([0, 1], [0, 1], color="0.35", lw=0.7, ls="--")
         axC.text(0.04, 0.95, f"$r$ = {rsum['pearson_withheld_obs_vs_pred']:.3f}",
                  transform=axC.transAxes, va="top", fontsize=7)
-        axC.set_xlabel("Observed beta (withheld CpGs)")
-        axC.set_ylabel("Predicted beta")
+        axC.set_xlabel(r"Observed $\beta$ (withheld CpGs)")
+        axC.set_ylabel(r"Predicted $\beta$")
         axC.set_xlim(0, 1); axC.set_ylim(0, 1)
         cb2 = fig.colorbar(hb, ax=axC, fraction=0.046, pad=0.03)
-        cb2.set_label("positions (log)", fontsize=6)
-        cb2.ax.tick_params(labelsize=5.5)
+        cb2.set_label("positions (log)", fontsize=6.8)
+        cb2.ax.tick_params(labelsize=6.8)
         panel_label(axC, "c", dx=-0.14)
 
         axD = fig.add_subplot(gs[1, 1])
@@ -164,9 +164,9 @@ def main():
             # p10-p90 spread across profiles: bars alone hide the distribution
             axD.vlines(j, d["p10"], d["p90"], color="0.15", lw=0.9, zorder=3)
             axD.text(j, d["p90"] + 0.002, f"{d['mean']:.4f}", ha="center",
-                     va="bottom", fontsize=5.5)
+                     va="bottom", fontsize=7.0)
         axD.set_xticks(range(len(conds)))
-        axD.set_xticklabels([c[0] for c in conds], fontsize=6)
+        axD.set_xticklabels([c[0] for c in conds], fontsize=6.8)
         axD.set_ylabel("MSE at withheld CpGs")
         axD.set_ylim(0, None)
         panel_label(axD, "d", dx=-0.2)

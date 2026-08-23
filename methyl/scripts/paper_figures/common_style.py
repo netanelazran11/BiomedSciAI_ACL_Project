@@ -19,17 +19,17 @@ COL_NEG = "#b03030"     # negative R^2 (red)
 
 def apply_style():
     plt.rcParams.update({
-        "font.size": 7,
+        "font.size": 7.6,
         "font.family": "sans-serif",
         "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
-        "axes.titlesize": 8,
-        "axes.labelsize": 7,
-        "xtick.labelsize": 6.5,
-        "ytick.labelsize": 6.5,
-        "legend.fontsize": 6.5,
-        "axes.linewidth": 0.6,
-        "xtick.major.width": 0.6,
-        "ytick.major.width": 0.6,
+        "axes.titlesize": 8.6,
+        "axes.labelsize": 7.6,
+        "xtick.labelsize": 7.2,
+        "ytick.labelsize": 7.2,
+        "legend.fontsize": 7.2,
+        "axes.linewidth": 0.8,
+        "xtick.major.width": 0.8,
+        "ytick.major.width": 0.8,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "pdf.fonttype": 42,
@@ -48,3 +48,9 @@ def save(fig, outstem):
     fig.savefig(f"{outstem}.pdf", bbox_inches="tight")
     fig.savefig(f"{outstem}.png", bbox_inches="tight", dpi=300)
     print(f"Saved -> {outstem}.pdf / .png")
+
+
+# Minimum on-figure font size. All figures are drawn at 7.2 in wide and print
+# at Nature Communications' 180 mm two-column width (~98% scale), so a font
+# specified here is essentially the printed size. Nothing may go below this.
+MIN_FONT_PT = 6.8

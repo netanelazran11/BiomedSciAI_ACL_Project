@@ -78,9 +78,9 @@ def main():
         for j, (name, d, colr) in enumerate(probes):
             ax.bar(j, d[key], width=0.55, color=colr)
             ax.text(j, d[key], fmt.format(d[key]), ha="center", va="bottom",
-                    fontsize=6)
+                    fontsize=6.8)
         ax.set_xticks(range(len(probes)))
-        ax.set_xticklabels([p[0] for p in probes], fontsize=6)
+        ax.set_xticklabels([p[0] for p in probes], fontsize=6.8)
         ax.set_ylabel(lab)
         ax.set_xlim(-0.6, 1.6)
         if key.endswith("r2"):
@@ -101,13 +101,19 @@ def main():
     for j, (name, d, colr) in enumerate(items):
         axB.bar(j, d["balanced_acc"], width=0.5, color=colr, zorder=2)
         axB.text(j, d["balanced_acc"] + 0.02, f"{d['balanced_acc']:.3f}",
-                 ha="center", va="bottom", fontsize=6.5)
-        axB.hlines(d["chance"], j - 0.3, j + 0.3, color=COL_NEG, lw=1.2, zorder=3)
-    axB.text(1.36, items[1][1]["chance"] + 0.03, "chance", color=COL_NEG,
-             fontsize=5.5, va="bottom", ha="right")
+                 ha="center", va="bottom", fontsize=7.2)
+        # chance marker: dark grey with a distinct dash, not red -- red is
+        # reserved in this figure for negative transfer (panel c), and a
+        # red/green pairing is hard to separate under deuteranopia
+        axB.hlines(d["chance"], j - 0.3, j + 0.3, color="0.15", lw=1.3,
+                   linestyle=(0, (3, 1.5)), zorder=3)
+        axB.text(j + 0.34, d["chance"], f"chance {d['chance']:.3f}",
+                 color="0.15", fontsize=6.8, va="center", ha="left")
     axB.set_xticks(range(len(items)))
-    axB.set_xticklabels([it[0] for it in items], fontsize=6)
+    axB.set_xticklabels([it[0] for it in items], fontsize=6.8)
     axB.set_ylabel("Balanced accuracy")
+    axB.text(0.5, -0.30, "point estimates, fixed split", transform=axB.transAxes,
+             ha="center", va="top", fontsize=5.8, color="0.45", style="italic")
     axB.set_ylim(0, 1.12)
     axB.set_xlim(-0.55, 1.55)
     panel_label(axB, "b", dx=-0.18)
@@ -119,7 +125,7 @@ def main():
     sizes = 12 + 90 * (keep["n"] - keep["n"].min()) / (keep["n"].max() - keep["n"].min())
     colors = [COL_NEG if v < 0 else COL_LLAMA for v in r2]
 
-    axC.axhspan(YFLOOR - 0.2, 0, color=COL_NEG, alpha=0.05, zorder=0)
+    axC.axhspan(YFLOOR - 0.32, 0, color=COL_NEG, alpha=0.05, zorder=0)
     axC.axhline(0, color="0.3", lw=0.8, zorder=1)
     axC.scatter(keep["age_std"], r2_plot, s=sizes, c=colors, alpha=0.85,
                 edgecolors="white", linewidths=0.5, zorder=3)
@@ -135,18 +141,28 @@ def main():
         right_side = row["age_std"] > 0.72 * xmax
         axC.annotate(txt, (row["age_std"], yv),
                      xytext=(-5 if right_side else 5, 5),
-                     textcoords="offset points", fontsize=5.2, color="0.3",
+                     textcoords="offset points", fontsize=6.8, color="0.3",
                      ha="right" if right_side else "left")
+        if clipped:
+            # make the truncation unmistakable: a downward arrow out of the
+            # axis, so the marker cannot be read as the true value
+            axC.annotate("", xy=(row["age_std"], YFLOOR - 0.17),
+                         xytext=(row["age_std"], YFLOOR - 0.02),
+                         arrowprops=dict(arrowstyle="-|>", color=COL_NEG,
+                                         lw=1.0, mutation_scale=7))
+            axC.text(row["age_std"], YFLOOR - 0.19, "axis break",
+                     ha="center", va="top", fontsize=5.6, color=COL_NEG,
+                     style="italic")
 
     axC.set_xlabel("Age SD of held-out cohort (years)")
     axC.set_ylabel("Held-out-study age probe $R^2$")
-    axC.set_ylim(YFLOOR - 0.2, 1.05)
+    axC.set_ylim(YFLOOR - 0.32, 1.05)
     axC.text(0.015, 0.05, "transfer fails ($R^2 < 0$)", transform=axC.transAxes,
-             ha="left", va="bottom", fontsize=5.5, color=COL_NEG)
+             ha="left", va="bottom", fontsize=7.0, color=COL_NEG)
     axC.text(0.42, 0.30,
              f"$R^2$ vs age SD: $\\rho$ = {rho_sd:+.2f}, p = {p_sd:.2f}\n"
              f"$R^2$ vs cohort size: $\\rho$ = {rho_n:+.2f}, p = {p_n:.2f}",
-             transform=axC.transAxes, ha="left", va="top", fontsize=5.5,
+             transform=axC.transAxes, ha="left", va="top", fontsize=7.0,
              color="0.3")
 
     # marker-size legend for cohort size
@@ -156,7 +172,7 @@ def main():
                     label=f"n = {nref}")
     axC.legend(frameon=False, loc="lower right", bbox_to_anchor=(1.0, 0.16),
                labelspacing=0.9, handletextpad=0.6, borderpad=0.2,
-               title="cohort size", title_fontsize=5.5, fontsize=5.5)
+               title="cohort size", title_fontsize=7.0, fontsize=7.0)
     panel_label(axC, "c", dx=-0.07)
 
     save(fig, str(OUTDIR / "fig4_representation_cross_study_transfer"))

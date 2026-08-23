@@ -21,6 +21,7 @@ Usage:  python scripts/paper_figures/fig1_study_design.py
 Output: figures/paper/fig1_study_design_wced.{pdf,png}
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -39,7 +40,7 @@ LIGHT = "#eef1f6"
 WITHHELD = "#d8dde6"
 
 
-def box(ax, x, y, w, h, text, fc=LIGHT, ec=COL_LLAMA, fs=5.4, lw=0.7, bold=False):
+def box(ax, x, y, w, h, text, fc=LIGHT, ec=COL_LLAMA, fs=7.0, lw=0.8, bold=False):
     ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.004,rounding_size=0.02",
                                 facecolor=fc, edgecolor=ec, linewidth=lw, zorder=2))
     ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs,
@@ -54,27 +55,28 @@ def arrow(ax, x1, y1, x2, y2, color="0.35", lw=0.7, style="-|>", ls="-"):
                                  shrinkA=0, shrinkB=0))
 
 
-def cpg_strip(ax, x, y, w, h, n, mask, on_color, off_color=WITHHELD):
+def cpg_strip(ax, x, y, w, h, n, mask, on_color, off_color=WITHHELD, hatch=None):
     """Draw n cells across [x, x+w]; mask[i] True -> on_color."""
     cw = w / n
     for i in range(n):
         ax.add_patch(Rectangle((x + i * cw, y), cw * 0.86, h,
                                facecolor=on_color if mask[i] else off_color,
-                               edgecolor="white", linewidth=0.3, zorder=2))
+                               edgecolor="white", linewidth=0.3, zorder=2,
+                               hatch=hatch if mask[i] else None))
 
 
 def main():
     apply_style()
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(7.2, 4.6))
+    fig = plt.figure(figsize=(7.2, 5.7))
     gs = GridSpec(2, 3, figure=fig, hspace=0.04, wspace=0.16,
                   width_ratios=[1.0, 1.05, 0.95], height_ratios=[1.0, 1.0])
 
     # ═══ Panel a: study design ══════════════════════════════════════════════
     axA = fig.add_subplot(gs[0, 0]); axA.set_xlim(0, 1); axA.set_ylim(0, 1); axA.axis("off")
     box(axA, 0.06, 0.845, 0.88, 0.135,
-        "Public methylation profiles\n169,120 $\\times$ 49,156 CpGs\nno phenotype labels",
+        "Public methylation profiles\n169,120 $\\times$ 49,156 CpGs\nno phenotype supervision",
         fc="#eaf0fc", ec=COL_LLAMA)
     arrow(axA, 0.5, 0.845, 0.5, 0.775)
     box(axA, 0.14, 0.635, 0.72, 0.14,
@@ -88,11 +90,11 @@ def main():
     arrow(axA, 0.3, 0.435, 0.3, 0.375); arrow(axA, 0.7, 0.435, 0.7, 0.375)
     axA.plot([0.3, 0.7], [0.405, 0.405], color="0.35", lw=0.7, zorder=1)
     box(axA, 0.01, 0.20, 0.46, 0.175,
-        "Frozen\nrepresentation\nprobes\n(10,988 profiles)", fc="#f2f4f8", ec=GREY, fs=5.0)
+        "Frozen\nrepresentation\nprobes\n(10,988 profiles)", fc="#f2f4f8", ec=GREY, fs=6.8)
     box(axA, 0.53, 0.20, 0.46, 0.175,
-        "Supervised\nage fine-tuning\n5 folds\n(2,149 test)", fc="#f2f4f8", ec=GREY, fs=5.0)
+        "Supervised\nage fine-tuning\n5 folds\n(2,149 test)", fc="#f2f4f8", ec=GREY, fs=6.8)
     axA.text(0.5, 0.135, "AltuMAge collection $\\cdot$ 21,368 CpGs",
-             ha="center", fontsize=4.8, color="0.35")
+             ha="center", fontsize=6.8, color="0.35")
     panel_label(axA, "a", dx=0.02, dy=0.97)
 
     # ═══ Panel b: view construction ════════════════════════════════════════
@@ -103,54 +105,54 @@ def main():
     m2 = np.zeros(n, bool); m2[rng.choice(n, n // 2, replace=False)] = True
 
     axB.text(0.5, 0.95, "One measured methylation profile", ha="center",
-             fontsize=5.6, color="0.2")
-    cpg_strip(axB, 0.16, 0.80, 0.68, 0.075, n, np.ones(n, bool), COL_ACCENT)
-    axB.text(0.13, 0.838, "$\\beta$", ha="right", va="center", fontsize=5.4)
+             fontsize=7.2, color="0.2")
+    cpg_strip(axB, 0.16, 0.80, 0.68, 0.075, n, np.ones(n, bool), "#5a6472")
+    axB.text(0.13, 0.838, "$\\beta$", ha="right", va="center", fontsize=7.0)
 
     arrow(axB, 0.36, 0.79, 0.30, 0.70); arrow(axB, 0.64, 0.79, 0.70, 0.70)
     axB.text(0.5, 0.745, "two independent 50% subsets", ha="center",
-             fontsize=5.0, color="0.35")
+             fontsize=6.8, color="0.35")
 
     for k, (mask, x0, lab) in enumerate([(m1, 0.05, "View 1"), (m2, 0.53, "View 2")]):
-        axB.text(x0 + 0.21, 0.665, lab, ha="center", fontsize=5.6,
+        axB.text(x0 + 0.21, 0.665, lab, ha="center", fontsize=7.2,
                  color=COL_LLAMA, fontweight="bold")
         cpg_strip(axB, x0, 0.555, 0.42, 0.075, n, mask, COL_LLAMA)
-        axB.text(x0 + 0.21, 0.495, "encoder input", ha="center", fontsize=4.9,
+        axB.text(x0 + 0.21, 0.495, "encoder input", ha="center", fontsize=6.8,
                  color=COL_LLAMA)
-        cpg_strip(axB, x0, 0.345, 0.42, 0.075, n, ~mask, COL_GPT)
+        cpg_strip(axB, x0, 0.345, 0.42, 0.075, n, ~mask, COL_GPT, hatch="///")
         axB.text(x0 + 0.21, 0.285, "reconstruction target\n(withheld from input)",
-                 ha="center", fontsize=4.9, color=COL_GPT, linespacing=1.3)
+                 ha="center", fontsize=6.8, color=COL_GPT, linespacing=1.3)
 
     axB.add_patch(Rectangle((0.03, 0.24), 0.94, 0.47, facecolor="none",
                             edgecolor="0.85", linewidth=0.6, zorder=0))
     axB.text(0.5, 0.16,
              "Loss is evaluated only at measured CpGs absent from that view,\n"
              "so the objective cannot be solved by copying visible values.",
-             ha="center", fontsize=4.9, color="0.3", linespacing=1.4)
+             ha="center", fontsize=6.8, color="0.3", linespacing=1.4)
     panel_label(axB, "b", dx=0.01, dy=0.97)
 
     # ═══ Panel c: the WCED objective ═══════════════════════════════════════
     axC = fig.add_subplot(gs[1, :2]); axC.set_xlim(0, 1); axC.set_ylim(0, 1); axC.axis("off")
     yv1, yv2 = 0.79, 0.31
     for y, lab in [(yv1, "View 1"), (yv2, "View 2")]:
-        box(axC, 0.01, y - 0.055, 0.13, 0.11, lab, fc="#eaf0fc", ec=COL_LLAMA, fs=5.2)
+        box(axC, 0.01, y - 0.055, 0.13, 0.11, lab, fc="#eaf0fc", ec=COL_LLAMA, fs=6.8)
         arrow(axC, 0.14, y, 0.20, y)
         box(axC, 0.20, y - 0.075, 0.17, 0.15, "Encoder", fc="#e2ecff",
-            ec=COL_LLAMA, fs=5.4, bold=True)
+            ec=COL_LLAMA, fs=7.0, bold=True)
         arrow(axC, 0.37, y, 0.43, y)
-        box(axC, 0.43, y - 0.055, 0.10, 0.11, "CLS", fc=COL_LLAMA, ec=COL_LLAMA, fs=5.2)
+        box(axC, 0.43, y - 0.055, 0.10, 0.11, "CLS", fc=COL_LLAMA, ec=COL_LLAMA, fs=6.8)
         axC.texts[-1].set_color("white")
         arrow(axC, 0.53, y, 0.60, y)
-        box(axC, 0.60, y - 0.065, 0.15, 0.13, "Decoder", fc="#fdf0e6", ec=COL_GPT, fs=5.2)
+        box(axC, 0.60, y - 0.065, 0.15, 0.13, "Decoder", fc="#fdf0e6", ec=COL_GPT, fs=6.8)
         arrow(axC, 0.75, y, 0.81, y)
         box(axC, 0.81, y - 0.075, 0.18, 0.15,
-            "predicted\nwithheld\nCpGs", fc="#fdf0e6", ec=COL_GPT, fs=4.9)
+            "predicted\nwithheld\nCpGs", fc="#fdf0e6", ec=COL_GPT, fs=6.8)
 
     # shared weights
     axC.annotate("", xy=(0.285, yv1 - 0.075), xytext=(0.285, yv2 + 0.075),
                  arrowprops=dict(arrowstyle="<->", color=GREY, lw=0.7,
                                  linestyle=(0, (2, 2))))
-    axC.text(0.265, (yv1 + yv2) / 2, "shared\nweights", fontsize=4.8, color=GREY,
+    axC.text(0.265, (yv1 + yv2) / 2, "shared\nweights", fontsize=6.8, color=GREY,
              va="center", ha="right", linespacing=1.3)
 
     # contrastive link between the two CLS tokens
@@ -158,39 +160,62 @@ def main():
                  arrowprops=dict(arrowstyle="<->", color=COL_ACCENT, lw=1.0))
     box(axC, 0.365, (yv1 + yv2) / 2 - 0.075, 0.23, 0.15,
         "projection head\n$256\\!\\to\\!128\\!\\to\\!128$\nInfoNCE, $\\tau=0.1$",
-        fc="#eafaf0", ec=COL_ACCENT, fs=4.9)
+        fc="#eafaf0", ec=COL_ACCENT, fs=6.8)
 
     axC.text(0.90, (yv1 + yv2) / 2, "$\\mathcal{L}_{\\mathrm{recon}}$\nat withheld\nCpGs only",
-             ha="center", va="center", fontsize=4.9, color=COL_GPT, linespacing=1.35)
+             ha="center", va="center", fontsize=6.8, color=COL_GPT, linespacing=1.35)
 
     axC.text(0.5, 0.045,
              "$\\mathcal{L} = \\mathcal{L}_{\\mathrm{recon}} + "
              "0.05\\,\\mathcal{L}_{\\mathrm{contrastive}}$",
-             ha="center", fontsize=6.2)
+             ha="center", fontsize=7.0)
     panel_label(axC, "c", dx=0.01, dy=0.96)
 
     # ═══ Panel d: token encoding ═══════════════════════════════════════════
     axD = fig.add_subplot(gs[1, 2]); axD.set_xlim(0, 1); axD.set_ylim(0, 1); axD.axis("off")
     box(axD, 0.03, 0.83, 0.42, 0.13, "CpG identity\n$c_i$", fc="#eaf0fc",
-        ec=COL_LLAMA, fs=5.0)
+        ec=COL_LLAMA, fs=6.8)
     box(axD, 0.55, 0.83, 0.42, 0.13, "$\\beta$ value\n$b_i$", fc="#eafaf0",
-        ec=COL_ACCENT, fs=5.0)
+        ec=COL_ACCENT, fs=6.8)
     arrow(axD, 0.24, 0.83, 0.24, 0.72); arrow(axD, 0.76, 0.83, 0.76, 0.72)
-    box(axD, 0.02, 0.56, 0.44, 0.15, "learned\nembedding", fc=LIGHT, ec=GREY, fs=4.8)
+    box(axD, 0.02, 0.56, 0.44, 0.15, "learned\nembedding", fc=LIGHT, ec=GREY, fs=6.8)
     box(axD, 0.54, 0.56, 0.44, 0.15, "sinusoidal\nbasis $\\to$ linear",
-        fc=LIGHT, ec=GREY, fs=4.8)
+        fc=LIGHT, ec=GREY, fs=6.8)
     arrow(axD, 0.24, 0.56, 0.43, 0.45); arrow(axD, 0.76, 0.56, 0.57, 0.45)
     axD.add_patch(plt.Circle((0.5, 0.40), 0.048, facecolor="white",
                              edgecolor="0.35", linewidth=0.7, zorder=3))
     axD.text(0.5, 0.40, "+", ha="center", va="center", fontsize=7, zorder=4)
     arrow(axD, 0.5, 0.352, 0.5, 0.28)
     box(axD, 0.20, 0.15, 0.60, 0.13, "CpG token $x_i$", fc="#e2ecff",
-        ec=COL_LLAMA, fs=5.2, bold=True)
+        ec=COL_LLAMA, fs=6.8, bold=True)
     axD.text(0.5, 0.055, "a CLS token is prepended\nto every partial profile",
-             ha="center", fontsize=4.8, color="0.35", linespacing=1.35)
+             ha="center", fontsize=6.8, color="0.35", linespacing=1.35)
     panel_label(axD, "d", dx=0.02, dy=0.96)
 
     save(fig, str(OUTDIR / "fig1_study_design_wced"))
+
+    # Figure 1 is a schematic, so its provenance file records where each
+    # displayed number was verified rather than which array it was plotted from.
+    prov = {
+        "figure_type": "schematic (no plotted data)",
+        "displayed_values": {
+            "169,120 profiles x 49,156 CpGs": "canonical pretraining h5ad header, "
+                "printed by run_reconstruction_withheld.sh (SLURM job 45888987)",
+            "10,988 profiles / 21,368 CpGs": "AltuMAge h5ad header",
+            "2,149 test": "outputs/kfold_splits/test_ids.npy, set equality verified "
+                "by scripts/utils/verify_elasticnet_test_set.py (job 45888667)",
+            "6 layers, 256-d": "scripts/llama/pretrain_llama_small_6L_contrastive.sh "
+                "(NUM_LAYERS=6, HIDDEN_SIZE=256)",
+            "genomic RoPE": "same script, wced_genomic_rank_path set",
+            "lambda = 0.05, tau = 0.1": "same script (CONTRASTIVE_WEIGHT, CONTRASTIVE_TEMP)",
+            "projection head 256->128->128": "bmfm_methylation/llama/wced_llama.py, "
+                "ProjectionHead(hidden_dim=hidden_size//2, output_dim=128)",
+            "50% views": "wced_input_ratio=0.5",
+        },
+        "accessibility": "panel b uses blue (input) vs orange+hatch (withheld); "
+                          "colour is never the only channel distinguishing the two roles",
+    }
+    (OUTDIR / "fig1_provenance.json").write_text(json.dumps(prov, indent=2))
 
 
 if __name__ == "__main__":

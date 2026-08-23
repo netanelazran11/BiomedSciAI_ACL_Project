@@ -1,12 +1,20 @@
 """
-Supplementary figure -- CpG-panel independence of the sample representation.
+Supplementary figure -- robustness of pretrained representations to random
+CpG subsampling.
 
-Adapted from the gene-panel-independence experiment of scConcept
-(Bahrami et al. 2025, Fig. 3), where a query set restricted to a targeted gene
-panel is shown to co-embed with whole-transcriptome profiles. The methylation
-analogue matters for a practical reason: array generations measure different
-CpG sets (450k, EPIC, EPICv2) and missing values are common, so a useful
-sample representation should not depend on exactly which CpGs were assayed.
+Motivated by the gene-panel-independence experiment of scConcept (Bahrami
+et al. 2025, Fig. 3), where a query set restricted to a targeted gene panel is
+shown to co-embed with whole-transcriptome profiles. The motivation carries
+over because array generations assay different CpG sets and missing values are
+common. The experiment here is deliberately weaker than that claim, and the
+wording is kept correspondingly narrow:
+
+  * the subsets are RANDOM 50% draws, not real 450K / EPIC / EPICv2 probe
+    panels, so this does not demonstrate cross-platform or technology
+    independence;
+  * a single view seed is used (the draw saved by two_view_consistency.py);
+  * performance is not identical -- the age probe falls from R2 0.863 to
+    0.835 -- so this is substantial robustness, not equivalence.
 
 Panels:
   A  Co-embedding of full profiles and 50%-CpG subsets of the same profiles in
@@ -98,7 +106,7 @@ def main():
                 linewidths=0, zorder=3, label="50% CpG subset")
     axA.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.0f}%)")
     axA.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.0f}%)")
-    axA.legend(frameon=False, fontsize=5.5, loc="upper right", markerscale=2.5,
+    axA.legend(frameon=False, fontsize=7.0, loc="upper right", markerscale=2.5,
                handletextpad=0.3)
     panel_label(axA, "a", dx=-0.26)
 
@@ -111,7 +119,7 @@ def main():
              label=f"same profile ({cos_pair.mean():.3f})")
     axB.set_xlabel("Cosine similarity to full-profile embedding")
     axB.set_ylabel("Density")
-    axB.legend(frameon=False, fontsize=5.2, loc="upper left")
+    axB.legend(frameon=False, fontsize=6.8, loc="upper left")
     panel_label(axB, "b", dx=-0.28)
 
     # ── Panel C: age probe fitted on full, applied to subsets ───────────────
@@ -135,15 +143,34 @@ def main():
           f"full R2={r2_full:.3f} (MedAE {med_full:.2f}) | "
           f"50% subset R2={r2_view:.3f} (MedAE {med_view:.2f})")
 
+    # Paired bootstrap over the same held-out profiles: the two conditions share
+    # subjects, so the difference is what carries uncertainty, not each bar.
+    n_boot, rng_b = 5000, np.random.default_rng(0)
+    pf = probe.predict(full_n[eval_g])
+    pv = probe.predict(v1[eval_v])
+    d_r2 = np.empty(n_boot)
+    for b in range(n_boot):
+        s_ = rng_b.integers(0, len(y), size=len(y))
+        d_r2[b] = r2_score(y[s_], pf[s_]) - r2_score(y[s_], pv[s_])
+    lo, hi = np.percentile(d_r2, [2.5, 97.5])
+    print(f"paired bootstrap dR2 (full - subset): {r2_full - r2_view:+.4f} "
+          f"95% CI [{lo:+.4f}, {hi:+.4f}]  (n={len(y)}, {n_boot} resamples)")
+
     for j, (lab, r2v, colr) in enumerate([("Full\nprofile", r2_full, COL_LLAMA),
                                           ("50% CpG\nsubset", r2_view, COL_ENET)]):
         axC.bar(j, r2v, width=0.55, color=colr)
-        axC.text(j, r2v + 0.015, f"{r2v:.3f}", ha="center", va="bottom", fontsize=6)
+        axC.text(j, r2v + 0.015, f"{r2v:.3f}", ha="center", va="bottom", fontsize=6.8)
     axC.set_xticks([0, 1])
-    axC.set_xticklabels(["Full\nprofile", "50% CpG\nsubset"], fontsize=6)
+    axC.set_xticklabels(["Full\nprofile", "50% CpG\nsubset"], fontsize=6.8)
     axC.set_ylabel("Age probe $R^2$ (held-out)")
-    axC.set_ylim(0, 1.05)
+    axC.set_ylim(0, 1.15)
     axC.set_xlim(-0.6, 1.6)
+    axC.text(0.5, 1.10, f"$\\Delta R^2$ = {r2_full - r2_view:.3f}\n"
+                        f"95% CI [{lo:.3f}, {hi:.3f}]",
+             ha="center", va="top", fontsize=6.8, color="0.25")
+    axC.text(0.5, -0.30, f"n = {len(y)} held-out profiles, single view seed",
+             transform=axC.transAxes, ha="center", va="top", fontsize=5.8,
+             color="0.45", style="italic")
     panel_label(axC, "c", dx=-0.3)
 
     save(fig, str(OUTDIR / "figS_panel_independence"))
@@ -156,12 +183,17 @@ def main():
                                  "median": round(float(np.median(cos_pair)), 4),
                                  "min": round(float(cos_pair.min()), 4)},
         "cos_shuffled_control": round(float(cos_shuf.mean()), 4),
+        "subsets_are": "random 50% CpG draws, NOT real 450K/EPIC/EPICv2 panels",
+        "n_view_seeds": 1,
         "age_probe": {"n_eval": len(eval_g),
                        "r2_full": round(float(r2_full), 4),
                        "r2_subset": round(float(r2_view), 4),
                        "medae_full": round(med_full, 3),
                        "medae_subset": round(med_view, 3),
-                       "probe": "Ridge(alpha=1.0) fitted on full-profile embeddings, train split"},
+                       "probe": "Ridge(alpha=1.0) fitted on full-profile embeddings, train split; applied without adaptation to partial-view embeddings",
+                       "delta_r2": round(float(r2_full - r2_view), 4),
+                       "delta_r2_ci95": [round(float(lo), 4), round(float(hi), 4)],
+                       "n_boot": n_boot},
     }
     (OUTDIR / "figS_panel_independence_provenance.json").write_text(json.dumps(prov, indent=2))
 

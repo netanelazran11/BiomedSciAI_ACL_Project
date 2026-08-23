@@ -40,7 +40,7 @@ OUTDIR = REPO / "figures/paper"
 
 KS = [1, 5, 10, 20, 50, 100]
 COND_COLOR = {"overlap": COL_LLAMA, "disjoint": COL_GPT}
-COND_LABEL = {"overlap": "Overlapping views\n(published setup)",
+COND_LABEL = {"overlap": "Overlapping views\n(canonical training setup)",
               "disjoint": "Disjoint views\n(no shared CpG)"}
 
 
@@ -89,11 +89,14 @@ def main():
                     alpha=1.0 if metric == "pos_cos" else 0.45,
                     label=COND_LABEL[cond].replace("\n", " ") if i == 0 else None)
             axA.errorbar(x, m, yerr=s, color="0.15", lw=0.8, capsize=2)
-            axA.text(x, m + 0.012, f"{m:.3f}", ha="center", va="bottom", fontsize=5.2)
+            axA.text(x, m + 0.012, f"{m:.3f}", ha="center", va="bottom", fontsize=6.8)
     axA.set_xticks([0, 1])
     axA.set_xticklabels(["matched", "unmatched"])
     axA.set_ylabel("Cosine similarity")
     axA.set_ylim(0.40, 1.06)
+    axA.text(0.5, -0.34, "note: y-axis begins at 0.40 to resolve the\n"
+             "near-identical matched values", transform=axA.transAxes,
+             ha="center", va="top", fontsize=5.8, color="0.45", style="italic")
     axA.set_yticks([0.4, 0.6, 0.8, 1.0])
     panel_label(axA, "a", dx=-0.34)
 
@@ -110,7 +113,7 @@ def main():
         axB.plot(ks, mean, "o-", color=COND_COLOR[cond], ms=3.5, lw=1.2,
                  label=COND_LABEL[cond].replace("\n", " "), zorder=3)
         axB.annotate(f"{mean[0]*100:.1f}%", (ks[0], mean[0]), xytext=(4, -1),
-                     textcoords="offset points", fontsize=5.5,
+                     textcoords="offset points", fontsize=7.0,
                      color=COND_COLOR[cond], va="top")
     axB.plot(ks, [k / n_prof for k in ks], "--", color="#b03030", lw=0.9,
              label="chance")
@@ -119,7 +122,7 @@ def main():
     axB.set_xlabel(f"k (of {n_prof:,} candidate profiles)")
     axB.set_ylabel("Correct partner within top-k")
     axB.set_ylim(0, 1.04)
-    axB.legend(frameon=False, fontsize=5.2, loc="upper left", handlelength=1.4)
+    axB.legend(frameon=False, fontsize=6.8, loc="upper left", handlelength=1.4)
     panel_label(axB, "b", dx=-0.3)
 
     # ── Panel C: similarity matrices, shared colour scale ────────────────────
@@ -143,16 +146,16 @@ def main():
                        interpolation="nearest")
         ims.append(im)
         ax.set_xticks([]); ax.set_yticks([])
-        ax.set_title(COND_LABEL[cond].split("\n")[0], fontsize=5.8, pad=3)
+        ax.set_title(COND_LABEL[cond].split("\n")[0], fontsize=7.2, pad=3)
         if j == 0:
-            ax.set_ylabel("View 1", fontsize=5.8)
+            ax.set_ylabel("View 1", fontsize=7.2)
             panel_label(ax, "c", dx=-0.14)
-        ax.set_xlabel("View 2", fontsize=5.8)
+        ax.set_xlabel("View 2", fontsize=7.2)
     if ims:
         cb = fig.colorbar(ims[0], ax=axes_c, location="bottom",
                           fraction=0.06, pad=0.16, aspect=30)
-        cb.set_label("cosine similarity", fontsize=5.5)
-        cb.ax.tick_params(labelsize=5)
+        cb.set_label("cosine similarity", fontsize=7.0)
+        cb.ax.tick_params(labelsize=6.8)
 
     # ── Panel D: pilot reconstruction loss ───────────────────────────────────
     if have_pilot:
@@ -165,7 +168,7 @@ def main():
                        for r in rows])
         for x, r in zip(xs, rows):
             axD.text(x, r["best_recon_loss"], f"{r['best_recon_loss']:.4f}",
-                     ha="center", va="bottom", fontsize=6)
+                     ha="center", va="bottom", fontsize=6.8)
         axD.set_xticks(xs)
         axD.set_xticklabels([r["condition"] for r in rows])
         axD.set_ylabel("Best held-out reconstruction loss")

@@ -161,13 +161,13 @@ def main():
                    alpha=0.35, linewidths=0, zorder=2, rasterized=True)
         ax.set_xlim(lims); ax.set_ylim(lims)
         ax.set_xticks([0, 50, 100]); ax.set_yticks([0, 50, 100])
-        ax.set_xlabel("Chronological age (yr)")
+        ax.set_xlabel("Chronological age (years)")
         ax.text(0.04, 0.97, name, transform=ax.transAxes, va="top",
-                fontsize=6.5, color=colr, fontweight="bold")
-        ax.text(0.04, 0.88, f"MedAE {m['medae']:.2f} yr",
-                transform=ax.transAxes, va="top", fontsize=5.5, color="0.3")
+                fontsize=7.2, color=colr, fontweight="bold")
+        ax.text(0.04, 0.88, f"MedAE {m["medae"]:.2f} years",
+                transform=ax.transAxes, va="top", fontsize=7.0, color="0.3")
         if i == 0:
-            ax.set_ylabel("Predicted age (yr)")
+            ax.set_ylabel("Predicted age (years)")
             panel_label(ax, "b", dx=-0.32)
         else:
             ax.set_yticklabels([])
@@ -187,7 +187,7 @@ def main():
         for j, (name, colr, m) in enumerate(models):
             ax.scatter(m[key], j, s=22, color=colr, zorder=3)
             ax.text(m[key], j - 0.3, f"{m[key]:.2f}" if key != "r2" else f"{m[key]:.3f}",
-                    ha="center", va="top", fontsize=6, color=colr)
+                    ha="center", va="top", fontsize=6.8, color=colr)
         ax.set_yticks(range(len(models)))
         ax.set_yticklabels([m[0] for m in models] if i == 0 else [])
         ax.invert_yaxis()
@@ -222,13 +222,13 @@ def main():
         xmin = min(-0.03 * (hi - lo), d.min())
         ax.set_xlim(xmin, d.max() + 0.05 * (hi - lo))
         ax.text(0.03, 0.95, f"95% CI [{lo:.3f}, {hi:.3f}]", transform=ax.transAxes,
-                ha="left", va="top", fontsize=5.5, color="0.25")
+                ha="left", va="top", fontsize=7.0, color="0.25")
         if i == 0:
             axD0 = ax
     panel_label(axD0, "d", dx=-0.1, dy=1.15)
-    axD0.set_title("Paired bootstrap: MethylLlama advantage\n"
-                   "(10,000 subject resamples; 0 = no difference)",
-                   fontsize=6.5, pad=4)
+    axD0.set_title("Paired bootstrap differences\n"
+                   "(10,000 subject resamples; positive favours MethylLlama)",
+                   fontsize=7.2, pad=4)
 
     save(fig, str(OUTDIR / "fig3_age_benchmark_paired_comparison"))
 
