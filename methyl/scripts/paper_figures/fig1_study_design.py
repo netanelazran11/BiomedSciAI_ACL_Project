@@ -44,7 +44,7 @@ V1 = "#c2557a"      # view 1 (rose)
 V2 = "#3a6acc"      # view 2 (blue)
 ENC = "#dfe3ea"     # encoder slab
 GREY = "#8d95a3"
-WEDGE = "#eceff4"
+WEDGE = "#f4f6f9"
 DATA = "#f2d9a8"    # data matrix cells
 
 
@@ -112,6 +112,12 @@ def main():
     axD = fig.add_subplot(gs[2, 1]); axD.set_xlim(0, 1); axD.set_ylim(0, 1); axD.axis("off")
 
     # ══════════ Panel a : bottom-to-top pipeline ══════════
+    for by, bh in [(0.015, 0.181), (0.198, 0.108), (0.318, 0.214), (0.545, 0.355)]:
+        axA.add_patch(FancyBboxPatch((0.005, by), 0.99, bh,
+                                     boxstyle="round,pad=0.002,rounding_size=0.010",
+                                     facecolor="#fafbfc", edgecolor="#e6eaf0",
+                                     linewidth=0.6, zorder=0))
+
     # (1) corpus, drawn as an actual profiles x CpGs matrix
     mx, mw = 0.29, 0.42
     for r in range(5):
@@ -148,8 +154,6 @@ def main():
                   on=mask)
         axA.text(x0 + 0.19, 0.294, lab, ha="center", fontsize=7.0, color=colr,
                  fontweight="bold")
-    axA.text(0.5, 0.246, "profiles\nrestricted\nto each\nsubset", ha="center",
-             va="center", fontsize=6.4, color="0.4", linespacing=1.25)
 
     # (4) shared encoder
     arrow(axA, 0.24, 0.287, 0.24, 0.325)
@@ -236,15 +240,10 @@ def main():
     axA.text(0.79, 0.757, "reconstruction of CpGs\nwithheld from each view",
              ha="center", va="bottom", fontsize=6.8, color="0.25",
              linespacing=1.25)
-    axA.text(0.79, 0.598, "loss is scored only at these positions",
-             ha="center", va="top", fontsize=6.8, color="0.35", style="italic")
 
     axA.text(0.5, 0.862,
              "$\\mathcal{L} = \\mathcal{L}_{\\mathrm{recon}} + 0.05\\,"
              "\\mathcal{L}_{\\mathrm{InfoNCE}}$", ha="center", fontsize=8.4)
-    axA.text(0.5, 0.912,
-             "both objectives act on the same CLS representation",
-             ha="center", fontsize=6.8, color="0.35", style="italic")
     panel_label(axA, "a", dx=0.03, dy=0.975)
 
     # ══════════ Panel b : contrastive objective in embedding space ══════════
@@ -331,7 +330,6 @@ def main():
     panel_label(axD, "d", dx=0.03, dy=0.93)
 
     # ══════════ zoom wedges from (a) into (b), (c), (d) ══════════
-    wedge(fig, axA, (simx, simy, simw, simh), axB)          # similarity -> b
     wedge(fig, axA, (0.05, 0.328, 0.90, 0.072), axC)        # encoder    -> c
     wedge(fig, axA, (0.57, 0.205, 0.38, 0.082), axD)        # a view     -> d
 
