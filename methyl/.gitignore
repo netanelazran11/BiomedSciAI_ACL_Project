@@ -49,3 +49,10 @@ lightning_logs/
 
 # Tokenizer (generated at runtime)
 
+
+# LaTeX build products inside the tracked manuscript copy
+paper/main.aux
+paper/main.log
+paper/main.out
+paper/main.bbl
+paper/main.blg

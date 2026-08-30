@@ -1,0 +1,58 @@
+\section{Discussion}
+
+We developed a partial-view self-supervised framework for learning global representations of
+DNA methylation samples. Unlike objectives that operate only at the level of masked features,
+WCED routes reconstruction through a CLS bottleneck and evaluates reconstruction at CpGs not
+provided to the encoder. Contrastive view matching directly trains the same sample embedding
+that is subsequently transferred to downstream analysis. The combination targets a distinction
+that is easy to miss in high-dimensional molecular modeling: successful prediction of masked
+features is not equivalent to learning a useful global representation.
+
+The current results establish three narrow but meaningful points. First, the encoder can
+compress a partial methylation profile while retaining information about unobserved sites.
+Second, independently sampled views of the same profile remain identifiable in representation
+space. Third, the resulting encoder can be adapted reproducibly to age prediction. The CLS
+representation contained age-associated information before fine-tuning and retained more
+usable variation than mean pooling, consistent with the intended sample-level bottleneck.
+
+The paired benchmark establishes better predictive performance for the implemented
+\method{} pipeline than for MethylGPT on the matched held-out samples. It does not, however,
+isolate the source of that difference: the pipelines vary in architecture, optimization, and
+their handling of 1,760 CpGs outside the shared pretraining reference. ElasticNet provided a
+strong non-neural reference, with performance close to the \method{} ensemble. Although all
+three point estimates favored \method{}, sample-level ElasticNet predictions were not retained,
+so statistical uncertainty is currently available only for the paired MethylGPT comparison.
+Matched objective and initialization ablations are still required before attributing the
+downstream gain specifically to WCED or to self-supervised pretraining.
+
+The strongest limitation is cohort structure. Dataset identity is highly recoverable from the
+pretrained embeddings, showing that study- or batch-specific signals remain prominent. Random
+sample partitions can therefore overestimate transfer when samples from the same source study
+appear in model development and evaluation. This issue also changes how representation
+visualizations should be read. Separation by tissue may reflect genuine biology, but clean
+clusters can coexist with strong study effects. Quantitative study-held-out tests should carry
+more evidential weight than visually distinct UMAP clusters.
+
+The representation analyses are therefore best viewed as diagnostics. Attention concentration,
+genomic locality, and CpG embedding structure can motivate hypotheses, but they do not by
+themselves identify causal age-associated loci or establish biological mechanism. Stronger
+interpretation would require stability across folds and seeds, perturbation-based importance,
+enrichment against a prespecified CpG background, and correction for multiple testing.
+
+Further limitations include reliance on array-selected CpGs, incomplete evaluation across
+platforms, a single firmly established downstream phenotype, and no prospective clinical
+validation. A broad foundation-model claim would require transfer across multiple tasks and
+cohorts. At the present stage, ``self-supervised methylation encoder'' or ``methylation
+representation model'' more precisely describes the demonstrated scope.
+
+In summary, the evidence supports WCED as a method for learning partial-view-consistent global
+methylation representations and supports \method{} as a stable age-prediction encoder on the
+held-out evaluation set. Whether the objective improves upon matched alternatives and whether
+the representation transfers to unseen studies remain the decisive experiments for the final
+manuscript.
+
+% Internal drafting note (not printed): Human review: after the controlled comparisons are
+%   complete, rewrite the opening and closing Discussion paragraphs around one
+%   experimentally attributable conclusion. If no significant pretraining benefit is found,
+%   present the paper as an objective evaluation of sample-level bottleneck learning rather
+%   than forcing a superiority narrative.

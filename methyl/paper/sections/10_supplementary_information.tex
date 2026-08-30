@@ -1,0 +1,49 @@
+% Supplementary figures. Ported from the chapter-review draft; the figure
+% PDFs live in figures/ alongside the main-text ones.
+\clearpage
+\section*{Supplementary Information}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{S\arabic{figure}}
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{figS_view_design.pdf}
+ \caption{\textbf{Cross-view consistency depends partly on overlap between the two views.}
+ Two view constructions were compared on the same 2,000 profiles using the same pretrained
+ encoder: the canonical training construction, in which the two 50\% CpG subsets are drawn
+ independently and therefore share approximately half of their sites, and a disjoint
+ construction, in which the subsets partition the valid CpGs and share none. \textbf{a}, Mean
+ cosine similarity for matched and unmatched pairs. Bars show the mean and error bars the
+ standard deviation across five independent random view draws. Note that the vertical axis
+ begins at 0.40 so that the near-identical matched values remain distinguishable.
+ \textbf{b}, Retrieval accuracy as a function of the number of candidates considered. Lines
+ show the mean and shading the minimum--maximum range across the same five draws; the dashed
+ line is chance. \textbf{c}, Similarity matrices for one draw under each construction
+ (22 representative profiles, shared colour scale). Matched similarity is nearly unchanged
+ between constructions (0.984 versus 0.971) whereas top-1 retrieval falls from 73.8\% to
+ 25.3\%, converging again as more candidates are considered. Because the encoder was trained
+ using independently sampled, potentially overlapping views, the disjoint condition is out of
+ distribution for it, and these values should be read as a conservative bound on cross-subset
+ consistency rather than as a matched comparison.}
+ \label{fig:sup-view-design}
+\end{figure}
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{figS_panel_independence.pdf}
+ \caption{\textbf{Robustness of pretrained representations to random CpG subsampling.}
+ \textbf{a}, Full profiles (grey) and 50\% CpG subsets of the same profiles (blue) projected
+ into a shared principal-component space fitted on the full profiles, with a segment joining
+ each of 250 randomly chosen profiles to its own subset. \textbf{b}, Per-profile cosine
+ similarity between the full-profile embedding and the embedding of a 50\% subset of the same
+ profile, against a shuffled-pairing control. \textbf{c}, A ridge age probe fitted on
+ full-profile embeddings of training profiles and applied, without any adaptation, to full and
+ to 50\%-subset embeddings of 407 held-out profiles; the annotated interval is a paired
+ bootstrap 95\% confidence interval on the difference over 5,000 resamples of those profiles.
+ Subsets here are random 50\% draws from a single view seed, not the probe sets of a specific
+ array generation, so this experiment does not establish independence from a real measurement
+ platform. Performance is also not identical: the probe falls from $R^2=0.863$ to
+ $R^2=0.835$, a difference whose confidence interval excludes zero. The result therefore
+ indicates substantial robustness to which CpGs are observed, not equivalence.}
+ \label{fig:sup-panel-independence}
+\end{figure}

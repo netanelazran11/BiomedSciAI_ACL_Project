@@ -1,0 +1,79 @@
+\section{Introduction}
+
+DNA methylation is a covalent epigenetic modification that contributes to transcriptional
+regulation, chromatin organization, genome stability, and the maintenance of cellular identity.
+At CpG dinucleotides, methylation is commonly quantified as a continuous beta value using
+array-based assays that profile hundreds of thousands of loci \citep{Bibikova2011,Pidsley2016}.
+The biological meaning of a methylation measurement depends on both genomic and cellular
+context: regulatory CpGs can reflect altered gene activity, whereas tissue-specific methylation
+programs capture differentiation and cell composition \citep{Jones2012,Roadmap2015}. A
+methylation profile therefore represents an integrated molecular state rather than a collection
+of independent biomarkers.
+
+The stability of DNA methylation, its accessibility across biological specimens, and its
+responsiveness to development, ageing, environmental exposure, and disease have made it a
+valuable substrate for biomarker discovery. Epigenetic clocks illustrate this potential. Early
+regularized models estimated chronological age across tissues \citep{Horvath2013}, while later
+clocks were developed to capture mortality risk, health-related ageing, and the pace of
+physiological change \citep{Levine2018,Lu2019,Belsky2022,HigginsChen2022}. These models remain
+strong and interpretable predictors, but each is optimized for a predefined endpoint; biological
+structure shared across methylation datasets must therefore be learned repeatedly for different
+phenotypes.
+
+This task-specific paradigm is poorly matched to the scale and heterogeneity of public
+methylation data. Existing profiles span tissues, cohorts, disease states, and array platforms,
+while high-quality phenotype labels are available for only a subset of samples and differ among
+studies. Moreover, platform-defined CpG panels overlap only partially, so models must often
+operate on different subsets of the methylome. Conventional linear predictors perform well when
+the endpoint and CpG panel are fixed, but their predominantly additive formulation does not
+directly model context-dependent relationships among loci. Deep supervised models can capture
+such relationships, yet training a separate model for each application leaves the much larger
+unlabelled corpus unused and can generalize poorly from small labelled cohorts. These constraints
+motivate a foundation-model strategy that separates large-scale representation learning from
+task-specific supervision.
+
+Self-supervised pretraining has enabled reusable representations in language, genomics, and
+single-cell transcriptomics \citep{Devlin2019,Ji2021,Yang2022,Cui2024}. In DNA methylation,
+MethylGPT established that a Transformer can be pretrained on a large collection of human
+methylomes and adapted to biological prediction tasks \citep{Ying2024}. MethylGPT combines
+masked CpG prediction with whole-profile reconstruction from a global CLS representation,
+thereby encouraging that representation to retain sample-level information. Whole-profile
+decoding, however, does not explicitly require the representation of a sample to remain stable
+when different CpG subsets are observed, nor does it isolate recovery of loci that were entirely
+absent from the encoder input. These properties are important when a pretrained representation
+must transfer across incomplete profiles and non-identical measurement panels.
+
+Here we present \method{}, a self-supervised foundation model for human DNA methylation.
+\method{} was trained from scratch, without phenotype labels, on 169{,}120 profiles represented
+at 49{,}156 curated CpG sites, using the large public methylation resource and CpG panel assembled
+for MethylGPT \citep{Ying2024}. Each token combines CpG identity with its quantitative
+methylation value. A Transformer encoder integrates these measurements, while genomic-rank
+rotary position encoding preserves chromosomal order and a dedicated CLS token provides a
+global representation for downstream adaptation \citep{Su2024}.
+
+To learn this representation, we adapt the whole cell expression decoder objective introduced in
+BMFM-RNA \citep{Dandala2025} to methylation as the Whole-CpG Encoder--Decoder (WCED). Two
+independently sampled partial views are generated from each methylation profile and processed by
+a shared encoder. For each view, a decoder predicts the measured profile from the CLS
+bottleneck, but the reconstruction loss is evaluated only at valid CpGs excluded from that
+encoder input, so the objective cannot be satisfied by copying the input forward. A
+complementary response to the same problem is offered by scConcept, which discards feature
+reconstruction altogether and pretrains cell representations purely by contrasting disjoint
+gene-panel views \citep{Bahrami2025}. We adopt that diagnosis but not that remedy: rather than
+replacing reconstruction, we retain it in bottleneck form and add an InfoNCE objective that
+aligns CLS representations of the two views from the same profile while distinguishing
+representations from different profiles \citep{Oord2018}. WCED therefore applies two distinct
+pressures to the same embedding, which must both support recovery of unobserved methylation
+values and remain stable across CpG subsets.
+
+We show that independently sampled CpG views preserve sample-specific identity and that the CLS
+bottleneck supports accurate reconstruction of CpGs withheld from the encoder. Without phenotype
+supervision, the pretrained representation captures substantial age- and tissue-associated
+variation, and fine-tuning for chronological-age prediction outperforms both a matched MethylGPT
+pipeline and an ElasticNet baseline on a common held-out cohort. At the same time, frozen
+representations encode strong study-specific structure, and transfer of age information to
+entirely unseen studies is heterogeneous. Together, these results establish \method{} as a
+reusable DNA methylation foundation model while identifying cohort heterogeneity as a central
+challenge for cross-study generalization.
+
+% Internal drafting note (not printed): add additional completed downstream tasks before submission.

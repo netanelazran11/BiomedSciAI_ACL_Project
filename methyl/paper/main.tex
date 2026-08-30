@@ -1,0 +1,56 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage[switch]{lineno}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+
+\graphicspath{{figures/}}
+
+\newcommand{\method}{MethylLlama}
+\newcommand{\wced}{WCED}
+\newcommand{\cpg}{CpG}
+\newcommand{\betaval}{$\beta$}
+
+\title{MethylLlama: self-supervised foundation modeling of human DNA methylation profiles}
+\author{Netanel Azran}
+\date{Working manuscript}
+
+\begin{document}
+\maketitle
+\linenumbers
+\onehalfspacing
+
+\begin{abstract}
+\input{sections/00_abstract}
+\end{abstract}
+
+\input{sections/01_introduction}
+\input{sections/02_results}
+\input{sections/03_discussion}
+\input{sections/04_methods}
+\input{sections/05_data_availability}
+\input{sections/06_code_availability}
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\input{sections/07_acknowledgements}
+\input{sections/08_author_contributions}
+\input{sections/09_competing_interests}
+
+% Supplementary Information is maintained separately in
+% sections/10_supplementary_information.tex and is not compiled into the main manuscript.
+
+\end{document}

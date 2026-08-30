@@ -1,0 +1,192 @@
+% Ported from the chapter-review draft: all VERIFY/COMPLETE markers resolved
+% against checkpoint configs and dataset headers (see git history).
+\section{Methods}
+
+\subsection{Datasets and study design}
+
+Self-supervised pretraining used 169,120 public methylation profiles represented over 49,156
+CpG sites. Profiles were partitioned once into training, validation, and held-out portions
+(80/10/10) by a fixed random permutation (seed 42); the held-out portion of 16,912 profiles
+was never seen during pretraining and provides the evaluation set for the reconstruction
+analyses reported below. The downstream age corpus was derived from the AltuMAge collection
+\citep{deLimaCamillo2022} and comprised 10,988 profiles over 21,368 CpG sites, spanning 37
+tissue categories and 85 source studies. After removing 328 profiles with implausible age
+annotations ($<0$ or $>120$ years) and 71 duplicate profiles, 10,589 remained: 7,177 training,
+1,263 validation, and a common held-out test set of 2,149 unique samples. Because the same
+test samples were evaluated by all five fold-trained models, variation across models is
+reported as training-fold stability rather than as an independent population confidence
+interval.
+
+\paragraph{Split integrity.}
+Partitions were defined at the level of individual profiles, indexed by their public sample
+accession; donor-level grouping was not available for the majority of source studies, which we
+note as a limitation. Duplicate and technical-replicate profiles were identified by
+methylation fingerprinting across all partitions, yielding 77 duplicate pairs spanning 136
+profiles; within each connected component of the resulting graph the lexicographically first
+accession was retained and the remaining 71 profiles were excluded. The same exclusion list
+and age filter were applied identically to every model and baseline evaluated here, and set
+equality of the resulting 2,149 test accessions was verified programmatically rather than
+inferred from matching counts. Exact split manifests and their hashes will accompany the
+release.
+
+\paragraph{Preprocessing.}
+Beta values were restricted to $[0,1]$. Pretraining used the full 49,156-CpG reference panel;
+downstream modelling used the 21,368 CpGs measured in the AltuMAge collection. Missing
+measurements were excluded from view sampling and from all loss terms through an explicit
+validity mask, so that no imputed value ever contributed to training or evaluation. CpGs were
+ordered by chromosome and genomic coordinate on the hg38 assembly using the Illumina HM450
+manifest. No target-age labels were used during self-supervised pretraining: although the
+implementation exposes an optional auxiliary age-regression term, its weight was set to zero
+for the pretraining run reported here.
+
+\subsection{Input representation and encoder}
+
+Each observed CpG was represented by its site identity $c_i$ and beta value $b_i$. The token
+embedding was
+\begin{equation}
+  \bm{x}_i = s_c\,\bm{e}_{c_i} + f_{\beta}(b_i),
+\end{equation}
+where $\bm{e}_{c_i}$ is a learned CpG embedding, $s_c$ is a learned or initialized scale, and
+$f_{\beta}$ is a continuous-value encoder based on sinusoidal basis functions followed by a
+linear projection. A CLS token was prepended to every partial profile.
+
+The encoder used six transformer layers with hidden size 256, four attention heads (head
+dimension 64), feed-forward width 512, and a vocabulary of 49,161 entries (49,156 CpG sites
+plus five special tokens). Transformer blocks used
+pre-normalization with RMSNorm \citep{Zhang2019}, multi-head self-attention
+\citep{Vaswani2017}, SwiGLU feed-forward layers, and rotary position embeddings
+\citep{Su2024,Touvron2023}. RoPE position identifiers were assigned using genomic rank rather
+than arbitrary input order. The pooled CLS output served as the sample representation.
+
+\subsection{Partial-view WCED pretraining}
+
+WCED adapts the Whole-Cell Expression Decoder introduced for transcriptomic foundation models
+\citep{Dandala2025} to array-derived DNA methylation. The original objective reconstructs a
+whole-cell expression profile through a CLS bottleneck; our formulation reconstructs CpG
+methylation values and evaluates reconstruction only at sites excluded from the encoder input.
+
+The paired-view design was inspired by scConcept, which contrasts representations of different
+gene-panel views of the same cell \citep{Bahrami2025}. For each methylation profile, two
+independently sampled views $V_i^{(1)}$ and $V_i^{(2)}$ contained 50\% of valid CpGs. A shared
+encoder $E_\theta$ produced sample representations
+$\bm{h}_i^{(v)}=E_\theta(V_i^{(v)})_{\mathrm{CLS}}$. A shallow decoder $D_\phi$ mapped each
+CLS representation to a full-vector prediction $\hat{\bm{b}}_i^{(v)}$.
+
+Reconstruction error was evaluated only over valid CpGs absent from the corresponding input
+view, denoted $H_i^{(v)}$:
+\begin{equation}
+ \mathcal{L}_{\mathrm{recon}} =
+ \frac{1}{2}\sum_{v=1}^{2}\frac{1}{|H_i^{(v)}|}
+ \sum_{j\in H_i^{(v)}}\left(\tilde b_{ij}-\widetilde{\hat b}_{ij}^{(v)}\right)^2,
+\end{equation}
+where tildes denote per-sample standardisation: within each view, predicted and observed
+values at the withheld positions are centred and scaled to unit variance before the squared
+error is taken. This prevents the decoder from reducing the loss by predicting each CpG's
+marginal mean, and it makes the reported reconstruction loss scale-free.
+
+A two-layer projection head $g$ ($256\rightarrow128\rightarrow128$, ReLU) mapped CLS
+embeddings to $L_2$-normalized vectors $\bm{z}_i^{(v)}$. The symmetric cross-view InfoNCE loss
+used matched views as positives and other samples in the batch as negatives \citep{Oord2018}:
+\begin{equation}
+ \mathcal{L}_{\mathrm{ctr}} = -\frac{1}{2N}\sum_{i=1}^{N}
+ \left[
+ \log\frac{\exp(\bm{z}_i^{(1)\top}\bm{z}_i^{(2)}/\tau)}
+ {\sum_j\exp(\bm{z}_i^{(1)\top}\bm{z}_j^{(2)}/\tau)}+
+ \log\frac{\exp(\bm{z}_i^{(2)\top}\bm{z}_i^{(1)}/\tau)}
+ {\sum_j\exp(\bm{z}_i^{(2)\top}\bm{z}_j^{(1)}/\tau)}
+ \right].
+\end{equation}
+The complete objective was
+$\mathcal{L}=\mathcal{L}_{\mathrm{recon}}+\lambda\mathcal{L}_{\mathrm{ctr}}$, with a fixed
+temperature $\tau=0.1$ and $\lambda=0.05$.
+
+\paragraph{Relationship to contrastive single-cell pretraining.}
+The contrastive component follows the cell-view formulation of scConcept
+\citep{Bahrami2025}, and we state the differences explicitly because they bound
+interpretation. First, and most importantly, contrastive alignment is the \emph{sole}
+pretraining objective in that framework, which dispenses with reconstruction altogether;
+here it is an auxiliary term ($\lambda=0.05$) accompanying withheld-CpG reconstruction. We
+adopt the underlying diagnosis---that feature-level reconstruction does not by itself
+optimise the sample-level embedding---but address it with two complementary mechanisms:
+routing reconstruction through the CLS bottleneck and scoring it only at withheld sites, and
+adding explicit cross-view alignment pressure on the same representation. Second, their two
+views are disjoint gene panels, whereas our two 50\% CpG subsets are drawn independently and
+may overlap, which makes view alignment a comparatively easier task. Third, their negative
+set additionally contains embeddings from the anchor's own view, which discourages the
+encoder from representing panel identity rather than sample identity; our negative set
+contains only cross-view embeddings. Fourth, their temperature is learned during training
+whereas ours is fixed, and their contrastive loss is computed on the CLS embedding directly
+rather than through a projection head. Finally, their mini-batches are drawn from a single
+source dataset so that discrimination cannot be solved using inter-study technical
+differences, whereas ours are sampled at random from the pretraining corpus; we return to
+this point in the Discussion.
+
+\subsection{Age fine-tuning and comparators}
+
+A two-layer regression head ($256\rightarrow128\rightarrow1$, dropout 0.1) was applied to the
+CLS representation. The encoder was frozen for the first ten epochs while the head adapted,
+and then unfrozen and optimised jointly at a reduced encoder learning rate
+($2\times10^{-5}$ versus $10^{-4}$ for the head). Fine-tuning used the complete measured
+profile as input rather than a partial view, and was optimised with a Huber loss on
+standardised age. Model selection used validation MedAE without access to the held-out test
+labels.
+
+MethylGPT \citep{Ying2024} was evaluated using the same source dataset, age labels, five fold
+assignments, and 2,149 held-out sample identifiers. Five predictions per sample were averaged
+within each model family before comparison. The pipelines differed in feature handling:
+19,608 of the 21,368 downstream CpGs occurred in the common pretraining reference, whereas
+the remaining 1,760 CpGs were retained by \method{} under a shared unknown-site identity and
+excluded by the MethylGPT conversion pipeline.
+
+As a non-neural reference, we fitted ElasticNetCV \citep{Zou2005} to all 21,368 beta-value
+features after standardization based only on the pooled training and validation profiles.
+The documented $l_1$-ratio grid (0.1, 0.5, 0.7, 0.9, 0.95, 0.99, and 1.0), an automatically
+derived 100-value alpha path, and five-fold internal cross-validation were used once without
+post-hoc expansion of the search space. The selected model had $\alpha=0.10883$,
+$l_1$ ratio 0.7, and 1,036 non-zero coefficients. The common test set was not used for
+hyperparameter selection. A single-fold random-initialization experiment was retained as
+exploratory and was not used for the primary comparison; matched objective ablations remain
+necessary to attribute downstream performance specifically to WCED.
+
+\subsection{Evaluation and statistical analysis}
+
+Primary endpoints were median absolute error (MedAE) and mean absolute error (MAE), measured
+in years. $R^2$ was secondary. Fold-level means and sample standard deviations quantify
+sensitivity to the training fold and are not population confidence intervals. For the
+\method{}--MethylGPT comparison, 95\% confidence intervals were obtained from 10,000 paired
+percentile-bootstrap replicates with random seed 0. Held-out samples, rather than fold-level
+predictions, were resampled; the same bootstrap indices were applied to both model ensembles.
+The ElasticNet result is reported as a point-estimate reference because per-sample predictions
+were not retained for a paired analysis.
+
+Representation analyses included matched-versus-unmatched view cosine similarity, cross-view
+retrieval, linear and nonlinear age probes, effective rank, and CLS-versus-mean pooling.
+All probe splits were isolated from probe fitting and hyperparameter selection.
+
+\paragraph{Withheld-CpG reconstruction.}
+Reconstruction was evaluated on 5,000 profiles drawn from the held-out portion of the
+pretraining corpus, which was excluded from pretraining by the fixed partition described
+above. Each profile was encoded from a 50\% subset of its measured CpGs, and predictions were
+scored only at measured CpGs absent from that input---the same mask used by the training
+objective---giving $1.12\times10^{8}$ evaluated positions. Three controls were computed on the
+identical profiles under the identical masks: a per-CpG mean predictor, the decoder applied to
+CLS embeddings shuffled across the batch, and the decoder applied to standard normal vectors.
+The per-CpG means were computed on the evaluation cohort itself, which favours that baseline
+and therefore makes the comparison conservative.
+
+\paragraph{Cross-view consistency.}
+Two 50\% views were encoded for each of 2,000 profiles and compared by cosine similarity of the
+resulting CLS embeddings. We report the mean similarity for matched and unmatched pairs, and
+retrieval accuracy at rank $k$: the fraction of first views whose matched second view falls
+within the $k$ nearest of all 2,000 candidates. Retrieval at $k=1$ is the strictest point on
+this curve; chance is $k/2000$. The whole evaluation was repeated for five independent random
+view draws, and we report the mean and range across draws rather than a single draw.
+
+Two view constructions were compared. In the first, matching the construction used during
+pretraining, the two views are drawn independently and therefore share approximately half of
+their CpGs in expectation. In the second, they form a random partition of the valid CpGs and
+share no site, following the disjoint-panel construction of \citet{Bahrami2025}. The disjoint
+condition is out of distribution for an encoder trained under the overlapping construction, and
+we therefore interpret it as a conservative bound on cross-subset consistency rather than as a
+matched comparison. Both conditions used the same profiles, checkpoint, and encoder call, so
+they differ only in how the two views are formed.

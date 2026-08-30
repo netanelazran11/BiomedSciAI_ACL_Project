@@ -1,0 +1,335 @@
+\section{Results}
+
+\subsection{Study design and self-supervised pretraining}
+
+We pretrained \method{} on 169,120 human DNA methylation profiles represented in a shared
+vocabulary of 49,156 CpG sites. Pretraining was label-free: neither chronological age nor
+tissue, sex, dataset, or disease labels contributed to the objective. Each profile generated
+two independently sampled views, each containing 50\% of its measured CpGs. A shared encoder
+compressed each view into a 256-dimensional CLS representation, from which a decoder predicted
+measured CpGs withheld from that view. A symmetric cross-view contrastive term encouraged the
+two CLS representations from the same profile to agree while retaining discrimination between
+profiles (Fig.~\ref{fig:study-design}).
+
+We evaluated the pretrained encoder on the AltuMAge-derived collection, which contains 10,988
+profiles and 21,368 measured CpGs before age-range filtering and duplicate removal. We used the
+original train, validation, and test partition (7,416/1,308/2,264 profiles) only for frozen
+representation diagnostics. The supervised age benchmark applied the prespecified age filter
+and methylation-fingerprint deduplication, generated five stratified training/validation folds,
+and retained a common fixed test set of 2,149 unique sample identifiers for every fold and both model
+families. This separation is important: the 2,264-profile split supports in-distribution probes,
+whereas all reported fine-tuning and paired-comparison metrics use the filtered and deduplicated
+2,149-sample test set.
+
+The pretraining corpus size was confirmed directly from the canonical data header
+(169,120 profiles $\times$ 49,156 CpG sites) and partitioned 80/10/10 by a fixed permutation,
+leaving 16,912 profiles that were never seen during pretraining and are used for the
+reconstruction analyses below. This count should not be conflated with the 154,063 post-QC
+figure reported for MethylGPT, whose curation pipeline differs.
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{fig1_study_design_wced.pdf}
+ \caption{\textbf{Study design and self-supervised pretraining of \method{}.}
+ \textbf{a}, Study design. The unlabelled pretraining corpus is distinguished from the labelled
+ AltuMAge evaluation collection, and the two downstream analysis populations are shown
+ separately: the 10,988-profile partition used for frozen-representation probes and the
+ filtered, deduplicated 2,149-sample test set used for supervised comparisons. Phenotype
+ annotations were not used as supervision during pretraining. \textbf{b}, View construction.
+ Two independent 50\% subsets of the measured CpGs of one profile form the two views; for each
+ view, the complement (hatched) provides the reconstruction target, so the objective is scored
+ only at measured CpGs absent from that view. \textbf{c}, The WCED objective. A shared encoder
+ maps each view to a CLS representation; a decoder predicts the withheld CpGs from that
+ representation alone, and a symmetric InfoNCE term aligns the two projected CLS embeddings.
+ \textbf{d}, Token encoding. Each CpG token sums a learned site-identity embedding and a
+ continuous $\beta$-value encoding, with a CLS token prepended to every partial profile.}
+ \label{fig:study-design}
+\end{figure}
+
+\subsection{WCED learns view-consistent global representations}
+
+WCED is designed to compress incomplete observations of a methylation profile into a shared
+global representation. Across five independent random draws of two half-profile views for each
+of 2,000 profiles, matched views had a mean cosine similarity of $0.984\pm0.0004$, compared
+with $0.499\pm0.0002$ for unmatched profiles, and the correct paired view was retrieved for
+73.8\% of queries (range 73.1--74.5\% across draws; chance 0.05\%). Retrieval reached 96.1\%
+within the ten nearest candidates. The representation is therefore largely invariant to which
+half of the methylome is observed while remaining specific enough to identify the individual
+profile.
+
+This invariance is nevertheless partly supported by shared input rather than by the
+representation alone. Because the two views are drawn independently, they share approximately
+half of their CpGs in expectation. Repeating the evaluation with strictly disjoint views---a
+random partition in which the two halves share no site---left mean matched similarity almost
+unchanged ($0.971\pm0.0005$ versus $0.984$) but reduced top-1 retrieval to
+25.3\% (range 24.6--26.0\%). The dissociation is informative: average similarity is insensitive
+to the change, whereas identifying the correct partner among 1,999 competitors depends on
+narrow margins against the most similar profiles, which the small loss of positive similarity
+is sufficient to erase. Cross-subset identity information is clearly retained---disjoint-view
+retrieval remains roughly 500-fold above chance, and the correct partner falls within the ten
+nearest candidates for 75.1\% of queries, comparable to top-1 performance under overlapping
+views---but it is weaker than the overlapping-view figure implies. We note that the encoder was
+trained with overlapping views, so disjoint evaluation is out of distribution and these values
+are a conservative bound rather than an estimate of what the architecture achieves when trained
+for that regime (Supplementary Fig.~S1).
+
+A related question is how far the representation of a partial profile departs from that of the
+complete profile, which bears on whether a sample assayed at fewer sites can be embedded
+consistently. The embedding of a random 50\% CpG subset had a mean cosine similarity of 0.991
+to the embedding of its own complete profile (shuffled-pairing control, 0.496), and a ridge age
+probe fitted on complete-profile embeddings and applied without adaptation to subset embeddings
+of held-out profiles retained $R^2=0.835$ against $R^2=0.863$ on complete profiles (paired
+difference 0.028, 95\% CI 0.014--0.044; Supplementary Fig.~S2). The representation is therefore
+substantially, though not perfectly, robust to which half of the measured sites is retained.
+We note that these are random subsets rather than the probe set of a particular array
+generation, so this does not by itself establish transfer across measurement platforms.
+
+\subsection{WCED reconstructs CpGs withheld from the input}
+
+We evaluated reconstruction on 5,000 profiles from the held-out portion of the pretraining
+corpus, encoding each from a 50\% subset of its measured CpGs and scoring predictions only at
+measured CpGs absent from that input ($1.12\times10^{8}$ evaluated positions). Predicted and
+observed beta values were closely correlated at these withheld sites (Pearson $r=0.972$), and
+the per-profile standardized reconstruction loss was 0.0525---closely reproducing the
+checkpoint's own validation diagnostics (0.9713 and 0.0552) on profiles excluded from
+pretraining (Fig.~\ref{fig:partial-view}c).
+
+To test whether the decoder genuinely reads the sample representation rather than exploiting
+population-level regularities, we compared three controls computed on the same profiles under
+identical withheld masks. Reconstruction error was 0.0056 for the model, against 0.0306 for a
+per-CpG mean predictor, 0.0505 for a decoder given standard normal vectors, and 0.0552 for a
+decoder given CLS embeddings shuffled across the batch (Fig.~\ref{fig:partial-view}d). The
+model therefore reduced error 5.4-fold relative to the per-CpG mean, even though the mean
+predictor was computed on the evaluation cohort itself and is thus advantaged. Notably,
+shuffled CLS embeddings produced slightly worse reconstruction than random vectors: supplying
+a real but mismatched sample representation is more misleading than supplying no sample
+information at all. Together with cross-view consistency, this shows that the CLS bottleneck
+carries sample-specific information sufficient both to identify a profile and to predict
+methylation values never supplied to that view.
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{fig2_wced_consistency_reconstruction.pdf}
+ \caption{\textbf{WCED learns consistent partial-view representations and reconstructs
+ withheld CpGs.} \textbf{a}, Cosine similarity between CLS embeddings of two independently
+ sampled 50\%-CpG views, for 40 representative profiles (heatmap; the bright diagonal marks
+ matched views of the same profile) and summarised over all 2,000 profiles (violins; means
+ annotated). \textbf{b}, Cross-view retrieval accuracy as a function of the number of
+ candidates considered, against chance; the strictest point, top-1, is annotated. Panels a and
+ b show one representative draw of two views per profile; values across five independent draws
+ are given in the text and in Supplementary Fig.~S1. \textbf{c}, Observed
+ versus predicted $\beta$ values at CpGs withheld from the encoder input, for 5,000 profiles
+ from the held-out portion of the pretraining corpus (hexagonal binning, logarithmic colour
+ scale; dashed line indicates identity). For legibility the panel displays a random subsample
+ of $5.0\times10^{5}$ of the $1.12\times10^{8}$ evaluated positions; the reported correlation
+ ($r=0.972$) was computed over all evaluated positions, not over the plotted subsample.
+ \textbf{d}, Mean squared error at withheld CpGs for the model and three controls evaluated on
+ the same profiles under identical withheld masks. Bars show the mean across profiles and
+ vertical lines span the 10th--90th percentile across profiles; these are dispersion ranges,
+ not confidence intervals.}
+ \label{fig:partial-view}
+\end{figure}
+
+\subsection{Pretraining captures age and tissue variation}
+
+We next asked whether self-supervised pretraining preserved information useful beyond its
+reconstruction objective. A ridge regressor fitted to frozen pretrained CLS embeddings on the
+original train-plus-validation profiles achieved $R^2=0.866$ and a median absolute error
+(MedAE) of 5.17 years on the original 2,264-profile test split. Applying the same probe to
+mean-pooled contextual CpG embeddings reduced performance to $R^2=0.795$ and MedAE 6.53 years.
+The CLS space also had a higher effective rank than the mean-pooled space (18.12 versus 3.40)
+and lower mean cosine anisotropy (0.500 versus 0.867). These findings indicate that the explicit
+sample token retained broader, more age-informative variation than uniform pooling across CpG
+tokens, despite receiving no age supervision during pretraining.
+
+Biological information was not restricted to age. A linear classifier trained on frozen CLS
+embeddings attained balanced accuracy 0.936 across 37 sufficiently represented tissue classes
+(chance level 0.027). These probes establish that biologically associated structure is
+accessible in the pretrained representation under an in-distribution sample split. They do not
+show that the representation has separated biology from study or platform effects, because
+profiles from the same study can occur on both sides of the probe split.
+
+An archived nonlinear replica-head probe reached $R^2=0.922$ and MedAE 3.57 years, but we treat
+it as exploratory: the current analysis script does not seed its NumPy minibatch shuffling and
+does not reserve a separate split for head-hyperparameter selection. The deterministic ridge
+probe is therefore the primary evidence for label-free age information.
+
+\subsection{Age prediction is stable across folds}
+
+We fine-tuned five models using different stratified training/validation folds and evaluated
+every selected checkpoint on the same 2,149-sample test set (age range 0--103 years; mean
+45.53 years). Across folds, mean MedAE was $3.169\pm0.040$ years, mean MAE was
+$4.493\pm0.059$ years, and mean $R^2$ was $0.9316\pm0.0024$ (mean $\pm$ sample SD;
+Table~\ref{tab:folds}). The narrow ranges across folds show that performance was not driven by
+one favorable supervised partition. Because the test samples were shared, however, these
+standard deviations measure training-partition stability and are not confidence intervals for
+population performance.
+
+Averaging the five predictions for each sample produced the primary \method{} estimate, with
+MedAE 3.112 years, MAE 4.333 years, and $R^2=0.9365$. MethylGPT was aggregated in the same way
+for the paired neural-model comparison below.
+
+\begin{table}[H]
+\centering
+\caption{\textbf{Five-fold stability on the common held-out test set.}
+Values were recomputed from saved sample-level predictions. Because every model was evaluated
+on the same test samples, fold dispersion quantifies sensitivity to the training partition and
+is not a population confidence interval.}
+\label{tab:folds}
+\begin{tabular}{lrrr}
+\toprule
+Model & MedAE (years) & MAE (years) & $R^2$ \\
+\midrule
+Fold 0 & 3.126 & 4.439 & 0.9321 \\
+Fold 1 & 3.213 & 4.458 & 0.9337 \\
+Fold 2 & 3.209 & 4.570 & 0.9284 \\
+Fold 3 & 3.152 & 4.541 & 0.9298 \\
+Fold 4 & 3.144 & 4.455 & 0.9338 \\
+\midrule
+Mean $\pm$ SD & $3.169\pm0.040$ & $4.493\pm0.059$ & $0.9316\pm0.0024$ \\
+Fold ensemble & 3.112 & 4.333 & 0.9365 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{\method{} improves age prediction over MethylGPT}
+
+We performed a paired comparison using identical held-out samples, age labels, and fold
+assignments for both model families. Fold-level predictions were averaged within sample, and
+uncertainty was estimated by resampling the same test samples for both models. \method{}
+reduced ensemble MedAE from 3.70 to 3.11 years (paired difference, 0.59 years; 95\% CI,
+0.34--0.81) and MAE from 5.11 to 4.33 years, while increasing $R^2$ from 0.911 to 0.936.
+Paired confidence intervals for all three endpoints excluded zero
+(Fig.~\ref{fig:age-benchmark}).
+
+We additionally evaluated a conventional linear reference using ElasticNetCV
+\citep{Zou2005}. Hyperparameters were selected by internal cross-validation on the pooled
+training and validation profiles, with the common test set withheld until final evaluation.
+The resulting model used 1,036 non-zero coefficients among 21,368 CpGs and achieved MedAE
+3.44 years, MAE 4.73 years, and $R^2=0.9322$. The \method{} ensemble therefore had better
+point estimates than both ElasticNet and MethylGPT on this test set. Because ElasticNet was
+evaluated as a single fitted model and its sample-level predictions were not retained, this
+comparison is descriptive and is not assigned a paired confidence interval.
+
+The benchmark is matched at the sample and split levels, but the pipelines differ in their
+treatment of 1,760 CpGs outside the shared pretraining reference: \method{} retains their
+measured values under a common unknown-CpG identity, whereas MethylGPT excludes them. The
+result therefore establishes a predictive advantage for the implemented \method{} pipeline,
+but does not attribute that advantage to WCED alone.
+
+\begin{table}[H]
+\centering
+\caption{\textbf{Age-prediction performance on the common held-out test set.}
+The first three rows are test-set point estimates. \method{} and MethylGPT are five-fold
+prediction ensembles; ElasticNetCV is a single model selected by internal cross-validation.
+The final row reports the paired MethylGPT-minus-\method{} difference and its 95\% bootstrap
+confidence interval; positive error differences and a negative $R^2$ difference favor
+\method{}.}
+\label{tab:age-benchmark}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Model or comparison & MedAE (years) & MAE (years) & $R^2$ \\
+\midrule
+\method{} & 3.112 & 4.333 & 0.9365 \\
+ElasticNetCV & 3.437 & 4.731 & 0.9322 \\
+MethylGPT & 3.701 & 5.105 & 0.9110 \\
+\midrule
+MethylGPT $-$ \method{} & $0.589\ [0.338,\,0.815]$ &
+$0.773\ [0.583,\,0.968]$ & $-0.0254\ [-0.0329,\,-0.0183]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{fig3_age_benchmark_paired_comparison.pdf}
+ \caption{\textbf{Stable age prediction and comparison with neural and linear references.}
+ \textbf{a}, Test-set MedAE, MAE, and $R^2$ for the five independently fine-tuned \method{}
+ folds; horizontal lines denote fold means. \textbf{b}, Ensemble-predicted versus chronological
+ age for \method{} and MethylGPT on the same 2,149 held-out samples; each point is one
+ sample and dashed lines indicate identity. \textbf{c}, Ensemble point estimates for
+ \method{} and MethylGPT and the single-model ElasticNetCV reference. \textbf{d}, Sampling
+ distributions of the paired difference between models over 10,000 sample resamples, with the
+ central 95\% shaded; error reductions are MethylGPT-minus-\method{} differences, whereas the
+ $R^2$ effect is \method{}-minus-MethylGPT, so positive values favor \method{} throughout. The
+ vertical dashed lines mark no difference.}
+ \label{fig:age-benchmark}
+\end{figure}
+
+\subsection{Genomic RoPE induces contextual CpG locality}
+
+To test the representational effect of genomic RoPE, we trained a matched pilot pair on the
+same fixed 5,000-profile subset. The two runs used the same architecture, objective, and
+hyperparameters; the intentional difference was whether RoPE received genomic-rank positions
+or sequential positions. For the genomic-RoPE model, mean cosine similarity of contextualized
+representations was 0.9831 for adjacent CpGs and 0.8857 for random pairs, giving a locality gap
+of 0.0974. Without genomic positions, the corresponding values were 0.9931 and 0.9621, a gap
+of 0.0310. Thus, relative separation of adjacent from random CpGs was approximately 3.14-fold
+larger with genomic positions. In the production model's static token-embedding table, adjacent
+and random CpGs showed no positive locality gap, consistent with locality emerging through
+contextual computation rather than simple clustering of identity embeddings.
+
+This ablation supports a mechanistic interpretation but remains a pilot. It used one seed, and
+the selected genomic checkpoint also had better reconstruction diagnostics than the non-genomic
+checkpoint (normalized reconstruction loss 0.0906 versus 0.1585; Pearson correlation 0.9357
+versus 0.9017). We therefore report the locality result in the Supplementary Results and do not
+claim a downstream predictive advantage for genomic RoPE until replicated pretraining runs and
+a matched downstream ablation are available.
+
+\subsection{Pretrained representations retain tissue and study structure}
+
+Although tissue was highly predictable from frozen CLS embeddings, study identity was even
+more readily accessible: a linear probe attained balanced accuracy 0.956 across 85 eligible
+datasets, compared with a chance level of 0.012. Two-dimensional projections likewise formed
+many compact study-associated islands. This finding is not evidence of batch invariance.
+Instead, it shows that the representation simultaneously retains biological tissue structure
+and substantial cohort-specific structure. Tissue and dataset labels are also partially
+confounded in public methylation collections, so the tissue-probe accuracy cannot be interpreted
+as a study-independent biological metric.
+
+For this reason, the main representation figure should pair the tissue result with the dataset
+result rather than show tissue alone. UMAP panels are descriptive and belong in the
+Supplementary Information; balanced-accuracy probes and cross-study tests provide the
+quantitative evidence (Fig.~\ref{fig:representation-generalization}).
+
+\subsection{Cross-study transfer of age representations remains limited}
+
+We assessed whether age information in frozen CLS embeddings transferred to studies excluded
+from probe fitting. Whereas a random-split ridge probe achieved $R^2=0.856$, the median
+leave-one-dataset-out $R^2$ across 11 eligible studies was 0.261, with a median MedAE of
+8.32 years; three studies yielded negative $R^2$. The broad variation between cohorts shows
+that readily decodable age information within a mixed-study split does not ensure robust
+transfer to an unseen study.
+
+The failures are not explained by the obvious cohort descriptors. Neither the age dispersion
+of the held-out cohort (Spearman $\rho=+0.28$, $P=0.40$) nor its sample size
+($\rho=+0.26$, $P=0.43$) was associated with transfer success, and the failing studies overlap
+the succeeding ones on both axes: one cohort of 118 profiles with an age SD of 10.5 years
+transferred at $R^2=0.42$, whereas a larger cohort of 282 profiles with a wider age SD of
+13.9 years transferred at $R^2=-4.63$ (Fig.~\ref{fig:representation-generalization}c). Cohort
+size and age range therefore do not account for the heterogeneity, which instead points toward
+study-specific biological or technical structure of the kind quantified above.
+
+This is a diagnostic of the frozen representation, not a generalization test of the fully
+fine-tuned age model. Differences in tissue, disease status, platform, and age distribution
+also remain entangled with study identity. Claims of study-independent age prediction will
+therefore require grouped study-held-out fine-tuning with cohort-level uncertainty; the
+current analysis identifies cross-study transfer as an unresolved limitation.
+
+\begin{figure}[H]
+ \centering
+ \includegraphics[width=\linewidth]{fig4_representation_cross_study_transfer.pdf}
+ \caption{\textbf{Biological structure, study structure, and the limits of cross-study
+ transfer.} \textbf{a}, Frozen linear age-probe performance using the pretrained CLS
+ representation or mean-pooled contextual CpG embeddings. \textbf{b}, Balanced accuracy of
+ frozen CLS linear probes for tissue and dataset/study identity; dark-grey dashed horizontal
+ segments mark chance levels. \textbf{c}, Leave-one-dataset-out age-probe $R^2$ for the 11 studies meeting
+ the prespecified size ($n\geq100$) and age-dispersion (SD $\geq10$ years) thresholds, plotted
+ against the age spread of the held-out cohort, with marker area proportional to cohort size.
+ Studies with negative $R^2$ are shown in red on a shaded background; the most extreme value is
+ clipped for readability and annotated with its true value. Neither cohort descriptor predicts
+ transfer success (Spearman $\rho$ inset). These analyses diagnose the frozen representation and
+ do not constitute external validation of the fully fine-tuned model.}
+ \label{fig:representation-generalization}
+\end{figure}

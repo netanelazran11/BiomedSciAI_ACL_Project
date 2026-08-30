@@ -1,0 +1,19 @@
+DNA methylation is an informative biomarker of disease, tissue identity, and biological age,
+but conventional task-specific models do not fully exploit context-dependent regulation across
+the methylome or the large volume of public profiles lacking harmonized phenotype labels. Here
+we present \method{}, a self-supervised foundation model for human DNA methylation, built on a
+Transformer encoder and pretrained without phenotype supervision on 169{,}120 profiles from
+diverse tissues and studies, represented at 49{,}156 curated CpG sites. \method{} encodes CpG
+identity, quantitative methylation state, and genomic position. We adapt Whole-Cell Expression
+Decoding to methylation as the Whole-CpG Encoder--Decoder (WCED), which maps independently
+sampled partial views of each profile to global sample representations. Each representation is
+trained to reconstruct CpG values excluded from its input, while an InfoNCE objective aligns
+representations of the same sample across views. On held-out profiles, \method{} preserved sample
+identity across partial measurements and reconstructed withheld methylation values. Frozen
+representations captured age- and tissue-associated variation but also substantial study-specific
+structure. In chronological-age prediction, a five-model ensemble outperformed matched
+MethylGPT and ElasticNet pipelines on a common held-out cohort. These findings support
+\method{} as a reusable methylation representation model while identifying cross-study
+generalization as an important remaining challenge.
+
+% Internal drafting note (not printed): expand demonstrated downstream breadth before submission.
