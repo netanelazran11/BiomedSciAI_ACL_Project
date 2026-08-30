@@ -127,15 +127,16 @@ def main():
     arrow(axA, 0.44, 0.122, 0.28, 0.152)
     arrow(axA, 0.56, 0.122, 0.72, 0.152)
     axA.text(0.5, 0.140, "two independent\n50% CpG subsets", ha="center",
-             va="center", fontsize=6.8, color="0.35", linespacing=1.3)
+             va="center", fontsize=6.8, color="0.35", linespacing=1.3, zorder=5,
+             bbox=dict(facecolor="white", edgecolor="none", pad=1.2))
     rng = np.random.default_rng(3)
     m1 = rng.random(28) < 0.5
     m2 = rng.random(28) < 0.5
     strip(axA, 0.07, 0.158, 0.34, 0.017, 28, V1, on=m1)
     strip(axA, 0.59, 0.158, 0.34, 0.017, 28, V2, on=m2)
-    axA.text(0.24, 0.183, "subset 1", ha="center", fontsize=6.8, color=V1,
+    axA.text(0.24, 0.183, "subset 1 $\\cdot$ 24,578 CpGs", ha="center", fontsize=6.8, color=V1,
              fontweight="bold")
-    axA.text(0.76, 0.183, "subset 2", ha="center", fontsize=6.8, color=V2,
+    axA.text(0.76, 0.183, "subset 2 $\\cdot$ 24,578 CpGs", ha="center", fontsize=6.8, color=V2,
              fontweight="bold")
 
     # (3) the two views
@@ -179,7 +180,7 @@ def main():
     axA.add_patch(Circle((0.50, 0.548), 0.010, facecolor="0.45",
                          edgecolor="none", zorder=4))
     arrow(axA, 0.49, 0.556, 0.20, 0.588, color="0.45")
-    arrow(axA, 0.51, 0.556, 0.79, 0.640, color="0.45")
+    arrow(axA, 0.51, 0.556, 0.628, 0.714, color="0.45")
 
     # --- left objective: cross-view similarity matrix (real data) ---
     simx, simy, simw, simh = 0.045, 0.600, 0.30, 0.163  # square at this panel aspect
@@ -189,6 +190,14 @@ def main():
     axA.imshow(sim[np.ix_(sel, sel)], cmap="magma", vmin=0, vmax=1,
                extent=(simx, simx + simw, simy, simy + simh), aspect="auto",
                zorder=3, interpolation="nearest")
+    # Outline the diagonal: these are the matched (same-profile) pairs, i.e. the
+    # quantity InfoNCE maximises. Previously the reader had to infer which cells
+    # carried the claim.
+    cw_, ch_ = simw / k, simh / k
+    for i in range(k):
+        axA.add_patch(Rectangle((simx + i * cw_, simy + simh - (i + 1) * ch_),
+                                cw_, ch_, facecolor="none", edgecolor="white",
+                                linewidth=1.0, zorder=5))
     axA.add_patch(Rectangle((simx, simy), simw, simh, facecolor="none",
                             edgecolor="0.5", linewidth=0.7, zorder=4))
     # colour brackets identifying the two views on the matrix axes
@@ -201,21 +210,34 @@ def main():
     axA.text(simx + simw / 2, simy - 0.030, "View 2", ha="center",
              fontsize=6.6, color=V2)
     axA.text(simx + simw / 2, simy + simh + 0.014,
-             "cross-view\nsimilarity matrix", ha="center", va="bottom",
+             "cross-view similarity matrix\noutlined diagonal = matched views",
+             ha="center", va="bottom",
              fontsize=6.8, color="0.25", linespacing=1.25)
     axA.text(simx + simw / 2, simy + simh + 0.060, "InfoNCE", ha="center",
              fontsize=7.4, color=COL_ACCENT, fontweight="bold")
 
     # --- right objective: decoder reconstructs the withheld CpGs ---
-    rbox(axA, 0.60, 0.690, 0.36, 0.040, "Decoder", fc="#fdf0e6", ec=COL_GPT,
+    rbox(axA, 0.62, 0.706, 0.34, 0.038, "Decoder", fc="#fdf0e6", ec=COL_GPT,
          fs=7.2, bold=True)
-    arrow(axA, 0.78, 0.690, 0.78, 0.662, color=COL_GPT)
-    strip(axA, 0.62, 0.640, 0.32, 0.016, 28, COL_GPT, on=~m1)
-    axA.text(0.78, 0.630, "predicted at withheld CpGs", ha="center", va="top",
-             fontsize=6.6, color=COL_GPT)
-    axA.text(0.78, 0.740, "reconstruction\nof CpGs withheld\nfrom each view",
+    arrow(axA, 0.79, 0.706, 0.79, 0.688, color=COL_GPT)
+    # predicted vs measured at the SAME withheld positions, so that "scored only
+    # where the encoder was blind" is visible rather than left to the caption
+    strip(axA, 0.645, 0.668, 0.315, 0.015, 28, COL_GPT, on=~m1)
+    axA.text(0.635, 0.6755, "predicted", ha="right", va="center",
+             fontsize=6.8, color=COL_GPT)
+    strip(axA, 0.645, 0.612, 0.315, 0.015, 28, "#7a8290", on=~m1)
+    axA.text(0.635, 0.6195, "measured", ha="right", va="center",
+             fontsize=6.8, color="0.35")
+    axA.annotate("", xy=(0.80, 0.630), xytext=(0.80, 0.667),
+                 arrowprops=dict(arrowstyle="<->", color="0.3", lw=0.9,
+                                 mutation_scale=6))
+    axA.text(0.818, 0.6485, "compare", ha="left", va="center", fontsize=6.8,
+             color="0.3")
+    axA.text(0.79, 0.757, "reconstruction of CpGs\nwithheld from each view",
              ha="center", va="bottom", fontsize=6.8, color="0.25",
              linespacing=1.25)
+    axA.text(0.79, 0.598, "loss is scored only at these positions",
+             ha="center", va="top", fontsize=6.8, color="0.35", style="italic")
 
     axA.text(0.5, 0.862,
              "$\\mathcal{L} = \\mathcal{L}_{\\mathrm{recon}} + 0.05\\,"
