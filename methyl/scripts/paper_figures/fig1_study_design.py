@@ -1,21 +1,23 @@
 """
-Figure 1 -- Study design and the WCED pretraining objective.
+Figure 1 -- MethylLlama model and WCED training overview.
 
-Panel structure follows the convention used for contrastive/self-supervised
-single-cell models (e.g. scConcept Fig. 1): study design, view construction,
-the training objective, and the input encoding.
+Layout follows the convention established for contrastive/self-supervised
+representation models (cf. scConcept Fig. 1): panel (a) is a single
+bottom-to-top pipeline drawn with concrete objects rather than abstract
+boxes, and panels (b)-(d) are zoom-ins connected to it by grey wedges.
 
-  a  Study design: unlabelled pretraining corpus -> WCED -> encoder, then the
-     two downstream evaluation branches (frozen probes; supervised age).
-  b  View construction: two 50% CpG subsets of one profile, with the
-     complement of each view serving as its reconstruction target.
-  c  The WCED objective: shared encoder, CLS bottleneck, decoder scored only at
-     withheld CpGs, and cross-view InfoNCE on projected CLS embeddings.
-  d  Dual-field token encoding: CpG identity embedding plus a continuous
-     beta-value encoder, with a prepended CLS token.
+  a  Training pipeline. Profiles -> two 50% CpG subsets -> shared encoder ->
+     CLS representations, which feed the two objectives side by side: a
+     cross-view similarity matrix optimised by InfoNCE (left) and
+     reconstruction of the CpGs withheld from each view (right). Showing both
+     objectives at the same level is deliberate: unlike contrastive-only
+     frameworks, WCED applies both pressures to the same embedding.
+  b  The contrastive objective in embedding space, with the InfoNCE loss.
+  c  Internals of one transformer block, repeated six times.
+  d  Token construction: CpG identity + beta value, ordered by genomic rank.
 
-This is a schematic; every number shown is taken from the verified
-configuration and dataset headers (see Methods), not from a placeholder.
+The similarity matrix in (a) is real data (two_view_simmatrix.npy), not a
+cartoon. Every number shown is traced in fig1_provenance.json.
 
 Usage:  python scripts/paper_figures/fig1_study_design.py
 Output: figures/paper/fig1_study_design_wced.{pdf,png}
@@ -28,192 +30,305 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common_style import COL_ACCENT, COL_ENET, COL_GPT, COL_LLAMA, apply_style, panel_label, save
+from common_style import COL_ACCENT, COL_GPT, COL_LLAMA, apply_style, panel_label, save
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
+from matplotlib.patches import (Circle, FancyArrowPatch, FancyBboxPatch,
+                                Polygon, Rectangle)
 from matplotlib.gridspec import GridSpec
 
-OUTDIR = Path(__file__).resolve().parents[2] / "figures/paper"
+REPO = Path(__file__).resolve().parents[2]
+SIM = REPO / "figures/v7b_pretrain_cls/two_view_simmatrix.npy"
+OUTDIR = REPO / "figures/paper"
 
-GREY = "#9aa3b0"
-LIGHT = "#eef1f6"
-WITHHELD = "#d8dde6"
-
-
-def box(ax, x, y, w, h, text, fc=LIGHT, ec=COL_LLAMA, fs=7.0, lw=0.8, bold=False):
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.004,rounding_size=0.02",
-                                facecolor=fc, edgecolor=ec, linewidth=lw, zorder=2))
-    ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs,
-            zorder=3, linespacing=1.35,
-            fontweight="bold" if bold else "normal")
+V1 = "#c2557a"      # view 1 (rose)
+V2 = "#3a6acc"      # view 2 (blue)
+ENC = "#dfe3ea"     # encoder slab
+GREY = "#8d95a3"
+WEDGE = "#eceff4"
+DATA = "#f2d9a8"    # data matrix cells
 
 
-def arrow(ax, x1, y1, x2, y2, color="0.35", lw=0.7, style="-|>", ls="-"):
+def rbox(ax, x, y, w, h, text="", fc="#eef1f6", ec=COL_LLAMA, fs=7.0,
+         lw=0.9, bold=False, tc="black", pad=0.004):
+    ax.add_patch(FancyBboxPatch((x, y), w, h,
+                                boxstyle=f"round,pad={pad},rounding_size=0.012",
+                                facecolor=fc, edgecolor=ec, linewidth=lw, zorder=3))
+    if text:
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center",
+                fontsize=fs, zorder=4, linespacing=1.3, color=tc,
+                fontweight="bold" if bold else "normal")
+
+
+def arrow(ax, x1, y1, x2, y2, color="0.3", lw=0.9, ls="-", style="-|>", ms=7):
     ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle=style,
-                                 mutation_scale=6, color=color, linewidth=lw,
-                                 linestyle=ls, zorder=1,
-                                 shrinkA=0, shrinkB=0))
+                                 mutation_scale=ms, color=color, linewidth=lw,
+                                 linestyle=ls, zorder=2, shrinkA=0, shrinkB=0))
 
 
-def cpg_strip(ax, x, y, w, h, n, mask, on_color, off_color=WITHHELD, hatch=None):
-    """Draw n cells across [x, x+w]; mask[i] True -> on_color."""
+def strip(ax, x, y, w, h, n, color, on=None, edge="white"):
+    """A row of n cells; `on` is a boolean mask (None = all on)."""
     cw = w / n
     for i in range(n):
-        ax.add_patch(Rectangle((x + i * cw, y), cw * 0.86, h,
-                               facecolor=on_color if mask[i] else off_color,
-                               edgecolor="white", linewidth=0.3, zorder=2,
-                               hatch=hatch if mask[i] else None))
+        lit = True if on is None else on[i]
+        ax.add_patch(Rectangle((x + i * cw, y), cw * 0.82, h,
+                               facecolor=color if lit else "#dfe3ea",
+                               edgecolor=edge, linewidth=0.25, zorder=3))
+
+
+def wedge(fig, ax_src, rect, ax_dst):
+    """Grey zoom wedge: right edge of `rect` in ax_src -> left edge of ax_dst."""
+    x, y, w, h = rect
+    inv = fig.transFigure.inverted()
+    tr = lambda p: inv.transform(ax_src.transData.transform(p))
+    top_s, bot_s = tr((x + w, y + h)), tr((x + w, y))
+    d = ax_dst.get_position()
+    fig.add_artist(Polygon([top_s, (d.x0, d.y1), (d.x0, d.y0), bot_s],
+                           closed=True, facecolor=WEDGE, edgecolor="none",
+                           zorder=0))
+
+
+def dashed_frame(ax):
+    ax.add_patch(Rectangle((0.005, 0.005), 0.99, 0.99, transform=ax.transAxes,
+                           facecolor="white", edgecolor="0.75", linewidth=0.7,
+                           linestyle=(0, (3, 2)), zorder=0))
 
 
 def main():
     apply_style()
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(7.2, 5.7))
-    gs = GridSpec(2, 3, figure=fig, hspace=0.04, wspace=0.16,
-                  width_ratios=[1.0, 1.05, 0.95], height_ratios=[1.0, 1.0])
+    # Height is capped so that, scaled to \linewidth, the figure plus its
+    # caption fits inside the 9 in text block. A taller figure sends LaTeX's
+    # [H] float placement into an infinite page loop.
+    fig = plt.figure(figsize=(7.2, 6.5))
+    gs = GridSpec(3, 2, figure=fig, width_ratios=[1.3, 1.0],
+                  height_ratios=[1.0, 0.92, 0.86],
+                  wspace=0.30, hspace=0.30,
+                  left=0.035, right=0.985, top=0.975, bottom=0.02)
 
-    # ═══ Panel a: study design ══════════════════════════════════════════════
-    axA = fig.add_subplot(gs[0, 0]); axA.set_xlim(0, 1); axA.set_ylim(0, 1); axA.axis("off")
-    box(axA, 0.06, 0.845, 0.88, 0.135,
-        "Public methylation profiles\n169,120 $\\times$ 49,156 CpGs\nno phenotype supervision",
-        fc="#eaf0fc", ec=COL_LLAMA)
-    arrow(axA, 0.5, 0.845, 0.5, 0.775)
-    box(axA, 0.14, 0.635, 0.72, 0.14,
-        "WCED\nself-supervised\npretraining", fc="#e2ecff", ec=COL_LLAMA, bold=True)
-    arrow(axA, 0.5, 0.635, 0.5, 0.565)
-    box(axA, 0.06, 0.435, 0.88, 0.13,
-        "MethylLlama encoder\n6 layers $\\cdot$ 256-d $\\cdot$ genomic RoPE",
-        fc="#eaf0fc", ec=COL_LLAMA)
+    axA = fig.add_subplot(gs[:, 0]); axA.set_xlim(0, 1); axA.set_ylim(0, 1); axA.axis("off")
+    axB = fig.add_subplot(gs[0, 1]); axB.set_xlim(0, 1); axB.set_ylim(0, 1); axB.axis("off")
+    axC = fig.add_subplot(gs[1, 1]); axC.set_xlim(0, 1); axC.set_ylim(0, 1); axC.axis("off")
+    axD = fig.add_subplot(gs[2, 1]); axD.set_xlim(0, 1); axD.set_ylim(0, 1); axD.axis("off")
 
-    # branch
-    arrow(axA, 0.3, 0.435, 0.3, 0.375); arrow(axA, 0.7, 0.435, 0.7, 0.375)
-    axA.plot([0.3, 0.7], [0.405, 0.405], color="0.35", lw=0.7, zorder=1)
-    box(axA, 0.01, 0.20, 0.46, 0.175,
-        "Frozen\nrepresentation\nprobes\n(10,988 profiles)", fc="#f2f4f8", ec=GREY, fs=6.8)
-    box(axA, 0.53, 0.20, 0.46, 0.175,
-        "Supervised\nage fine-tuning\n5 folds\n(2,149 test)", fc="#f2f4f8", ec=GREY, fs=6.8)
-    axA.text(0.5, 0.135, "AltuMAge collection $\\cdot$ 21,368 CpGs",
+    # ══════════ Panel a : bottom-to-top pipeline ══════════
+    # (1) corpus, drawn as an actual profiles x CpGs matrix
+    mx, mw = 0.29, 0.42
+    for r in range(5):
+        strip(axA, mx, 0.038 + r * 0.0165, mw, 0.014, 14, DATA)
+    axA.text(0.5, 0.101, "Pretraining corpus", ha="center", fontsize=7.2)
+    axA.text(0.5, 0.086, "169,120 profiles $\\times$ 49,156 CpGs",
              ha="center", fontsize=6.8, color="0.35")
-    panel_label(axA, "a", dx=0.02, dy=0.97)
+    axA.text(mx - 0.012, 0.078, "profiles", ha="right", va="center",
+             fontsize=6.4, color="0.4", rotation=90)
+    axA.text(0.5, 0.020, "CpG sites", ha="center", fontsize=6.4, color="0.4")
 
-    # ═══ Panel b: view construction ════════════════════════════════════════
-    axB = fig.add_subplot(gs[0, 1:]); axB.set_xlim(0, 1); axB.set_ylim(0, 1); axB.axis("off")
-    n = 24
+    # (2) split into two 50% subsets
+    arrow(axA, 0.44, 0.122, 0.28, 0.152)
+    arrow(axA, 0.56, 0.122, 0.72, 0.152)
+    axA.text(0.5, 0.140, "two independent\n50% CpG subsets", ha="center",
+             va="center", fontsize=6.8, color="0.35", linespacing=1.3)
     rng = np.random.default_rng(3)
-    m1 = np.zeros(n, bool); m1[rng.choice(n, n // 2, replace=False)] = True
-    m2 = np.zeros(n, bool); m2[rng.choice(n, n // 2, replace=False)] = True
+    m1 = rng.random(28) < 0.5
+    m2 = rng.random(28) < 0.5
+    strip(axA, 0.07, 0.158, 0.34, 0.017, 28, V1, on=m1)
+    strip(axA, 0.59, 0.158, 0.34, 0.017, 28, V2, on=m2)
+    axA.text(0.24, 0.183, "subset 1", ha="center", fontsize=6.8, color=V1,
+             fontweight="bold")
+    axA.text(0.76, 0.183, "subset 2", ha="center", fontsize=6.8, color=V2,
+             fontweight="bold")
 
-    axB.text(0.5, 0.95, "One measured methylation profile", ha="center",
-             fontsize=7.2, color="0.2")
-    cpg_strip(axB, 0.16, 0.80, 0.68, 0.075, n, np.ones(n, bool), "#5a6472")
-    axB.text(0.13, 0.838, "$\\beta$", ha="right", va="center", fontsize=7.0)
+    # (3) the two views
+    for x0, colr, mask, lab in [(0.05, V1, m1, "View 1"), (0.57, V2, m2, "View 2")]:
+        axA.add_patch(Rectangle((x0, 0.205), 0.38, 0.082, facecolor="#fbfcfe",
+                                edgecolor="0.8", linewidth=0.7, zorder=2))
+        for r in range(3):
+            strip(axA, x0 + 0.025, 0.216 + r * 0.022, 0.33, 0.014, 28, colr,
+                  on=mask)
+        axA.text(x0 + 0.19, 0.294, lab, ha="center", fontsize=7.0, color=colr,
+                 fontweight="bold")
+    axA.text(0.5, 0.246, "profiles\nrestricted\nto each\nsubset", ha="center",
+             va="center", fontsize=6.4, color="0.4", linespacing=1.25)
 
-    arrow(axB, 0.36, 0.79, 0.30, 0.70); arrow(axB, 0.64, 0.79, 0.70, 0.70)
-    axB.text(0.5, 0.745, "two independent 50% subsets", ha="center",
-             fontsize=6.8, color="0.35")
+    # (4) shared encoder
+    arrow(axA, 0.24, 0.287, 0.24, 0.325)
+    arrow(axA, 0.76, 0.287, 0.76, 0.325)
+    rbox(axA, 0.05, 0.328, 0.90, 0.072,
+         "Shared MethylLlama encoder", fc=ENC, ec=GREY, fs=7.6, bold=True)
+    axA.text(0.5, 0.340, "6 transformer blocks $\\cdot$ 256-d $\\cdot$ genomic-rank RoPE",
+             ha="center", fontsize=6.6, color="0.35")
 
-    for k, (mask, x0, lab) in enumerate([(m1, 0.05, "View 1"), (m2, 0.53, "View 2")]):
-        axB.text(x0 + 0.21, 0.665, lab, ha="center", fontsize=7.2,
-                 color=COL_LLAMA, fontweight="bold")
-        cpg_strip(axB, x0, 0.555, 0.42, 0.075, n, mask, COL_LLAMA)
-        axB.text(x0 + 0.21, 0.495, "encoder input", ha="center", fontsize=6.8,
-                 color=COL_LLAMA)
-        cpg_strip(axB, x0, 0.345, 0.42, 0.075, n, ~mask, COL_GPT, hatch="///")
-        axB.text(x0 + 0.21, 0.285, "reconstruction target\n(withheld from input)",
-                 ha="center", fontsize=6.8, color=COL_GPT, linespacing=1.3)
+    # (5) CLS representations
+    arrow(axA, 0.24, 0.400, 0.24, 0.432)
+    arrow(axA, 0.76, 0.400, 0.76, 0.432)
+    for x0, colr in [(0.13, V1), (0.65, V2)]:
+        # index runs top-to-bottom (CLS_1 first), matching the usual convention
+        rbox(axA, x0, 0.492, 0.22, 0.024, r"$\mathrm{CLS}_1$", fc=colr, ec=colr,
+             fs=6.8, tc="white", pad=0.0015)
+        axA.text(x0 + 0.11, 0.474, r"$\vdots$", ha="center", va="center",
+                 fontsize=7.4, color=colr)
+        rbox(axA, x0, 0.437, 0.22, 0.024, r"$\mathrm{CLS}_B$", fc=colr, ec=colr,
+             fs=6.8, tc="white", pad=0.0015)
+    axA.text(0.5, 0.478, "CLS\nrepresentations", ha="center", va="center",
+             fontsize=6.6, color="0.35", linespacing=1.25)
 
-    axB.add_patch(Rectangle((0.03, 0.24), 0.94, 0.47, facecolor="none",
-                            edgecolor="0.85", linewidth=0.6, zorder=0))
-    axB.text(0.5, 0.16,
-             "Loss is evaluated only at measured CpGs absent from that view,\n"
-             "so the objective cannot be solved by copying visible values.",
-             ha="center", fontsize=6.8, color="0.3", linespacing=1.4)
-    panel_label(axB, "b", dx=0.01, dy=0.97)
+    # (6) the two objectives, side by side, both fed from CLS
+    # both CLS columns feed a junction, which then feeds both objectives
+    arrow(axA, 0.24, 0.520, 0.47, 0.545, style="-", color="0.45")
+    arrow(axA, 0.76, 0.520, 0.53, 0.545, style="-", color="0.45")
+    axA.add_patch(Circle((0.50, 0.548), 0.010, facecolor="0.45",
+                         edgecolor="none", zorder=4))
+    arrow(axA, 0.49, 0.556, 0.20, 0.588, color="0.45")
+    arrow(axA, 0.51, 0.556, 0.79, 0.640, color="0.45")
 
-    # ═══ Panel c: the WCED objective ═══════════════════════════════════════
-    axC = fig.add_subplot(gs[1, :2]); axC.set_xlim(0, 1); axC.set_ylim(0, 1); axC.axis("off")
-    yv1, yv2 = 0.79, 0.31
-    for y, lab in [(yv1, "View 1"), (yv2, "View 2")]:
-        box(axC, 0.01, y - 0.055, 0.13, 0.11, lab, fc="#eaf0fc", ec=COL_LLAMA, fs=6.8)
-        arrow(axC, 0.14, y, 0.20, y)
-        box(axC, 0.20, y - 0.075, 0.17, 0.15, "Encoder", fc="#e2ecff",
-            ec=COL_LLAMA, fs=7.0, bold=True)
-        arrow(axC, 0.37, y, 0.43, y)
-        box(axC, 0.43, y - 0.055, 0.10, 0.11, "CLS", fc=COL_LLAMA, ec=COL_LLAMA, fs=6.8)
-        axC.texts[-1].set_color("white")
-        arrow(axC, 0.53, y, 0.60, y)
-        box(axC, 0.60, y - 0.065, 0.15, 0.13, "Decoder", fc="#fdf0e6", ec=COL_GPT, fs=6.8)
-        arrow(axC, 0.75, y, 0.81, y)
-        box(axC, 0.81, y - 0.075, 0.18, 0.15,
-            "predicted\nwithheld\nCpGs", fc="#fdf0e6", ec=COL_GPT, fs=6.8)
+    # --- left objective: cross-view similarity matrix (real data) ---
+    simx, simy, simw, simh = 0.045, 0.600, 0.30, 0.163  # square at this panel aspect
+    sim = np.load(SIM)
+    k = 10
+    sel = np.sort(np.random.default_rng(0).choice(sim.shape[0], k, replace=False))
+    axA.imshow(sim[np.ix_(sel, sel)], cmap="magma", vmin=0, vmax=1,
+               extent=(simx, simx + simw, simy, simy + simh), aspect="auto",
+               zorder=3, interpolation="nearest")
+    axA.add_patch(Rectangle((simx, simy), simw, simh, facecolor="none",
+                            edgecolor="0.5", linewidth=0.7, zorder=4))
+    # colour brackets identifying the two views on the matrix axes
+    axA.plot([simx - 0.012] * 2, [simy, simy + simh], color=V1, lw=2.2,
+             solid_capstyle="butt", zorder=4)
+    axA.plot([simx, simx + simw], [simy - 0.012] * 2, color=V2, lw=2.2,
+             solid_capstyle="butt", zorder=4)
+    axA.text(simx - 0.022, simy + simh / 2, "View 1", rotation=90, ha="center",
+             va="center", fontsize=6.6, color=V1)
+    axA.text(simx + simw / 2, simy - 0.030, "View 2", ha="center",
+             fontsize=6.6, color=V2)
+    axA.text(simx + simw / 2, simy + simh + 0.014,
+             "cross-view\nsimilarity matrix", ha="center", va="bottom",
+             fontsize=6.8, color="0.25", linespacing=1.25)
+    axA.text(simx + simw / 2, simy + simh + 0.060, "InfoNCE", ha="center",
+             fontsize=7.4, color=COL_ACCENT, fontweight="bold")
 
-    # shared weights
-    axC.annotate("", xy=(0.285, yv1 - 0.075), xytext=(0.285, yv2 + 0.075),
-                 arrowprops=dict(arrowstyle="<->", color=GREY, lw=0.7,
-                                 linestyle=(0, (2, 2))))
-    axC.text(0.265, (yv1 + yv2) / 2, "shared\nweights", fontsize=6.8, color=GREY,
-             va="center", ha="right", linespacing=1.3)
+    # --- right objective: decoder reconstructs the withheld CpGs ---
+    rbox(axA, 0.60, 0.690, 0.36, 0.040, "Decoder", fc="#fdf0e6", ec=COL_GPT,
+         fs=7.2, bold=True)
+    arrow(axA, 0.78, 0.690, 0.78, 0.662, color=COL_GPT)
+    strip(axA, 0.62, 0.640, 0.32, 0.016, 28, COL_GPT, on=~m1)
+    axA.text(0.78, 0.630, "predicted at withheld CpGs", ha="center", va="top",
+             fontsize=6.6, color=COL_GPT)
+    axA.text(0.78, 0.740, "reconstruction\nof CpGs withheld\nfrom each view",
+             ha="center", va="bottom", fontsize=6.8, color="0.25",
+             linespacing=1.25)
 
-    # contrastive link between the two CLS tokens
-    axC.annotate("", xy=(0.48, yv1 - 0.055), xytext=(0.48, yv2 + 0.055),
-                 arrowprops=dict(arrowstyle="<->", color=COL_ACCENT, lw=1.0))
-    box(axC, 0.365, (yv1 + yv2) / 2 - 0.075, 0.23, 0.15,
-        "projection head\n$256\\!\\to\\!128\\!\\to\\!128$\nInfoNCE, $\\tau=0.1$",
-        fc="#eafaf0", ec=COL_ACCENT, fs=6.8)
+    axA.text(0.5, 0.862,
+             "$\\mathcal{L} = \\mathcal{L}_{\\mathrm{recon}} + 0.05\\,"
+             "\\mathcal{L}_{\\mathrm{InfoNCE}}$", ha="center", fontsize=8.4)
+    axA.text(0.5, 0.912,
+             "both objectives act on the same CLS representation",
+             ha="center", fontsize=6.8, color="0.35", style="italic")
+    panel_label(axA, "a", dx=0.03, dy=0.975)
 
-    axC.text(0.90, (yv1 + yv2) / 2, "$\\mathcal{L}_{\\mathrm{recon}}$\nat withheld\nCpGs only",
-             ha="center", va="center", fontsize=6.8, color=COL_GPT, linespacing=1.35)
+    # ══════════ Panel b : contrastive objective in embedding space ══════════
+    dashed_frame(axB)
+    axB.text(0.5, 0.94, "Contrastive objective", ha="center", fontsize=7.4,
+             fontweight="bold")
+    cx, cy = 0.42, 0.55
+    axB.add_patch(Circle((cx, cy), 0.045, facecolor=V1, edgecolor="white",
+                         linewidth=0.8, zorder=4))
+    axB.text(cx, cy - 0.10, r"$z_i^{(1)}$", ha="center", fontsize=6.8, color=V1)
+    pos = (0.80, 0.72)
+    axB.add_patch(Circle(pos, 0.045, facecolor=V2, edgecolor="white",
+                         linewidth=0.8, zorder=4))
+    axB.text(pos[0], pos[1] + 0.09, r"$z_i^{(2)}$ same profile", ha="center",
+             fontsize=6.8, color=V2)
+    arrow(axB, cx + 0.05, cy + 0.02, pos[0] - 0.05, pos[1] - 0.02,
+          color=COL_ACCENT, lw=1.4, style="<|-|>", ms=8)
+    axB.text(0.60, 0.70, "pull\ntogether", fontsize=6.6, color=COL_ACCENT,
+             ha="center", va="center", linespacing=1.25)
+    for nx, ny in [(0.14, 0.76), (0.16, 0.34), (0.72, 0.26)]:
+        axB.add_patch(Circle((nx, ny), 0.038, facecolor=V2, alpha=0.45,
+                             edgecolor="white", linewidth=0.8, zorder=4))
+        dx, dy = nx - cx, ny - cy
+        L = (dx ** 2 + dy ** 2) ** 0.5
+        arrow(axB, cx + 0.05 * dx / L, cy + 0.05 * dy / L,
+              nx - 0.05 * dx / L, ny - 0.05 * dy / L,
+              color="#b03030", lw=1.0, style="-|>", ms=7)
+    axB.text(0.14, 0.20, "push apart\n(other profiles)", fontsize=6.6,
+             color="#b03030", ha="left", va="center", linespacing=1.25)
+    panel_label(axB, "b", dx=0.03, dy=0.94)
 
-    axC.text(0.5, 0.045,
-             "$\\mathcal{L} = \\mathcal{L}_{\\mathrm{recon}} + "
-             "0.05\\,\\mathcal{L}_{\\mathrm{contrastive}}$",
-             ha="center", fontsize=7.0)
-    panel_label(axC, "c", dx=0.01, dy=0.96)
+    # ══════════ Panel c : one transformer block ══════════
+    dashed_frame(axC)
+    axC.text(0.5, 0.965, "One transformer block", ha="center", fontsize=7.4,
+             fontweight="bold")
+    # drawn bottom-to-top, so the list is in data-flow order
+    blocks = [("RMSNorm", "#fde9c8"),
+              ("Multi-head self-attention\n+ genomic-rank RoPE", "#f8d3bc"),
+              ("Add  $\\oplus$  residual", "#fde9c8"),
+              ("RMSNorm", "#fde9c8"),
+              ("SwiGLU feed-forward", "#e2d7f2"),
+              ("Add  $\\oplus$  residual", "#fde9c8")]
+    y0, hb = 0.145, 0.105
+    for i, (lab, fc) in enumerate(blocks):
+        rbox(axC, 0.14, y0 + i * (hb + 0.012), 0.62, hb, lab, fc=fc, ec="0.6",
+             fs=6.8, lw=0.7)
+    axC.annotate("", xy=(0.82, y0), xytext=(0.82, y0 + 6 * (hb + 0.012)),
+                 arrowprops=dict(arrowstyle="<->", color="0.45", lw=0.9))
+    axC.text(0.855, 0.50, "$\\times\\,6$", fontsize=7.6, va="center", color="0.3")
+    arrow(axC, 0.45, 0.845, 0.45, 0.892, color="0.4")
+    axC.text(0.45, 0.900, "CLS output = sample representation", ha="center",
+             va="bottom", fontsize=6.6, color="0.3")
+    axC.text(0.45, 0.075, "token sequence in", ha="center", va="center",
+             fontsize=6.6, color="0.4")
+    arrow(axC, 0.45, 0.095, 0.45, 0.125, color="0.4")
+    panel_label(axC, "c", dx=0.03, dy=0.965)
 
-    # ═══ Panel d: token encoding ═══════════════════════════════════════════
-    axD = fig.add_subplot(gs[1, 2]); axD.set_xlim(0, 1); axD.set_ylim(0, 1); axD.axis("off")
-    box(axD, 0.03, 0.83, 0.42, 0.13, "CpG identity\n$c_i$", fc="#eaf0fc",
-        ec=COL_LLAMA, fs=6.8)
-    box(axD, 0.55, 0.83, 0.42, 0.13, "$\\beta$ value\n$b_i$", fc="#eafaf0",
-        ec=COL_ACCENT, fs=6.8)
-    arrow(axD, 0.24, 0.83, 0.24, 0.72); arrow(axD, 0.76, 0.83, 0.76, 0.72)
-    box(axD, 0.02, 0.56, 0.44, 0.15, "learned\nembedding", fc=LIGHT, ec=GREY, fs=6.8)
-    box(axD, 0.54, 0.56, 0.44, 0.15, "sinusoidal\nbasis $\\to$ linear",
-        fc=LIGHT, ec=GREY, fs=6.8)
-    arrow(axD, 0.24, 0.56, 0.43, 0.45); arrow(axD, 0.76, 0.56, 0.57, 0.45)
-    axD.add_patch(plt.Circle((0.5, 0.40), 0.048, facecolor="white",
-                             edgecolor="0.35", linewidth=0.7, zorder=3))
-    axD.text(0.5, 0.40, "+", ha="center", va="center", fontsize=7, zorder=4)
-    arrow(axD, 0.5, 0.352, 0.5, 0.28)
-    box(axD, 0.20, 0.15, 0.60, 0.13, "CpG token $x_i$", fc="#e2ecff",
-        ec=COL_LLAMA, fs=6.8, bold=True)
-    axD.text(0.5, 0.055, "a CLS token is prepended\nto every partial profile",
-             ha="center", fontsize=6.8, color="0.35", linespacing=1.35)
-    panel_label(axD, "d", dx=0.02, dy=0.96)
+    # ══════════ Panel d : token construction ══════════
+    dashed_frame(axD)
+    axD.text(0.5, 0.93, "Token construction", ha="center", fontsize=7.4,
+             fontweight="bold")
+    toks = ["CLS", "cg…", "cg…", "cg…", "cg…", "cg…"]
+    tw = 0.115
+    for i, t in enumerate(toks):
+        fc = COL_LLAMA if i == 0 else V1
+        rbox(axD, 0.10 + i * (tw + 0.012), 0.60, tw, 0.14, t, fc=fc, ec=fc,
+             fs=6.6, tc="white")
+    axD.annotate("", xy=(0.86, 0.55), xytext=(0.22, 0.55),
+                 arrowprops=dict(arrowstyle="-|>", color="0.45", lw=0.9))
+    axD.text(0.54, 0.50, "CpGs ordered by genomic rank", ha="center", va="top",
+             fontsize=6.6, color="0.35")
+    rbox(axD, 0.05, 0.20, 0.36, 0.14, "CpG identity\nembedding", fc="#eaf0fc",
+         ec=COL_LLAMA, fs=6.8)
+    rbox(axD, 0.58, 0.20, 0.36, 0.14, "$\\beta$-value\nencoder", fc="#eafaf0",
+         ec=COL_ACCENT, fs=6.8)
+    axD.add_patch(Circle((0.495, 0.395), 0.037, facecolor="white",
+                         edgecolor="0.4", linewidth=0.8, zorder=4))
+    axD.text(0.495, 0.395, "+", ha="center", va="center", fontsize=8.5, zorder=5)
+    arrow(axD, 0.23, 0.34, 0.46, 0.375, color="0.45")
+    arrow(axD, 0.76, 0.34, 0.53, 0.375, color="0.45")
+    arrow(axD, 0.495, 0.432, 0.495, 0.585, color="0.45")
+    axD.text(0.5, 0.10, "each token carries both which CpG and how methylated",
+             ha="center", fontsize=6.6, color="0.35", style="italic")
+    panel_label(axD, "d", dx=0.03, dy=0.93)
+
+    # ══════════ zoom wedges from (a) into (b), (c), (d) ══════════
+    wedge(fig, axA, (simx, simy, simw, simh), axB)          # similarity -> b
+    wedge(fig, axA, (0.05, 0.328, 0.90, 0.072), axC)        # encoder    -> c
+    wedge(fig, axA, (0.57, 0.205, 0.38, 0.082), axD)        # a view     -> d
 
     save(fig, str(OUTDIR / "fig1_study_design_wced"))
 
-    # Figure 1 is a schematic, so its provenance file records where each
-    # displayed number was verified rather than which array it was plotted from.
     prov = {
-        "figure_type": "schematic (no plotted data)",
+        "figure_type": "schematic; the similarity matrix in panel a is real data",
+        "similarity_matrix_source": str(SIM.relative_to(REPO)),
         "displayed_values": {
-            "169,120 profiles x 49,156 CpGs": "canonical pretraining h5ad header, "
-                "printed by run_reconstruction_withheld.sh (SLURM job 45888987)",
-            "10,988 profiles / 21,368 CpGs": "AltuMAge h5ad header",
-            "2,149 test": "outputs/kfold_splits/test_ids.npy, set equality verified "
-                "by scripts/utils/verify_elasticnet_test_set.py (job 45888667)",
-            "6 layers, 256-d": "scripts/llama/pretrain_llama_small_6L_contrastive.sh "
-                "(NUM_LAYERS=6, HIDDEN_SIZE=256)",
-            "genomic RoPE": "same script, wced_genomic_rank_path set",
-            "lambda = 0.05, tau = 0.1": "same script (CONTRASTIVE_WEIGHT, CONTRASTIVE_TEMP)",
-            "projection head 256->128->128": "bmfm_methylation/llama/wced_llama.py, "
-                "ProjectionHead(hidden_dim=hidden_size//2, output_dim=128)",
-            "50% views": "wced_input_ratio=0.5",
+            "169,120 profiles x 49,156 CpGs": "canonical pretraining h5ad header "
+                "(SLURM job 45888987)",
+            "6 transformer blocks, 256-d": "scripts/llama/pretrain_llama_small_6L_contrastive.sh",
+            "genomic-rank RoPE": "same script, wced_genomic_rank_path set",
+            "lambda = 0.05": "same script (CONTRASTIVE_WEIGHT)",
+            "50% subsets": "wced_input_ratio=0.5",
         },
-        "accessibility": "panel b uses blue (input) vs orange+hatch (withheld); "
-                          "colour is never the only channel distinguishing the two roles",
+        "accessibility": "view 1 rose / view 2 blue are separable under deuteranopia; "
+                          "view membership is additionally carried by position and by "
+                          "text labels, never by colour alone",
     }
     (OUTDIR / "fig1_provenance.json").write_text(json.dumps(prov, indent=2))
 
