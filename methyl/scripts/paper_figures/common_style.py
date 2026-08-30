@@ -33,6 +33,7 @@ def apply_style():
         "axes.spines.top": False,
         "axes.spines.right": False,
         "pdf.fonttype": 42,
+        "svg.fonttype": "none",
         "ps.fonttype": 42,
         "savefig.dpi": 300,
         "figure.dpi": 120,
@@ -47,7 +48,10 @@ def panel_label(ax, letter, dx=-0.12, dy=1.05):
 def save(fig, outstem):
     fig.savefig(f"{outstem}.pdf", bbox_inches="tight")
     fig.savefig(f"{outstem}.png", bbox_inches="tight", dpi=300)
-    print(f"Saved -> {outstem}.pdf / .png")
+    # SVG for hand-finishing in Inkscape/Illustrator. Text stays as <text>
+    # (svg.fonttype="none"), so labels remain editable rather than outlines.
+    fig.savefig(f"{outstem}.svg", bbox_inches="tight")
+    print(f"Saved -> {outstem}.pdf / .png / .svg")
 
 
 # Minimum on-figure font size. All figures are drawn at 7.2 in wide and print

@@ -56,3 +56,6 @@ paper/main.log
 paper/main.out
 paper/main.bbl
 paper/main.blg
+
+# SVG exports are large regenerable build products
+figures/paper/*.svg
