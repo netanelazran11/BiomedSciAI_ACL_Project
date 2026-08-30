@@ -25,6 +25,25 @@ for f in "$OTHER"/sections/*.tex; do
   [ -f "$HERE/sections/$b" ] || printf "%-34s %10s %10s   %s\n" "$b" "-" "$(wc_ "$f")" "only in overleaf"
 done
 
+
+# --- figures: compare the rendered PDFs against the canonical build output ---
+CANON="$HERE/../figures/paper"
+if [ -d "$CANON" ]; then
+  echo
+  printf "%-40s %s\n" "figure" "status vs canonical build (figures/paper/)"
+  printf '%.0s-' {1..76}; echo
+  for f in "$HERE"/figures/*.pdf; do
+    b="$(basename "$f")"; c="$CANON/$b"
+    if [ ! -f "$c" ]; then
+      printf "%-40s %s\n" "$b" "no canonical build"
+    elif [ "$(md5 -q "$f")" = "$(md5 -q "$c")" ]; then
+      printf "%-40s %s\n" "$b" "current"
+    else
+      printf "%-40s %s\n" "$b" "STALE -- rerun its script and re-copy"
+    fi
+  done
+fi
+
 if [ "${1:-}" = "--full" ]; then
   echo; echo "===== unified diffs ====="
   for f in "$HERE"/sections/*.tex; do

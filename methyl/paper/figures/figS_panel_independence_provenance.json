@@ -1,0 +1,30 @@
+{
+  "inputs": [
+    "figures/v7b_pretrain_cls/embeddings_cls.npy",
+    "figures/v7b_pretrain_cls/two_view_v1n.npy",
+    "figures/v7b_pretrain_cls/metadata.csv"
+  ],
+  "index_alignment": "np.random.default_rng(0).choice(n_profiles, 2000, replace=False), asserted",
+  "cos_full_vs_subset": {
+    "mean": 0.9906,
+    "median": 0.9942,
+    "min": 0.6693
+  },
+  "cos_shuffled_control": 0.4955,
+  "subsets_are": "random 50% CpG draws, NOT real 450K/EPIC/EPICv2 panels",
+  "n_view_seeds": 1,
+  "age_probe": {
+    "n_eval": 407,
+    "r2_full": 0.8629,
+    "r2_subset": 0.8348,
+    "medae_full": 5.504,
+    "medae_subset": 6.295,
+    "probe": "Ridge(alpha=1.0) fitted on full-profile embeddings, train split; applied without adaptation to partial-view embeddings",
+    "delta_r2": 0.028,
+    "delta_r2_ci95": [
+      0.0144,
+      0.0437
+    ],
+    "n_boot": 5000
+  }
+}

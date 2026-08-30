@@ -1,0 +1,30 @@
+{
+  "panel_A_B": [
+    "figures/v7b_pretrain_cls/two_view_simmatrix.npy",
+    "figures/v7b_pretrain_cls/two_view_consistency.json"
+  ],
+  "matrix_derived": {
+    "pos_cos": 0.9837,
+    "neg_cos": 0.4992,
+    "retrieval_at1": 0.745
+  },
+  "retrieval_at_k": {
+    "1": 0.745,
+    "2": 0.8555,
+    "3": 0.8925,
+    "5": 0.9245,
+    "10": 0.9555,
+    "20": 0.978,
+    "50": 1.0,
+    "100": 1.0
+  },
+  "json_summary_jul20_run": {
+    "pos_cos": 0.9833,
+    "neg_cos": 0.4995,
+    "retrieval_at1": 0.735
+  },
+  "retrieval_note": "json and matrix are independent random view draws; figure and manuscript use the matrix-derived value",
+  "heatmap_subsample": 40,
+  "panel_C_D": "figures/v7b_pretrain_cls/reconstruction_withheld",
+  "n_two_view_samples": 2000
+}

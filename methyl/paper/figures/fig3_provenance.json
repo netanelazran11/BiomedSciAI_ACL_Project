@@ -1,0 +1,19 @@
+{
+  "panel_A": {
+    "recomputed_from": "outputs/bootstrap_predictions/methyllama",
+    "note": "recomputed from per-sample predictions, not WandB-logged values"
+  },
+  "panel_B": "outputs/bootstrap_predictions/paired_per_subject_predictions.csv",
+  "panel_C": {
+    "MethylLlama_MethylGPT": "outputs/bootstrap_predictions/paired_bootstrap_summary.json",
+    "ElasticNet": "outputs/baselines/elasticnet/elasticnetcv-45888710/elasticnet_results.json"
+  },
+  "panel_D": {
+    "recomputed_from": "outputs/bootstrap_predictions/paired_per_subject_predictions.csv",
+    "n_boot": 10000,
+    "seed": 0,
+    "asserted_against": "outputs/bootstrap_predictions/paired_bootstrap_summary.json"
+  },
+  "sign_convention": "positive = MethylLlama better",
+  "n_test_subjects": 2149
+}

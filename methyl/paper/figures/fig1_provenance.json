@@ -1,0 +1,12 @@
+{
+  "figure_type": "schematic; the similarity matrix in panel a is real data",
+  "similarity_matrix_source": "figures/v7b_pretrain_cls/two_view_simmatrix.npy",
+  "displayed_values": {
+    "169,120 profiles x 49,156 CpGs": "canonical pretraining h5ad header (SLURM job 45888987)",
+    "6 transformer blocks, 256-d": "scripts/llama/pretrain_llama_small_6L_contrastive.sh",
+    "genomic-rank RoPE": "same script, wced_genomic_rank_path set",
+    "lambda = 0.05": "same script (CONTRASTIVE_WEIGHT)",
+    "50% subsets": "wced_input_ratio=0.5"
+  },
+  "accessibility": "view 1 rose / view 2 blue are separable under deuteranopia; view membership is additionally carried by position and by text labels, never by colour alone"
+}
