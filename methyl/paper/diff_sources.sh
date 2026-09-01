@@ -8,21 +8,32 @@ OTHER="$HERE/../outputs/overleaf/MethylLlama_Publication"
 
 wc_() { sed 's/%.*//' "$1" 2>/dev/null | sed 's/\\[a-zA-Z]*//g' | wc -w | tr -d ' '; }
 
-printf "%-34s %10s %10s   %s\n" "section" "paper/" "overleaf/" "status"
-printf '%.0s-' {1..76}; echo
+# A figure's identity is what it draws plus its size. Plain md5 is useless here:
+# matplotlib writes a /CreationDate into every PDF, so re-running a script with
+# no code change produces a different md5 and every figure reads as STALE.
+fig_id() { printf '%s %s' "$(pdftotext "$1" - 2>/dev/null | md5 -q)" "$(wc -c < "$1" | tr -d ' ')"; }
+
+# Divergence is usually visible in the mtimes before it is visible in the text,
+# so print them: an overleaf/ section newer than its paper/ twin means the other
+# copy moved after this one was last synced.
+mt_() { date -r "$1" "+%m-%d %H:%M" 2>/dev/null || echo "-"; }
+
+printf "%-34s %8s %8s  %-11s %-11s  %s\n" \
+  "section" "paper/" "overleaf/" "paper mtime" "ovl mtime" "status"
+printf '%.0s-' {1..92}; echo
 for f in "$HERE"/sections/*.tex; do
   b="$(basename "$f")"; o="$OTHER/sections/$b"
   if [ ! -f "$o" ]; then
-    printf "%-34s %10s %10s   %s\n" "$b" "$(wc_ "$f")" "-" "only here"
+    printf "%-34s %8s %8s  %-11s %-11s  %s\n" "$b" "$(wc_ "$f")" "-" "$(mt_ "$f")" "-" "only here"
   elif diff -q "$f" "$o" >/dev/null 2>&1; then
-    printf "%-34s %10s %10s   %s\n" "$b" "$(wc_ "$f")" "$(wc_ "$o")" "identical"
+    printf "%-34s %8s %8s  %-11s %-11s  %s\n" "$b" "$(wc_ "$f")" "$(wc_ "$o")" "$(mt_ "$f")" "$(mt_ "$o")" "identical"
   else
-    printf "%-34s %10s %10s   %s\n" "$b" "$(wc_ "$f")" "$(wc_ "$o")" "DIFFERS"
+    printf "%-34s %8s %8s  %-11s %-11s  %s\n" "$b" "$(wc_ "$f")" "$(wc_ "$o")" "$(mt_ "$f")" "$(mt_ "$o")" "DIFFERS"
   fi
 done
 for f in "$OTHER"/sections/*.tex; do
   b="$(basename "$f")"
-  [ -f "$HERE/sections/$b" ] || printf "%-34s %10s %10s   %s\n" "$b" "-" "$(wc_ "$f")" "only in overleaf"
+  [ -f "$HERE/sections/$b" ] || printf "%-34s %8s %8s  %-11s %-11s  %s\n" "$b" "-" "$(wc_ "$f")" "-" "$(mt_ "$f")" "only in overleaf"
 done
 
 
@@ -30,17 +41,18 @@ done
 CANON="$HERE/../figures/paper"
 if [ -d "$CANON" ]; then
   echo
-  printf "%-40s %s\n" "figure" "status vs canonical build (figures/paper/)"
+  printf "%-44s %s\n" "figure" "vs canonical build in figures/paper/"
   printf '%.0s-' {1..76}; echo
-  for f in "$HERE"/figures/*.pdf; do
-    b="$(basename "$f")"; c="$CANON/$b"
-    if [ ! -f "$c" ]; then
-      printf "%-40s %s\n" "$b" "no canonical build"
-    elif [ "$(md5 -q "$f")" = "$(md5 -q "$c")" ]; then
-      printf "%-40s %s\n" "$b" "current"
-    else
-      printf "%-40s %s\n" "$b" "STALE -- rerun its script and re-copy"
-    fi
+  for c in "$CANON"/*.pdf; do
+    b="$(basename "$c")"; ref="$(fig_id "$c")"; line=""
+    for where in "$HERE/figures/$b" "$OTHER/figures/$b"; do
+      if [ ! -f "$where" ]; then line="$line missing;"
+      elif [ "$(fig_id "$where")" = "$ref" ]; then line="$line current;"
+      else line="$line STALE;"; fi
+    done
+    printf "%-44s paper:%-9s overleaf:%s\n" "$b" \
+      "$(echo "$line" | cut -d';' -f1 | tr -d ' ')" \
+      "$(echo "$line" | cut -d';' -f2 | tr -d ' ')"
   done
 fi
 
