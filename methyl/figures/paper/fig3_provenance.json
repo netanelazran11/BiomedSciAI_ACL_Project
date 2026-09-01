@@ -1,0 +1,44 @@
+{
+  "panel_A": {
+    "recomputed_from": "outputs/bootstrap_predictions/methyllama",
+    "note": "recomputed from per-sample predictions, not WandB-logged values"
+  },
+  "panel_B": "outputs/bootstrap_predictions/paired_per_subject_predictions.csv",
+  "panel_D_style": "forest; estimate + 95% bootstrap CI per endpoint",
+  "panel_D_sign_convention": "error deltas = comparator - MethylLlama; dR2 = MethylLlama - comparator; positive favours MethylLlama for all three",
+  "panel_D_ci": {
+    "medae": {
+      "estimate": 0.58852,
+      "ci95": [
+        0.33798,
+        0.81489
+      ]
+    },
+    "mae": {
+      "estimate": 0.77252,
+      "ci95": [
+        0.5831,
+        0.96825
+      ]
+    },
+    "r2": {
+      "estimate": 0.02545,
+      "ci95": [
+        0.01834,
+        0.03295
+      ]
+    }
+  },
+  "panel_C": {
+    "MethylLlama_MethylGPT": "outputs/bootstrap_predictions/paired_bootstrap_summary.json",
+    "ElasticNet": "outputs/baselines/elasticnet/elasticnetcv-45888710/elasticnet_results.json"
+  },
+  "panel_D": {
+    "recomputed_from": "outputs/bootstrap_predictions/paired_per_subject_predictions.csv",
+    "n_boot": 10000,
+    "seed": 0,
+    "asserted_against": "outputs/bootstrap_predictions/paired_bootstrap_summary.json"
+  },
+  "sign_convention": "positive = MethylLlama better",
+  "n_test_subjects": 2149
+}

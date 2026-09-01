@@ -40,6 +40,7 @@ from matplotlib.gridspec import GridSpec
 REPO = Path(__file__).resolve().parents[2]
 SUMMARY = REPO / "figures/v7b_pretrain_cls/analysis_summary.json"
 LODO = REPO / "figures/v7b_pretrain_cls/lodo_age_probe.csv"
+REF = REPO / "figures/v7b_pretrain_cls/lodo_reference.json"
 OUTDIR = REPO / "figures/paper"
 
 MIN_N = 100
@@ -107,8 +108,8 @@ def main():
         # red/green pairing is hard to separate under deuteranopia
         axB.hlines(d["chance"], j - 0.3, j + 0.3, color="0.15", lw=1.3,
                    linestyle=(0, (3, 1.5)), zorder=3)
-        axB.text(j + 0.34, d["chance"], f"chance {d['chance']:.3f}",
-                 color="0.15", fontsize=6.8, va="center", ha="left")
+        axB.text(j, d["chance"] + 0.035, f"chance {d['chance']:.3f}",
+                 color="0.15", fontsize=6.5, va="bottom", ha="center")
     axB.set_xticks(range(len(items)))
     axB.set_xticklabels([it[0] for it in items], fontsize=6.8)
     axB.set_ylabel("Balanced accuracy")
@@ -120,59 +121,49 @@ def main():
 
     # ── Panel C: LODO transfer vs cohort age spread ──────────────────────────
     axC = fig.add_subplot(gs[1, :])
-    r2 = keep["R2_LODO"].to_numpy()
-    r2_plot = np.clip(r2, YFLOOR, None)
-    sizes = 12 + 90 * (keep["n"] - keep["n"].min()) / (keep["n"].max() - keep["n"].min())
+    # A scatter against age SD invited the reader to see a trend that the data
+    # do not support (rho=+0.28, P=0.40, n=11) and buried the identity of the
+    # failing cohorts. An ordered forest names every study and makes the spread
+    # itself the message; the descriptor correlations move to Supplementary.
+    ref = json.loads(REF.read_text())["in_distribution_random_80_20"]
+    ordered = keep.sort_values("R2_LODO", ascending=True).reset_index(drop=True)
+    y = np.arange(len(ordered))
+    r2 = ordered["R2_LODO"].to_numpy()
+    r2_plot = np.maximum(r2, YFLOOR)          # clipped values are annotated below
     colors = [COL_NEG if v < 0 else COL_LLAMA for v in r2]
 
-    axC.axhspan(YFLOOR - 0.32, 0, color=COL_NEG, alpha=0.05, zorder=0)
-    axC.axhline(0, color="0.3", lw=0.8, zorder=1)
-    axC.scatter(keep["age_std"], r2_plot, s=sizes, c=colors, alpha=0.85,
-                edgecolors="white", linewidths=0.5, zorder=3)
+    axC.axvspan(YFLOOR - 0.30, 0, color=COL_NEG, alpha=0.05, zorder=0)
+    axC.axvline(0, color="0.3", lw=0.9, zorder=1)
+    axC.axvline(ref["r2"], color=COL_ACCENT, ls="--", lw=1.0, zorder=1)
+    axC.text(ref["r2"] - 0.02, 1.4,
+             f"random-split\nreference {ref['r2']:.3f}", ha="right", va="center",
+             fontsize=6.2, color=COL_ACCENT, linespacing=1.25)
 
-    xmax = keep["age_std"].max()
-    for _, row in keep.iterrows():
-        yv = max(row["R2_LODO"], YFLOOR)
-        clipped = row["R2_LODO"] < YFLOOR
-        txt = (f"{row['dataset']} ($R^2$={row['R2_LODO']:.1f})" if clipped
-               else row["dataset"])
-        # points near the right edge get their label on the left, so nothing
-        # runs off the axis or collides with a neighbouring point
-        right_side = row["age_std"] > 0.72 * xmax
-        axC.annotate(txt, (row["age_std"], yv),
-                     xytext=(-5 if right_side else 5, 5),
-                     textcoords="offset points", fontsize=6.8, color="0.3",
-                     ha="right" if right_side else "left")
-        if clipped:
-            # make the truncation unmistakable: a downward arrow out of the
-            # axis, so the marker cannot be read as the true value
-            axC.annotate("", xy=(row["age_std"], YFLOOR - 0.17),
-                         xytext=(row["age_std"], YFLOOR - 0.02),
-                         arrowprops=dict(arrowstyle="-|>", color=COL_NEG,
-                                         lw=1.0, mutation_scale=7))
-            axC.text(row["age_std"], YFLOOR - 0.19, "axis break",
-                     ha="center", va="top", fontsize=5.6, color=COL_NEG,
-                     style="italic")
+    axC.hlines(y, YFLOOR - 0.30, r2_plot, color="0.75", lw=0.7, zorder=2)
+    axC.scatter(r2_plot, y, s=26, c=colors, zorder=3, edgecolors="white", linewidths=0.5)
+    for i, row in ordered.iterrows():
+        if row["R2_LODO"] < YFLOOR:      # never clip silently
+            axC.annotate(f"{row['R2_LODO']:.1f}", (YFLOOR, i), xytext=(6, 0),
+                         textcoords="offset points", ha="left", va="center",
+                         fontsize=6.2, color=COL_NEG, fontweight="bold")
+        axC.text(1.045, i, f"{int(row['n'])}", ha="right", va="center",
+                 fontsize=6.2, color="0.35", transform=axC.get_yaxis_transform())
+    axC.text(1.045, len(ordered) - 0.1, "n", ha="right", va="center", fontsize=6.2,
+             color="0.35", style="italic", transform=axC.get_yaxis_transform())
 
-    axC.set_xlabel("Age SD of held-out cohort (years)")
-    axC.set_ylabel("Held-out-study age probe $R^2$")
-    axC.set_ylim(YFLOOR - 0.32, 1.05)
-    axC.text(0.015, 0.05, "transfer fails ($R^2 < 0$)", transform=axC.transAxes,
-             ha="left", va="bottom", fontsize=7.0, color=COL_NEG)
-    axC.text(0.42, 0.30,
-             f"$R^2$ vs age SD: $\\rho$ = {rho_sd:+.2f}, p = {p_sd:.2f}\n"
-             f"$R^2$ vs cohort size: $\\rho$ = {rho_n:+.2f}, p = {p_n:.2f}",
-             transform=axC.transAxes, ha="left", va="top", fontsize=7.0,
-             color="0.3")
-
-    # marker-size legend for cohort size
-    for nref, xoff in [(150, 0.60), (400, 0.72), (800, 0.86)]:
-        sref = 12 + 90 * (nref - keep["n"].min()) / (keep["n"].max() - keep["n"].min())
-        axC.scatter([], [], s=sref, c="0.55", edgecolors="white", linewidths=0.5,
-                    label=f"n = {nref}")
-    axC.legend(frameon=False, loc="lower right", bbox_to_anchor=(1.0, 0.16),
-               labelspacing=0.9, handletextpad=0.6, borderpad=0.2,
-               title="cohort size", title_fontsize=7.0, fontsize=7.0)
+    axC.set_yticks(y); axC.set_yticklabels(ordered["dataset"], fontsize=6.2)
+    axC.set_xlabel("Held-out-study age probe $R^2$")
+    axC.set_xlim(YFLOOR - 0.30, 1.02)
+    axC.set_ylim(-0.8, len(ordered) - 0.2)
+    axC.spines["left"].set_visible(False)
+    axC.tick_params(axis="y", length=0)
+    axC.text(0.012, 0.985, "transfer fails ($R^2 < 0$)", transform=axC.transAxes,
+             ha="left", va="top", fontsize=6.4, color=COL_NEG)
+    axC.text(0.5, -0.235,
+             f"axis truncated at {YFLOOR:g}; values beyond it are printed. "
+             f"Median $R^2$ = {keep['R2_LODO'].median():.3f} across {len(keep)} studies.",
+             transform=axC.transAxes, ha="center", va="top", fontsize=5.9,
+             color="0.45", style="italic")
     panel_label(axC, "c", dx=-0.07)
 
     save(fig, str(OUTDIR / "fig4_representation_cross_study_transfer"))
@@ -187,6 +178,8 @@ def main():
         "spearman_r2_vs_age_sd": {"rho": round(float(rho_sd), 4), "p": round(float(p_sd), 4)},
         "spearman_r2_vs_n": {"rho": round(float(rho_n), 4), "p": round(float(p_n), 4)},
         "display_floor": YFLOOR,
+        "panel_C_style": "ordered forest; every study named, clipped values printed",
+        "in_distribution_reference": "figures/v7b_pretrain_cls/lodo_reference.json",
         "note": "studies below the display floor are annotated with their true R2; "
                  "neither cohort descriptor significantly predicts transfer success",
     }

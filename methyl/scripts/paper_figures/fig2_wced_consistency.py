@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common_style import (COL_ENET, COL_GPT, COL_LLAMA, apply_style,
@@ -35,10 +36,13 @@ from common_style import (COL_ENET, COL_GPT, COL_LLAMA, apply_style,
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
+INK_D = "#243044"
+
 REPO = Path(__file__).resolve().parents[2]
 SIM = REPO / "figures/v7b_pretrain_cls/two_view_simmatrix.npy"
 JSON = REPO / "figures/v7b_pretrain_cls/two_view_consistency.json"
 RECON_DIR = REPO / "figures/v7b_pretrain_cls/reconstruction_withheld"
+VIEWDIR = REPO / "figures/v7b_pretrain_cls/view_design"
 OUTDIR = REPO / "figures/paper"
 
 N_HEATMAP = 40          # profiles shown in the similarity-matrix panel
@@ -118,21 +122,38 @@ def main():
 
     # ── Panel B: retrieval@k curve ───────────────────────────────────────────
     axB = fig.add_subplot(gs[0, 1])
-    axB.plot(KS, at_k, "o-", color=COL_LLAMA, ms=3.5, lw=1.2, zorder=3,
-             label="MethylLlama CLS")
-    axB.plot(KS, [k / n for k in KS], "--", color="#b03030", lw=1.0,
-             label="chance")
-    axB.set_xscale("log")
-    axB.set_xticks(KS)
-    axB.set_xticklabels([str(k) for k in KS])
-    axB.minorticks_off()
-    axB.set_xlabel("k (candidates considered, of %d profiles)" % n)
-    axB.set_ylabel("Correct partner within top-k")
-    axB.set_ylim(0, 1.02)
-    axB.annotate(f"top-1 = {top1*100:.1f}%", xy=(1, top1),
-                 xytext=(1.6, top1 - 0.22), fontsize=6.8, color=COL_LLAMA,
-                 arrowprops=dict(arrowstyle="-", color=COL_LLAMA, lw=0.6))
-    axB.legend(frameon=False, loc="lower right")
+    # Retrieval is what separates a merely stable representation from a
+    # sample-specific one, so show it for both view constructions at the two
+    # thresholds that matter, across all five independent draws rather than one.
+    per = pd.read_csv(VIEWDIR / "view_design_per_seed.csv")
+    ks_show = [("retrieval_at1", "top-1"), ("retrieval_at10", "top-10")]
+    conds = [("overlap", "Overlapping views", COL_LLAMA),
+             ("disjoint", "Disjoint views", COL_GPT)]
+    width, xs = 0.34, np.arange(len(ks_show))
+    for ci, (cond, lab, colr) in enumerate(conds):
+        sub = per[per["condition"] == cond]
+        off_x = (ci - 0.5) * width
+        for ki, (col, _) in enumerate(ks_show):
+            v = sub[col].to_numpy() * 100
+            axB.bar(xs[ki] + off_x, v.mean(), width=width * 0.92, color=colr,
+                    zorder=2, label=lab if ki == 0 else None)
+            axB.vlines(xs[ki] + off_x, v.min(), v.max(), color="0.15", lw=0.9, zorder=4)
+            # every individual draw, so the reader sees n=5 and its spread
+            axB.scatter(np.full(len(v), xs[ki] + off_x), v, s=4, color="white",
+                        edgecolors="0.15", linewidths=0.4, zorder=5)
+            axB.text(xs[ki] + off_x, v.max() + 2.5, f"{v.mean():.1f}", ha="center",
+                     va="bottom", fontsize=6.8, color=colr)
+    chance = 100.0 / n
+    axB.axhline(chance, color="0.35", ls="--", lw=0.8, zorder=1)
+    axB.text(-0.42, chance + 2.0, f"chance {chance:.2f}%", ha="left",
+             va="bottom", fontsize=6.4, color="0.35")
+    axB.set_xticks(xs); axB.set_xticklabels([lbl for _, lbl in ks_show])
+    axB.set_ylabel("Cross-view retrieval (%)")
+    axB.set_ylim(0, 112)
+    axB.legend(frameon=False, fontsize=6.8, loc="upper left", handlelength=1.1)
+    axB.text(0.5, -0.30, "points: 5 independent view draws; bars: mean",
+             transform=axB.transAxes, ha="center", va="top", fontsize=5.9,
+             color="0.45", style="italic")
     panel_label(axB, "b", dx=-0.2)
 
     # ── Panels C/D: withheld reconstruction ──────────────────────────────────
@@ -154,21 +175,46 @@ def main():
         panel_label(axC, "c", dx=-0.14)
 
         axD = fig.add_subplot(gs[1, 1])
-        conds = [("Model\n(real CLS)", "raw_mse_model", COL_LLAMA),
-                 ("Per-CpG\nmean", "raw_mse_b_mean", COL_ENET),
-                 ("Shuffled\nCLS", "raw_mse_b_shuffle", COL_GPT),
-                 ("Random\nCLS", "raw_mse_b_random", "0.3")]
-        for j, (lab, key, colr) in enumerate(conds):
-            d = rsum[key]
-            axD.bar(j, d["mean"], width=0.6, color=colr, zorder=2)
-            # p10-p90 spread across profiles: bars alone hide the distribution
-            axD.vlines(j, d["p10"], d["p90"], color="0.15", lw=0.9, zorder=3)
-            axD.text(j, d["p90"] + 0.002, f"{d['mean']:.4f}", ha="center",
-                     va="bottom", fontsize=7.0)
+        # The controls are evaluated on the SAME profiles under the SAME withheld
+        # masks, so the per-profile difference is the quantity with a meaningful
+        # uncertainty -- a bar of each condition's mean hides that pairing.
+        pm = pd.read_csv(RECON_DIR / "per_sample_metrics.csv")
+        conds = [("Model\n(real CLS)", "model_mse", COL_LLAMA),
+                 ("Per-CpG\nmean", "b_mean_mse", COL_ENET),
+                 ("Shuffled\nCLS", "b_shuffle_mse", COL_GPT),
+                 ("Random\nCLS", "b_random_mse", "0.3")]
+        data = [pm[k].to_numpy() for _, k, _ in conds]
+        parts = axD.violinplot(data, positions=range(len(conds)), widths=0.75,
+                               showextrema=False, showmedians=False)
+        for body, (_, _, colr) in zip(parts["bodies"], conds):
+            body.set_facecolor(colr); body.set_alpha(0.55); body.set_edgecolor(colr)
+            body.set_linewidth(0.7)
+        for j, arr in enumerate(data):
+            axD.scatter(j, np.median(arr), s=9, color="white", edgecolors="0.15",
+                        linewidths=0.7, zorder=5)
         axD.set_xticks(range(len(conds)))
         axD.set_xticklabels([c[0] for c in conds], fontsize=6.8)
         axD.set_ylabel("MSE at withheld CpGs")
         axD.set_ylim(0, None)
+
+        # paired control-minus-model differences, bootstrapped over profiles
+        rngb = np.random.default_rng(0); NB = 10000
+        m = data[0]; ci_txt = []
+        for (lab, _, _), arr in list(zip(conds, data))[1:]:
+            d = arr - m
+            bs = np.array([d[rngb.integers(0, len(d), len(d))].mean() for _ in range(NB)])
+            lo, hi = np.percentile(bs, [2.5, 97.5])
+            ci_txt.append((lab.replace("\n", " "), d.mean(), lo, hi))
+            print(f"  paired {lab.replace(chr(10),' '):18s} - model: "
+                  f"{d.mean():+.4f} [{lo:+.4f}, {hi:+.4f}]")
+        fold = data[1].mean() / m.mean()
+        axD.text(0.5, 0.97, f"{fold:.1f}$\\times$ lower than the per-CpG mean",
+                 transform=axD.transAxes, ha="center", va="top", fontsize=6.6,
+                 color=INK_D)
+        axD.text(0.5, -0.34, "violins: all 5,000 profiles; white point, median.\n"
+                             "All paired differences vs model exclude zero (95% CI).",
+                 transform=axD.transAxes, ha="center", va="top", fontsize=5.9,
+                 color="0.45", style="italic", linespacing=1.3)
         panel_label(axD, "d", dx=-0.2)
 
     save(fig, str(OUTDIR / "fig2_wced_consistency_reconstruction"))
@@ -188,6 +234,14 @@ def main():
         "panel_C_D": (str(RECON_DIR.relative_to(REPO)) if have_recon
                        else "PENDING"),
         "n_two_view_samples": int(n),
+        "panel_B_source": "figures/v7b_pretrain_cls/view_design/view_design_per_seed.csv "
+                           "(5 seeds x {overlap, disjoint})",
+        "panel_D_source": "figures/v7b_pretrain_cls/reconstruction_withheld/per_sample_metrics.csv "
+                           "(5,000 profiles, paired under identical withheld masks)",
+        "panel_D_paired_ci": {lab: {"mean_diff": round(float(md), 5),
+                                      "ci95": [round(float(lo), 5), round(float(hi), 5)]}
+                                for lab, md, lo, hi in ci_txt},
+        "panel_D_n_boot": 10000,
     }
     (OUTDIR / "fig2_provenance.json").write_text(json.dumps(prov, indent=2))
 

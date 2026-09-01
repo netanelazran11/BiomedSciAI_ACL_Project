@@ -1,0 +1,56 @@
+{
+  "panel_A_B": [
+    "figures/v7b_pretrain_cls/two_view_simmatrix.npy",
+    "figures/v7b_pretrain_cls/two_view_consistency.json"
+  ],
+  "matrix_derived": {
+    "pos_cos": 0.9837,
+    "neg_cos": 0.4992,
+    "retrieval_at1": 0.745
+  },
+  "retrieval_at_k": {
+    "1": 0.745,
+    "2": 0.8555,
+    "3": 0.8925,
+    "5": 0.9245,
+    "10": 0.9555,
+    "20": 0.978,
+    "50": 1.0,
+    "100": 1.0
+  },
+  "json_summary_jul20_run": {
+    "pos_cos": 0.9833,
+    "neg_cos": 0.4995,
+    "retrieval_at1": 0.735
+  },
+  "retrieval_note": "json and matrix are independent random view draws; figure and manuscript use the matrix-derived value",
+  "heatmap_subsample": 40,
+  "panel_C_D": "figures/v7b_pretrain_cls/reconstruction_withheld",
+  "n_two_view_samples": 2000,
+  "panel_B_source": "figures/v7b_pretrain_cls/view_design/view_design_per_seed.csv (5 seeds x {overlap, disjoint})",
+  "panel_D_source": "figures/v7b_pretrain_cls/reconstruction_withheld/per_sample_metrics.csv (5,000 profiles, paired under identical withheld masks)",
+  "panel_D_paired_ci": {
+    "Per-CpG mean": {
+      "mean_diff": 0.02498,
+      "ci95": [
+        0.02449,
+        0.0255
+      ]
+    },
+    "Shuffled CLS": {
+      "mean_diff": 0.04956,
+      "ci95": [
+        0.04864,
+        0.05048
+      ]
+    },
+    "Random CLS": {
+      "mean_diff": 0.04488,
+      "ci95": [
+        0.04432,
+        0.04546
+      ]
+    }
+  },
+  "panel_D_n_boot": 10000
+}

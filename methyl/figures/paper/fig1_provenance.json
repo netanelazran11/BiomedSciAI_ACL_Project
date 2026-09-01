@@ -1,0 +1,12 @@
+{
+  "figure_type": "schematic; no plotted data",
+  "rationale": "matches Results section 1, which is principally about which population supports which claim",
+  "counts": {
+    "pretraining": "169,120 x 49,156 (data header, SLURM job 45888987)",
+    "pretrain_partition": "80/10/10 fixed seed -> 135,296 / 16,912 / 16,912",
+    "altumage": "10,988 x 21,368; original split 7,416 / 1,308 / 2,264",
+    "filtered": "-328 age outliers, -71 duplicates -> 10,589",
+    "folds": "7,177 train / 1,263 valid; fixed test 2,149",
+    "architecture": "6 blocks, 256-d, genomic-rank RoPE; lambda=0.05"
+  }
+}

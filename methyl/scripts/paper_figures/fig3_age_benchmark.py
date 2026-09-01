@@ -131,7 +131,7 @@ def main():
                   height_ratios=[1.0, 1.1])
 
     # ── Panel A: five-fold stability ─────────────────────────────────────────
-    gsA = gs[0, 0].subgridspec(1, 3, wspace=1.05)
+    gsA = gs[0, 0].subgridspec(1, 3, wspace=1.35)
     axA0 = None
     for i, (col, lab) in enumerate([("test_medae", "MedAE (years)"),
                                      ("test_mae", "MAE (years)"),
@@ -198,37 +198,45 @@ def main():
             axC0 = ax
     panel_label(axC0, "c", dx=-0.75)
 
-    # ── Panel D: bootstrap sampling distributions ────────────────────────────
-    gsD = gs[1, 1].subgridspec(3, 1, hspace=0.75)
-    specs = [("medae", "$\\Delta$ MedAE (years)", COL_LLAMA),
-             ("mae", "$\\Delta$ MAE (years)", COL_LLAMA),
-             ("r2", "$\\Delta R^2$", COL_LLAMA)]
-    axD0 = None
-    for i, (key, lab, colr) in enumerate(specs):
+    # ── Panel D: paired differences as a forest ──────────────────────────────
+    # Three bootstrap densities cost most of a column to say what three point
+    # estimates and their intervals say exactly. The endpoints carry different
+    # units, so each keeps its own axis; the shared element is the zero line.
+    gsD = gs[1, 1].subgridspec(3, 1, hspace=0.95)
+    specs = [("medae", "$\\Delta$ MedAE (years)"),
+             ("mae", "$\\Delta$ MAE (years)"),
+             ("r2", "$\\Delta R^2$")]
+    axD0, ci_out = None, {}
+    for i, (key, lab) in enumerate(specs):
         ax = fig.add_subplot(gsD[i, 0])
         d = draws[key]
+        flip = -1.0 if key == "r2" else 1.0     # sign so positive favours MethylLlama
+        est = flip * float(ci_ref[key]["point_estimate"])
         lo, hi = np.percentile(d, [2.5, 97.5])
-        cnt, edges = np.histogram(d, bins=70, density=True)
-        centers = 0.5 * (edges[:-1] + edges[1:])
-        ax.fill_between(centers, 0, cnt, color=colr, alpha=0.25, linewidth=0)
-        inside = (centers >= lo) & (centers <= hi)
-        ax.fill_between(centers[inside], 0, cnt[inside], color=colr, alpha=0.75,
-                        linewidth=0)
-        ax.plot(centers, cnt, color=colr, lw=0.8)
-        ax.axvline(0, color="#b03030", lw=0.9, ls="--", zorder=4)
+        ci_out[key] = {"estimate": round(est, 5),
+                       "ci95": [round(float(lo), 5), round(float(hi), 5)]}
+        ax.axvline(0, color="#b03030", lw=0.9, ls="--", zorder=1)
+        ax.hlines(0, lo, hi, color=COL_LLAMA, lw=2.0, zorder=2)
+        ax.plot([lo, lo], [-0.16, 0.16], color=COL_LLAMA, lw=1.0, zorder=2)
+        ax.plot([hi, hi], [-0.16, 0.16], color=COL_LLAMA, lw=1.0, zorder=2)
+        ax.scatter([est], [0], s=26, color=COL_LLAMA, zorder=3,
+                   edgecolors="white", linewidths=0.6)
+        span = hi - lo
+        ax.set_xlim(min(-0.28 * span, lo - 0.28 * span), hi + 0.30 * span)
+        ax.set_ylim(-0.62, 0.62)
         ax.set_yticks([])
-        ax.set_ylabel("")
+        ax.spines["left"].set_visible(False)
         ax.set_xlabel(lab, labelpad=1.5)
-        xmin = min(-0.03 * (hi - lo), d.min())
-        ax.set_xlim(xmin, d.max() + 0.05 * (hi - lo))
-        ax.text(0.03, 0.95, f"95% CI [{lo:.3f}, {hi:.3f}]", transform=ax.transAxes,
-                ha="left", va="top", fontsize=7.0, color="0.25")
+        ax.text(est, 0.30, f"{est:.3f}", ha="center", va="bottom", fontsize=6.8,
+                color=COL_LLAMA)
+        ax.text(0.985, 0.06, f"[{lo:.3f}, {hi:.3f}]", transform=ax.transAxes,
+                ha="right", va="bottom", fontsize=6.2, color="0.35")
         if i == 0:
             axD0 = ax
-    panel_label(axD0, "d", dx=-0.1, dy=1.15)
-    axD0.set_title("Paired bootstrap differences\n"
+    panel_label(axD0, "d", dx=-0.1, dy=1.55)
+    axD0.set_title("MethylGPT $-$ MethylLlama, paired\n"
                    "(10,000 subject resamples; positive favours MethylLlama)",
-                   fontsize=7.2, pad=4)
+                   fontsize=7.2, pad=6)
 
     save(fig, str(OUTDIR / "fig3_age_benchmark_paired_comparison"))
 
@@ -236,6 +244,9 @@ def main():
         "panel_A": {"recomputed_from": str(FOLD_PRED_DIR.relative_to(REPO)),
                      "note": "recomputed from per-sample predictions, not WandB-logged values"},
         "panel_B": str(PAIRED_CSV.relative_to(REPO)),
+        "panel_D_style": "forest; estimate + 95% bootstrap CI per endpoint",
+        "panel_D_sign_convention": "error deltas = comparator - MethylLlama; dR2 = MethylLlama - comparator; positive favours MethylLlama for all three",
+        "panel_D_ci": ci_out,
         "panel_C": {"MethylLlama_MethylGPT": str(BOOT_JSON.relative_to(REPO)),
                      "ElasticNet": str(ENET_JSON.relative_to(REPO))},
         "panel_D": {"recomputed_from": str(PAIRED_CSV.relative_to(REPO)),

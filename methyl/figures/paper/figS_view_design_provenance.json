@@ -1,0 +1,13 @@
+{
+  "panels_a_c": "figures/v7b_pretrain_cls/view_design",
+  "n_seeds": 5,
+  "disjoint_minus_overlap": {
+    "pos_cos": -0.0127,
+    "neg_cos": 0.0001,
+    "alignment_gap": -0.0128,
+    "retrieval_at1": -0.4852,
+    "retrieval_at5": -0.3332,
+    "retrieval_at10": -0.2096
+  },
+  "panel_d": "PENDING pilot runs"
+}
