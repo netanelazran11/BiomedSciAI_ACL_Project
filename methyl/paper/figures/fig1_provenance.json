@@ -1,12 +1,12 @@
 {
-  "figure_type": "schematic; the similarity matrix in panel a is real data",
-  "similarity_matrix_source": "figures/v7b_pretrain_cls/two_view_simmatrix.npy",
-  "displayed_values": {
-    "169,120 profiles x 49,156 CpGs": "canonical pretraining h5ad header (SLURM job 45888987)",
-    "6 transformer blocks, 256-d": "scripts/llama/pretrain_llama_small_6L_contrastive.sh",
-    "genomic-rank RoPE": "same script, wced_genomic_rank_path set",
-    "lambda = 0.05": "same script (CONTRASTIVE_WEIGHT)",
-    "50% subsets": "wced_input_ratio=0.5"
-  },
-  "accessibility": "view 1 rose / view 2 blue are separable under deuteranopia; view membership is additionally carried by position and by text labels, never by colour alone"
+  "figure_type": "schematic; no plotted data",
+  "rationale": "matches Results section 1, which is principally about which population supports which claim",
+  "counts": {
+    "pretraining": "169,120 x 49,156 (data header, SLURM job 45888987)",
+    "pretrain_partition": "80/10/10 fixed seed -> 135,296 / 16,912 / 16,912",
+    "altumage": "10,988 x 21,368; original split 7,416 / 1,308 / 2,264",
+    "filtered": "-328 age outliers, -71 duplicates -> 10,589",
+    "folds": "7,177 train / 1,263 valid; fixed test 2,149",
+    "architecture": "6 blocks, 256-d, genomic-rank RoPE; lambda=0.05"
+  }
 }
