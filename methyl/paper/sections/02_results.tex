@@ -88,11 +88,13 @@ generation, so this does not by itself establish transfer across measurement pla
 
 We evaluated reconstruction on 5,000 profiles from the held-out portion of the pretraining
 corpus, encoding each from a 50\% subset of its measured CpGs and scoring predictions only at
-measured CpGs absent from that input ($1.12\times10^{8}$ evaluated positions). Predicted and
-observed beta values were closely correlated at these withheld sites (Pearson $r=0.972$), and
-the per-profile standardized reconstruction loss was 0.0525---closely reproducing the
-checkpoint's own validation diagnostics (0.9713 and 0.0552) on profiles excluded from
-pretraining (Fig.~\ref{fig:partial-view}c).
+measured CpGs absent from that input ($1.12\times10^{8}$ evaluated positions). For the
+observed-versus-predicted analysis, we drew a random sample of approximately
+$5.0\times10^{5}$ withheld positions, within which predicted and observed beta values were
+closely correlated (Pearson $r=0.972$). The per-profile standardized reconstruction loss,
+computed over all withheld positions, was 0.0525---closely reproducing the checkpoint's own
+validation diagnostics (0.9713 and 0.0552) on profiles excluded from pretraining
+(Fig.~\ref{fig:partial-view}c).
 
 To test whether the decoder genuinely reads the sample representation rather than exploiting
 population-level regularities, we compared three controls computed on the same profiles under
@@ -120,9 +122,10 @@ methylation values never supplied to that view.
  are given in the text and in Supplementary Fig.~S1. \textbf{c}, Observed
  versus predicted $\beta$ values at CpGs withheld from the encoder input, for 5,000 profiles
  from the held-out portion of the pretraining corpus (hexagonal binning, logarithmic colour
- scale; dashed line indicates identity). For legibility the panel displays a random subsample
- of $5.0\times10^{5}$ of the $1.12\times10^{8}$ evaluated positions; the reported correlation
- ($r=0.972$) was computed over all evaluated positions, not over the plotted subsample.
+ scale; dashed line indicates identity). For legibility the panel displays a random sample
+ of approximately $5.0\times10^{5}$ of the $1.12\times10^{8}$ evaluated positions; the reported
+ correlation ($r=0.972$) was computed on this sample, whereas reconstruction-error summaries
+ were computed over all withheld positions.
  \textbf{d}, Mean squared error at withheld CpGs for the model and three controls evaluated on
  the same profiles under identical withheld masks. Bars show the mean across profiles and
  vertical lines span the 10th--90th percentile across profiles; these are dispersion ranges,
@@ -288,10 +291,10 @@ and substantial cohort-specific structure. Tissue and dataset labels are also pa
 confounded in public methylation collections, so the tissue-probe accuracy cannot be interpreted
 as a study-independent biological metric.
 
-For this reason, the main representation figure should pair the tissue result with the dataset
-result rather than show tissue alone. UMAP panels are descriptive and belong in the
-Supplementary Information; balanced-accuracy probes and cross-study tests provide the
-quantitative evidence (Fig.~\ref{fig:representation-generalization}).
+We therefore report tissue and dataset predictability jointly, because tissue-associated
+structure cannot be interpreted independently of cohort structure. The quantitative evidence
+is provided by the balanced-accuracy probes and cross-study transfer analysis
+(Fig.~\ref{fig:representation-generalization}).
 
 \subsection{Cross-study transfer of age representations remains limited}
 
