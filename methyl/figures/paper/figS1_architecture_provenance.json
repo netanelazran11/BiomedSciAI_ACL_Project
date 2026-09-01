@@ -1,17 +1,13 @@
 {
-  "figure_type": "illustrated schematic; no measured data plotted",
-  "source": "AI-generated layout (FigureLabs), exported PNG 2754x1536 and converted to PDF at 300 dpi",
-  "source_file": "~/Downloads/ai-image-generator-1788278225377.png",
-  "role": "Supplementary Fig. S1 -- model architecture and objectives; the main-text Figure 1 carries study design, which this figure does not show",
-  "verified_against_code": {
-    "hidden_size_256": "config; matches badge and sub-caption",
-    "layers_6_heads_4": "config",
-    "cpg_vocabulary_49156": "data header, SLURM job 45888987",
-    "rope_applied_to_q_k": "model.py:300 apply_rotary_pos_emb(q, k, cos, sin)"
+  "figure": "Supplementary Figure S1",
+  "type": "vector schematic; no measured data",
+  "verified_architecture": {
+    "input_token": "cpg_scale * cpg_embed(cpg_ids) + ScaleAdapt(beta)",
+    "genomic_rope": "applied to query and key projections inside attention only",
+    "encoder": "6 Transformer layers; hidden size 256; 4 attention heads",
+    "objectives": "withheld-CpG reconstruction plus symmetric cross-view InfoNCE",
+    "loss": "L_recon + 0.05 * L_InfoNCE"
   },
-  "KNOWN_ERROR_BLOCKING_SUBMISSION": {
-    "what": "legend writes 'Token embedding = CpG embedding + beta value embedding + genomic-rank RoPE', and a 'Genomic positional encoding' arrow feeds the token strip",
-    "why_wrong": "token is cpg_scale * cpg_embed(cpg_ids) + ScaleAdapt(beta) only; RoPE is applied to Q and K inside attention, never summed into the token",
-    "fix": "regenerate without the third legend term and without that arrow; the panel-c annotation 'rotary position applied to Q and K' is already correct"
-  }
+  "implementation_reference": "bmfm_methylation/llama/model.py:300,503",
+  "status": "scientifically corrected; no positional encoding is added to the input token"
 }

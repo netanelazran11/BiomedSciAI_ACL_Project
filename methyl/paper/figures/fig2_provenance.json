@@ -26,5 +26,31 @@
   "retrieval_note": "json and matrix are independent random view draws; figure and manuscript use the matrix-derived value",
   "heatmap_subsample": 40,
   "panel_C_D": "figures/v7b_pretrain_cls/reconstruction_withheld",
-  "n_two_view_samples": 2000
+  "n_two_view_samples": 2000,
+  "panel_B_source": "figures/v7b_pretrain_cls/view_design/view_design_per_seed.csv (5 seeds x {overlap, disjoint})",
+  "panel_D_source": "figures/v7b_pretrain_cls/reconstruction_withheld/per_sample_metrics.csv (5,000 profiles, paired under identical withheld masks)",
+  "panel_D_paired_ci": {
+    "Per-CpG mean": {
+      "mean_diff": 0.02498,
+      "ci95": [
+        0.02449,
+        0.0255
+      ]
+    },
+    "Shuffled CLS": {
+      "mean_diff": 0.04956,
+      "ci95": [
+        0.04864,
+        0.05048
+      ]
+    },
+    "Random CLS": {
+      "mean_diff": 0.04488,
+      "ci95": [
+        0.04432,
+        0.04546
+      ]
+    }
+  },
+  "panel_D_n_boot": 10000
 }

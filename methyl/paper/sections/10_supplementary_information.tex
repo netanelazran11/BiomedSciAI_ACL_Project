@@ -1,19 +1,7 @@
 % Supplementary Information. Figure PDFs live in figures/ alongside the
 % main-text ones; every number here is traceable to a provenance JSON in
 % figures/paper/ or to the artifact named in the caption.
-%
-% BLOCKING BEFORE SUBMISSION -- Supplementary Fig. S1 (figS1_architecture.pdf)
-% is an illustrated schematic that still contains one architecture error: its
-% legend writes the token as
-%     CpG embedding + beta value embedding + genomic-rank RoPE
-% and it draws a "Genomic positional encoding" arrow into the token strip.
-% RoPE is applied to Q and K inside attention (see model.py:300), never summed
-% into the token; the token is cpg_scale * cpg_embed(cpg_ids) + ScaleAdapt(beta)
-% only. The panel-c annotation "rotary position applied to Q and K" is correct.
-% The figure must be regenerated without the third legend term and without that
-% arrow before this Supplementary is submitted.
 \clearpage
-\section*{Supplementary Information}
 \setcounter{figure}{0}
 \setcounter{table}{0}
 \renewcommand{\thefigure}{S\arabic{figure}}
@@ -23,20 +11,17 @@
  \centering
  \includegraphics[width=\linewidth]{figS1_architecture.pdf}
  \caption{\textbf{\method{} architecture and the WCED pretraining objective.}
- \textbf{a}, Input data. Methylation profiles across tissues, each represented at the shared
- vocabulary of 49,156 CpG sites as continuous $\beta$ values in $[0,1]$. \textbf{b}, View
- construction. Two independently sampled 50\% CpG views are drawn from each profile; because
- they are drawn independently rather than as a partition, they overlap at approximately half of
- their sites. Grey cells mark sites absent from a given view. \textbf{c}, Encoder. Each token
- combines a learned CpG-identity embedding with a continuous $\beta$-value encoding; genomic
- rank enters as rotary position applied to the query and key projections inside self-attention.
- Six Transformer layers of hidden size 256 with four attention heads process the tokens
- alongside a prepended CLS token. \textbf{d}, Objectives. A decoder predicts the CpGs withheld
- from each view using its CLS representation alone, while a symmetric InfoNCE term aligns the
- CLS representations of the two views of one profile against those of other profiles in the
- batch. \textbf{e}, Downstream use of the pretrained encoder: chronological-age fine-tuning,
- and frozen probes of tissue and study representation. Schematic only; no measured data are
- plotted.}
+ \textbf{a}, Partial-view inputs and token construction. Two independently sampled 50\% CpG
+ views are drawn from each profile. Each input token combines a learned CpG-identity embedding
+ with a continuous $\beta$-value encoding; genomic position is not added to the token.
+ \textbf{b}, Shared encoder. Six Transformer layers of hidden size 256 with four attention
+ heads process each view alongside a prepended CLS token. Genomic rank enters exclusively as
+ rotary position applied to the query and key projections inside self-attention; the value
+ projection is unchanged. \textbf{c}, Dual self-supervised objectives. A shared decoder predicts
+ CpGs withheld from each view using its CLS representation, while symmetric InfoNCE aligns the
+ two views of one profile against other profiles in the batch. \textbf{d}, Downstream reuse of
+ the pretrained encoder for chronological-age fine-tuning and frozen tissue and study probes.
+ Schematic only; no measured data are plotted.}
  \label{fig:sup-architecture}
 \end{figure}
 

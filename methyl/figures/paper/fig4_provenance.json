@@ -14,7 +14,7 @@
     "p": 0.4334
   },
   "display_floor": -1.3,
-  "panel_C_style": "ordered forest; every study named, clipped values printed",
+  "panel_C_style": "ordered lollipop plot; every study named, truncated values printed",
   "in_distribution_reference": "figures/v7b_pretrain_cls/lodo_reference.json",
   "note": "studies below the display floor are annotated with their true R2; neither cohort descriptor significantly predicts transfer success"
 }

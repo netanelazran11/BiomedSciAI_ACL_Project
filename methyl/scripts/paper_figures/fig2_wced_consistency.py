@@ -208,13 +208,34 @@ def main():
             print(f"  paired {lab.replace(chr(10),' '):18s} - model: "
                   f"{d.mean():+.4f} [{lo:+.4f}, {hi:+.4f}]")
         fold = data[1].mean() / m.mean()
-        axD.text(0.5, 0.97, f"{fold:.1f}$\\times$ lower than the per-CpG mean",
-                 transform=axD.transAxes, ha="center", va="top", fontsize=6.6,
+        axD.text(0.02, 0.97, f"MSE ratio\n{fold:.1f}$\\times$ lower",
+                 transform=axD.transAxes, ha="left", va="top", fontsize=6.8,
                  color=INK_D)
-        axD.text(0.5, -0.34, "violins: all 5,000 profiles; white point, median.\n"
-                             "All paired differences vs model exclude zero (95% CI).",
-                 transform=axD.transAxes, ha="center", va="top", fontsize=5.9,
-                 color="0.45", style="italic", linespacing=1.3)
+
+        # Show the paired uncertainty that the caption reports. The inset uses
+        # the profile as the resampling unit and the same control-minus-model
+        # sign convention as the manuscript.
+        axDi = axD.inset_axes([0.48, 0.58, 0.50, 0.31])
+        y_ci = np.arange(len(ci_txt))[::-1]
+        ci_cols = [COL_ENET, COL_GPT, "0.3"]
+        for yi, (lab, md, lo, hi), colr in zip(y_ci, ci_txt, ci_cols):
+            axDi.errorbar(md, yi, xerr=[[md - lo], [hi - md]], fmt="o",
+                          color=colr, ecolor=colr, markersize=2.8,
+                          elinewidth=1.0, capsize=1.8, zorder=3)
+        axDi.axvline(0, color="0.35", ls="--", lw=0.7, zorder=1)
+        axDi.set_yticks(y_ci)
+        axDi.set_yticklabels(["Per-CpG", "Shuffled", "Random"], fontsize=6.8)
+        axDi.set_xlabel(r"paired $\Delta$MSE", fontsize=6.8, labelpad=1)
+        axDi.tick_params(axis="x", labelsize=6.8, pad=1)
+        axDi.tick_params(axis="y", length=0, pad=1)
+        axDi.set_xlim(-0.004, 0.056)
+        axDi.set_title("control $-$ model (95% CI)", fontsize=6.8, pad=2)
+        axDi.spines["top"].set_visible(False)
+        axDi.spines["right"].set_visible(False)
+
+        axD.text(0.5, -0.34, "violins: all 5,000 profiles; white point, median.",
+                 transform=axD.transAxes, ha="center", va="top", fontsize=6.8,
+                 color="0.45", style="italic")
         panel_label(axD, "d", dx=-0.2)
 
     save(fig, str(OUTDIR / "fig2_wced_consistency_reconstruction"))

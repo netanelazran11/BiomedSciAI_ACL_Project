@@ -123,7 +123,7 @@ def main():
     axC = fig.add_subplot(gs[1, :])
     # A scatter against age SD invited the reader to see a trend that the data
     # do not support (rho=+0.28, P=0.40, n=11) and buried the identity of the
-    # failing cohorts. An ordered forest names every study and makes the spread
+    # failing cohorts. An ordered lollipop plot names every study and makes the spread
     # itself the message; the descriptor correlations move to Supplementary.
     ref = json.loads(REF.read_text())["in_distribution_random_80_20"]
     ordered = keep.sort_values("R2_LODO", ascending=True).reset_index(drop=True)
@@ -178,7 +178,7 @@ def main():
         "spearman_r2_vs_age_sd": {"rho": round(float(rho_sd), 4), "p": round(float(p_sd), 4)},
         "spearman_r2_vs_n": {"rho": round(float(rho_n), 4), "p": round(float(p_n), 4)},
         "display_floor": YFLOOR,
-        "panel_C_style": "ordered forest; every study named, clipped values printed",
+        "panel_C_style": "ordered lollipop plot; every study named, truncated values printed",
         "in_distribution_reference": "figures/v7b_pretrain_cls/lodo_reference.json",
         "note": "studies below the display floor are annotated with their true R2; "
                  "neither cohort descriptor significantly predicts transfer success",
