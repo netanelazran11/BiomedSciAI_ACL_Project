@@ -7,18 +7,20 @@ depend on phenotype labels, because such labels are available for only a small a
 inconsistently annotated fraction of public methylation profiles. We therefore pretrained
 \method{} on 169,120 human DNA methylation profiles represented in a shared vocabulary of
 49,156 CpG sites, without using chronological age, tissue, sex, dataset, or disease
-annotations at any point in the objective. The corpus was partitioned 80/10/10 by a fixed
+annotations at any point in the objective (Fig.~\ref{fig:study-design}a). The corpus was
+partitioned 80/10/10 by a fixed
 permutation into 135,296 training, 16,912 validation, and 16,912 held-out profiles; the
 held-out partition was never seen during pretraining and supports the reconstruction analyses
-below (Fig.~\ref{fig:study-design}a).
+below.
 
 Each profile generates two independently sampled views, each containing 50\% of its measured
 CpGs. A shared encoder compresses each view into a 256-dimensional CLS representation, from
 which a decoder predicts measured CpGs withheld from that view; a symmetric cross-view
 contrastive term aligns the two CLS representations of one profile while separating
-representations of different profiles (Fig.~\ref{fig:study-design}b). Because the two views are
-drawn independently rather than as a partition, they share approximately half of their sites in
-expectation---a property we return to below. The encoder architecture and token construction
+representations of different profiles (Fig.~\ref{fig:study-design}b--d). Because the two views are
+drawn independently rather than as a partition, their expected overlap is half of the sites in
+either view---equivalently, one quarter of all measured CpGs---a property we return to below.
+The encoder architecture and token construction
 are given in Methods and illustrated in Supplementary Fig.~S1.
 
 Downstream evaluation used the AltuMAge-derived collection of 10,988 profiles measured at
@@ -28,26 +30,35 @@ train/validation/test partition (7,416/1,308/2,264 profiles). The supervised age
 applies a prespecified age filter and methylation-fingerprint deduplication, removing 328 age
 outliers and 71 duplicates to leave 10,589 profiles, from which five stratified
 training/validation folds (7,177/1,263) and one fixed test set of 2,149 unique samples were
-constructed. Every fine-tuning and paired-comparison metric reported below uses that same 2,149
--sample test set, for both model families and all five folds.
+constructed. Every fine-tuning and paired-comparison metric reported below uses that same
+2,149-sample test set, for both model families and all five folds. Figure~\ref{fig:study-design}e
+summarizes the two downstream evaluation modes considered here: supervised age fine-tuning and
+frozen representation analysis.
 
+% DRAFT FIGURE FOR MANUAL REVIEW. Before submission, replace this raster draft with a
+% vector-native version and correct the four known visual issues: duplicated View A label;
+% CpG embedding -> CpG identity embedding; remove the RoPE-to-V arrow; and move InfoNCE away
+% from the downstream flow so that panel e originates from the pretrained encoder/global CLS.
 \begin{figure}[!htbp]
  \centering
- \includegraphics[width=\linewidth]{fig1_study_design_wced.pdf}
- \caption{\textbf{Study design and the WCED pretraining objective.}
- \textbf{a}, Study design. The unlabelled pretraining corpus and its fixed 80/10/10 partition
- are shown above the two downstream evaluation populations derived from the labelled AltuMAge
- collection: the original unfiltered split, used only for frozen-representation probes, and the
- filtered, deduplicated cohort, used for every supervised comparison. Annotations at each
- branch give the figure that the branch supports. No phenotype annotation entered the
- pretraining objective. \textbf{b}, The WCED objective. Two independently sampled 50\% CpG
- views of one profile (coloured strips; grey cells are sites absent from that view) are encoded
- by a shared encoder into two CLS representations. A decoder predicts, from the CLS
- representation alone, the measured CpGs withheld from that view, and a symmetric InfoNCE term
- aligns the two CLS representations of one profile against representations of other profiles in
- the batch. Both losses act on the same representation, combined as
- $\mathcal{L}=\mathcal{L}_{\mathrm{recon}}+0.05\,\mathcal{L}_{\mathrm{InfoNCE}}$. The encoder
- architecture and token construction are shown in Supplementary Fig.~S1.}
+ \includegraphics[width=\linewidth]{fig1_methylllama_overview_draft.png}
+ \caption{\textbf{Overview of \method{} pretraining and downstream reuse.}
+ \textbf{a}, The self-supervised pretraining corpus comprises 169,120 human DNA methylation
+ profiles represented at 49,156 selected CpG sites; phenotype annotations do not enter the
+ objective. \textbf{b}, Each profile is sampled into two independent random views, each retaining
+ 50\% of its measured CpGs. Coloured cells denote CpGs present in a view and hatched cells denote
+ CpGs omitted from that view. \textbf{c}, A shared six-layer Transformer encoder combines CpG
+ identity with continuous methylation-value encoding and summarizes each view in a global CLS
+ representation. Genomic-rank rotary position encoding is applied to the query and key
+ projections within self-attention, while the value projection is unchanged. \textbf{d}, WCED
+ couples reconstruction and cross-view contrast: a shared decoder uses each CLS representation
+ to predict measured CpGs withheld from the corresponding input, while a symmetric InfoNCE
+ objective aligns the two views of one profile against representations of other profiles.
+ \textbf{e}, The pretrained global representation is reused for supervised chronological-age
+ fine-tuning and frozen tissue and study probes, with further downstream tasks left for future
+ evaluation. The loss is
+ $\mathcal{L}=\mathcal{L}_{\mathrm{recon}}+0.05\,\mathcal{L}_{\mathrm{InfoNCE}}$; additional
+ architectural detail is provided in Supplementary Fig.~S1.}
  \label{fig:study-design}
 \end{figure}
 
