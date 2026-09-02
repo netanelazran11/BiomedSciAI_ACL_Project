@@ -1,12 +1,13 @@
 \section{Introduction}
 
 DNA methylation is a covalent epigenetic modification that contributes to transcriptional
-regulation, chromatin organization, genome stability, and the maintenance of cellular identity.
+regulation, chromatin organization, genome stability, and the maintenance of cellular identity
+\citep{Jones2012}.
 At CpG dinucleotides, methylation is commonly quantified as a continuous beta value using
 array-based assays that profile hundreds of thousands of loci \citep{Bibikova2011,Pidsley2016}.
 The biological meaning of a methylation measurement depends on both genomic and cellular
 context: regulatory CpGs can reflect altered gene activity, whereas tissue-specific methylation
-programs capture differentiation and cell composition \citep{Jones2012,Roadmap2015}. A
+programs capture differentiation and cell composition \citep{Roadmap2015}. A
 methylation profile therefore represents an integrated molecular state rather than a collection
 of independent biomarkers.
 
@@ -34,14 +35,16 @@ task-specific supervision.
 
 Self-supervised pretraining has enabled reusable representations in language, genomics, and
 single-cell transcriptomics \citep{Devlin2019,Ji2021,Yang2022,Cui2024}. In DNA methylation,
-MethylGPT established that a Transformer can be pretrained on a large collection of human
-methylomes and adapted to biological prediction tasks \citep{Ying2024}. MethylGPT combines
-masked CpG prediction with whole-profile reconstruction from a global CLS representation,
-thereby encouraging that representation to retain sample-level information. Whole-profile
-decoding, however, does not explicitly require the representation of a sample to remain stable
-when different CpG subsets are observed, nor does it isolate recovery of loci that were entirely
-absent from the encoder input. These properties are important when a pretrained representation
-must transfer across incomplete profiles and non-identical measurement panels.
+MethylGPT demonstrated that a Transformer can be pretrained on a large collection of human
+methylomes and adapted to biological prediction tasks \citep{Ying2024}. Its pretraining
+objectives combine masked methylation-value prediction with profile reconstruction from a global
+CLS representation. In the masked-value objective, however, CpG identity tokens remain present
+while their associated value embeddings are masked. Moreover, although MethylGPT reported
+robustness to artificially introduced missingness, its pretraining objective does not explicitly
+align representations obtained from independently sampled CpG subsets of the same profile.
+These distinctions motivate an objective that both reconstructs CpGs omitted entirely from the
+encoder view and enforces consistency of the resulting global representation across partial
+measurements.
 
 Here we present \method{}, a self-supervised foundation model for human DNA methylation.
 \method{} was trained from scratch, without phenotype labels, on 169{,}120 profiles represented
