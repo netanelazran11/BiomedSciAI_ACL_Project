@@ -1,18 +1,19 @@
 DNA methylation is a stable, information-rich epigenetic signal that reflects tissue identity
 and serves as a powerful biomarker for disease diagnosis and biological age assessment.
-However, many widely used analytical approaches rely on linear models, which cannot directly
-capture nonlinear dependencies and context-dependent interactions across the methylome. Here
-we introduce \method{}, a Transformer-based foundation model pretrained without phenotype
-supervision on 169{,}120 profiles from diverse tissues and studies, represented at 49{,}156
-CpGs. To learn global rather than locally constrained representations, we adapt Whole-Cell
-Expression Decoding to methylation as the Whole-CpG Encoder--Decoder (WCED). WCED encodes
+However, established predictors are trained one endpoint at a time, so shared structure is
+relearned for each task while much of the unlabelled corpus remains unused. Here we introduce
+\method{}, a Transformer-based foundation model pretrained without
+phenotype supervision on 169{,}120 profiles from diverse tissues and studies, represented at
+49{,}156 CpGs. We adapt Whole-Cell Expression Decoding to methylation as the Whole-CpG
+Encoder--Decoder (WCED). WCED encodes
 two independently sampled partial views of each profile and requires their CLS representations
 to reconstruct CpGs absent from the corresponding inputs, while symmetric InfoNCE aligns views
 of the same sample and separates different samples. On held-out profiles, \method{} retained
 sample identity across partial measurements, reconstructed unseen CpGs substantially better than
 population and representation-disruption controls, and captured age- and tissue-associated
-variation without labels. Fine-tuning improved chronological-age prediction over matched neural
-and linear baselines. These findings establish \method{} as a reusable DNA methylation
+variation without labels. Fine-tuning reduced median absolute age error by 0.59 years (95\% CI,
+0.34--0.82) relative to a sample- and split-matched MethylGPT pipeline and achieved better
+point estimates than ElasticNetCV. These findings establish \method{} as a reusable DNA methylation
 foundation model while revealing study-specific structure as a central challenge for cross-cohort
 generalization.
 

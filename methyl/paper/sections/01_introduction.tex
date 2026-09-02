@@ -46,36 +46,38 @@ resulting partial-view representations.
 Here we present \method{}, a self-supervised foundation model for human DNA methylation.
 \method{} was trained from scratch, without phenotype labels, on 169{,}120 profiles represented
 at 49{,}156 curated CpG sites, using the large public methylation resource and CpG panel assembled
-for MethylGPT \citep{Ying2024}. Two complementary design components distinguish the model.
-First, WCED trains a global CLS bottleneck to support both reconstruction of CpGs excluded from
-each encoder view and agreement across independently sampled views. Second, genomic-rank
-rotary position encoding assigns positional identifiers according to the chromosome-and-coordinate
-ordering of the CpG panel and applies the resulting rotations to the query and key projections.
-This supplies self-attention with a relative genomic-order signal while retaining global
-interactions among CpG sites \citep{Su2024}.
+for MethylGPT \citep{Ying2024}. The encoder assigns rotary position identifiers according to
+genomic rank---the chromosome-and-coordinate ordering of the CpG panel---and applies the
+resulting rotations to the query and key projections, supplying self-attention with a relative
+genomic-order signal while retaining global interactions among CpG sites \citep{Su2024}.
 
 WCED adapts the Whole-Cell Expression Decoder objective introduced in BMFM-RNA
 \citep{Dandala2025} to DNA methylation. For each profile, two independently sampled partial
 views are processed by an encoder with shared weights. A decoder maps each CLS representation
 to a full-vector methylation prediction, while reconstruction loss is computed only at measured
 CpGs withheld from the corresponding encoder view. The reconstruction objective therefore cannot
-be satisfied by directly propagating observed input values. Related work in single-cell
-transcriptomics, scConcept, instead uses contrastive learning across disjoint gene-panel views
-without feature reconstruction \citep{Bahrami2025}. WCED retains reconstruction through a CLS
-bottleneck and complements it with a symmetric InfoNCE objective that aligns representations of
-two views from the same profile relative to representations of other profiles \citep{Oord2018}.
+be satisfied by directly propagating observed input values. scConcept addresses the related
+problem of panel-dependent representations in single-cell transcriptomics by discarding feature
+reconstruction and relying solely on contrastive learning across disjoint gene-panel views
+\citep{Bahrami2025}. WCED adopts this motivation but not the reconstruction-free formulation:
+it retains reconstruction through a CLS bottleneck and complements it with a symmetric InfoNCE
+objective that aligns representations of two views from the same profile relative to
+representations of other profiles \citep{Oord2018}.
 Together, these training signals encourage the CLS representation to retain sample-specific
 information sufficient for withheld-CpG recovery while remaining consistent across partial CpG
 views.
 
-We show that independently sampled CpG views preserve sample-specific identity and that the CLS
-bottleneck supports accurate reconstruction of CpGs withheld from the encoder. Without phenotype
-supervision, the pretrained representation captures substantial age- and tissue-associated
-variation, and fine-tuning for chronological-age prediction outperforms both a matched MethylGPT
-pipeline and an ElasticNet baseline on a common held-out cohort. At the same time, frozen
-representations encode strong study-specific structure, and transfer of age information to
-entirely unseen studies is heterogeneous. Together, these results establish \method{} as a
-reusable DNA methylation foundation model while identifying cohort heterogeneity as a central
-challenge for cross-study generalization.
+We show that independently sampled CpG views yield view-consistent, sample-discriminative CLS
+representations and that the CLS bottleneck supports reconstruction of CpGs withheld from the
+encoder input with substantially lower error than population-level and representation-disruption
+controls. Without phenotype supervision, the pretrained representation made age- and
+tissue-associated variation linearly accessible. Following chronological-age fine-tuning,
+\method{} improved all three predictive metrics relative to a sample- and split-matched
+MethylGPT pipeline in a paired comparison and achieved better held-out point estimates than an
+ElasticNetCV baseline. At
+the same time, frozen representations encoded strong study-associated structure, and the transfer
+of age information to studies excluded entirely from probe fitting was heterogeneous. Together,
+these findings establish \method{} as a reusable DNA methylation foundation model while
+identifying study-associated heterogeneity as a central challenge for cross-study generalization.
 
 % Internal drafting note (not printed): add additional completed downstream tasks before submission.
