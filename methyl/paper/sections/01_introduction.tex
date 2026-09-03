@@ -46,8 +46,11 @@ resulting partial-view representations.
 Here we present \method{}, a self-supervised foundation model for human DNA methylation.
 \method{} was trained from scratch, without phenotype labels, on 169{,}120 profiles represented
 at 49{,}156 curated CpG sites, using the large public methylation resource and CpG panel assembled
-for MethylGPT \citep{Ying2024}. The encoder assigns rotary position identifiers according to
-genomic rank---the chromosome-and-coordinate ordering of the CpG panel---and applies the
+for MethylGPT \citep{Ying2024}. Each CpG input token combines a learned CpG-identity embedding
+with a continuous methylation-value encoding, while a dedicated CLS token provides the global
+sample representation used for reconstruction and downstream adaptation. The encoder assigns
+rotary position identifiers according to genomic rank---the chromosome-and-coordinate ordering
+of the CpG panel---and applies the
 resulting rotations to the query and key projections, supplying self-attention with a relative
 genomic-order signal while retaining global interactions among CpG sites \citep{Su2024}.
 
