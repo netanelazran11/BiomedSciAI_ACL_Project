@@ -17,6 +17,8 @@ What is reported, per (condition, seed)
   pool "n2000"          a fixed random 2,000-profile subset, for continuity with the
                         first held-out run (job 46246524) and the AltuMAge analysis.
   For each pool: mean matched cosine, mean unmatched cosine, retrieval@1/5/10.
+  The embeddings of both views are saved for every run BEFORE any statistic is computed,
+  so any other pool or threshold can be evaluated later without encoding again.
 
 Conditions
   overlap       two independent 50% views (the pretraining construction)
@@ -64,6 +66,8 @@ def parse_args():
 
 def pool_stats(e1, e2, idx):
     """Consistency statistics with the candidate pool restricted to rows `idx`."""
+    if len(idx) < 2:                                # nothing to retrieve from; recorded, not computed
+        return {"n_candidates": int(len(idx))}, None, None, None
     a, b = e1[idx], e2[idx]
     sim = a @ b.T                                   # rows: view 1, columns: view 2 candidates
     n = sim.shape[0]
@@ -102,10 +106,11 @@ def encode(a):
     n_split = len(ds)
     rows = np.arange(n_split) if a.n_samples in (0, n_split) else np.sort(
         np.random.default_rng(0).choice(n_split, size=a.n_samples, replace=False))
-    X = ds.adata.X
-    betas = (X[rows].toarray() if hasattr(X, "toarray") else np.asarray(X[rows])).astype(np.float32)
+    X = ds.adata.X if len(rows) == n_split else ds.adata.X[rows]
+    betas = np.array(X.toarray() if hasattr(X, "toarray") else X, dtype=np.float32)   # our own copy
     valid = np.isfinite(betas)
-    betas = np.where(valid, betas, 0.0)
+    betas[~valid] = 0.0
+    sample_ids = np.asarray(ds.adata.obs_names)[rows].astype(str)
     n_cpg = betas.shape[1]
     frac = valid.sum(1) / n_cpg
     print(f"      partition rows={n_split:,} evaluated={len(rows):,} cpgs={n_cpg:,} | measured fraction: "
@@ -119,8 +124,8 @@ def encode(a):
     assert len(rank_g) == n_cpg, f"genomic rank has {len(rank_g)} entries, panel has {n_cpg}"
 
     if a.condition == "pattern_only":
-        mu = (betas * valid).sum(0) / np.maximum(valid.sum(0), 1)       # per-CpG mean over evaluated profiles
-        betas = np.where(valid, mu[None, :], 0.0).astype(np.float32)    # same measured set, no individual values
+        mu = (betas.sum(0, dtype=np.float64) / np.maximum(valid.sum(0), 1)).astype(np.float32)   # per-CpG mean
+        np.copyto(betas, np.broadcast_to(mu, betas.shape), where=valid)    # same measured set, no individual values
         print("      pattern_only: methylation values replaced by per-CpG means", flush=True)
 
     print(f"[3/4] encoding {a.condition}, seed {a.seed}", flush=True)
@@ -129,8 +134,13 @@ def encode(a):
     e1 = e1 / (np.linalg.norm(e1, axis=1, keepdims=True) + 1e-9)
     e2 = e2 / (np.linalg.norm(e2, axis=1, keepdims=True) + 1e-9)
 
-    print("[4/4] statistics", flush=True)
     n = len(rows)
+    assert e1.shape == e2.shape == (n, e1.shape[1]) and np.isfinite(e1).all() and np.isfinite(e2).all()
+    np.savez_compressed(out / f"{tag}_embeddings.npz", e1=e1.astype(np.float32), e2=e2.astype(np.float32),
+                        rows=rows, sample_ids=sample_ids, measured_fraction=frac.astype(np.float32))
+    print(f"      embeddings saved -> {out}/{tag}_embeddings.npz", flush=True)
+
+    print("[4/4] statistics", flush=True)
     pools = {"all": np.arange(n),
              "fully_measured": np.where(frac >= a.measured_min)[0],
              "n2000": np.sort(np.random.default_rng(0).choice(n, size=min(2000, n), replace=False))}
@@ -141,15 +151,17 @@ def encode(a):
     for name, idx in pools.items():
         s, pos, rk, hist = pool_stats(e1, e2, idx)
         res["pools"][name] = s
+        if pos is None:
+            print(f"      {name:15s} N={s['n_candidates']:>6,}  fewer than 2 candidates, no statistics", flush=True)
+            continue
         keep[f"{name}_matched_cos"], keep[f"{name}_rank"], keep[f"{name}_unmatched_hist"] = pos, rk, hist
         print(f"      {name:15s} N={s['n_candidates']:>6,}  matched {s['matched_cos']:.4f}  unmatched "
               f"{s['unmatched_cos']:.4f}  top-1 {100 * s['retrieval_at1']:.2f}%  top-10 "
               f"{100 * s['retrieval_at10']:.2f}%  (chance {100 * s['chance_top1']:.4f}%)", flush=True)
-    extra = {"e1": e1.astype(np.float16), "e2": e2.astype(np.float16)} if a.seed == 0 else {}
     np.savez_compressed(out / f"{tag}.npz", rows=rows, measured_fraction=frac.astype(np.float32),
-                        hist_bins=BINS, **keep, **extra)
+                        hist_bins=BINS, **keep)
     (out / f"{tag}.json").write_text(json.dumps(res, indent=2))
-    print(f"Saved -> {out}/{tag}.json, .npz", flush=True)
+    print(f"Saved -> {out}/{tag}.json, .npz, _embeddings.npz", flush=True)
 
 
 def merge(a):
@@ -167,6 +179,8 @@ def merge(a):
             continue
         summary["conditions"][cond] = {"seeds": sorted(r["seed"] for r in rc), "pools": {}}
         for pool in rc[0]["pools"]:
+            if "matched_cos" not in rc[0]["pools"][pool]:
+                continue
             v = {m: np.array([r["pools"][pool][m] for r in rc]) for m in metrics}
             summary["conditions"][cond]["pools"][pool] = {
                 "n_candidates": rc[0]["pools"][pool]["n_candidates"],
