@@ -7,13 +7,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
 #SBATCH --time=8:00:00
-#SBATCH --array=0-5
+#SBATCH --array=0-6
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_llama-wced/%x_%A_%a.err
 # ─────────────────────────────────────────────────────────────────────────────
 # FINAL cross-view consistency for Fig. 2a/b: the whole held-out partition of the
-# pretraining corpus (16,912 profiles), overlap and disjoint views, 3 seeds each.
-# Six array tasks, one (condition, seed) each, about 2.5 h per task.
+# pretraining corpus (16,912 profiles), overlap and disjoint views, 3 seeds each, plus one
+# negative control (pattern_only: measured-CpG pattern kept, values replaced by per-CpG means).
+# Seven array tasks, one (condition, seed) each, about 2 h per task.
 # Inference only. Writes to figures/v7b_pretrain_cls/view_consistency_heldout_full/.
 #
 # Usage:   sbatch scripts/repr_analysis_v7b/run_view_consistency_heldout_full.sh
@@ -21,8 +22,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-CONDS=(overlap overlap overlap disjoint disjoint disjoint)
-SEEDS=(0 1 2 0 1 2)
+CONDS=(overlap overlap overlap disjoint disjoint disjoint pattern_only)
+SEEDS=(0 1 2 0 1 2 0)
 COND="${CONDS[$SLURM_ARRAY_TASK_ID]}"
 SEED="${SEEDS[$SLURM_ARRAY_TASK_ID]}"
 

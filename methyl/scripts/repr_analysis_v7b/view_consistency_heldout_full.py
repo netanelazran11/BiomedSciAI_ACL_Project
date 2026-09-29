@@ -18,7 +18,15 @@ What is reported, per (condition, seed)
                         first held-out run (job 46246524) and the AltuMAge analysis.
   For each pool: mean matched cosine, mean unmatched cosine, retrieval@1/5/10.
 
-One (condition, seed) per invocation, so the six runs can be a SLURM array.
+Conditions
+  overlap       two independent 50% views (the pretraining construction)
+  disjoint      the two views partition the measured CpGs and share none
+  pattern_only  NEGATIVE CONTROL. Each profile keeps its own set of measured CpGs, but every
+                methylation value is replaced by the per-CpG mean of the evaluated profiles.
+                The views then carry WHICH CpGs a profile has and nothing about their values.
+                If retrieval stays at chance here, sample identity comes from the values.
+
+One (condition, seed) per invocation, so the runs can be a SLURM array.
 `--merge` combines the per-run files into one summary; it imports neither torch
 nor the model and can run on the login node.
 
@@ -43,7 +51,7 @@ def parse_args():
     p.add_argument("--split", default="test")
     p.add_argument("--tokenizer")
     p.add_argument("--genomic_rank", help="cpg_genomic_rank.npy (49,156 entries)")
-    p.add_argument("--condition", choices=["overlap", "disjoint"])
+    p.add_argument("--condition", choices=["overlap", "disjoint", "pattern_only"])
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--n_samples", type=int, default=0, help="0 = the whole held-out partition")
     p.add_argument("--measured_min", type=float, default=0.99)
@@ -110,6 +118,11 @@ def encode(a):
     rank_g = np.load(a.genomic_rank)
     assert len(rank_g) == n_cpg, f"genomic rank has {len(rank_g)} entries, panel has {n_cpg}"
 
+    if a.condition == "pattern_only":
+        mu = (betas * valid).sum(0) / np.maximum(valid.sum(0), 1)       # per-CpG mean over evaluated profiles
+        betas = np.where(valid, mu[None, :], 0.0).astype(np.float32)    # same measured set, no individual values
+        print("      pattern_only: methylation values replaced by per-CpG means", flush=True)
+
     print(f"[3/4] encoding {a.condition}, seed {a.seed}", flush=True)
     e1, e2 = encode_views(encoder, betas, valid, ids, rank_g, ct.cls_token_id, ct.pad_token_id,
                           -2.0, -3.0, a.condition == "disjoint", a.seed, a)
@@ -148,7 +161,7 @@ def merge(a):
     summary = {"population": "held-out partition of the pretraining corpus (never used for optimisation)",
                "checkpoint": runs[0]["checkpoint"], "n_profiles": runs[0]["n_profiles"],
                "n_cpgs_panel": runs[0]["n_cpgs_panel"], "conditions": {}}
-    for cond in ("overlap", "disjoint"):
+    for cond in ("overlap", "disjoint", "pattern_only"):
         rc = [r for r in runs if r["condition"] == cond]
         if not rc:
             continue
@@ -161,11 +174,11 @@ def merge(a):
                 **{m: {"mean": float(x.mean()), "sd": float(x.std(ddof=1)) if len(x) > 1 else 0.0,
                        "min": float(x.min()), "max": float(x.max())} for m, x in v.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
-    print(f"{'condition':<10}{'pool':<16}{'N':>7}  matched  unmatched   top-1 (min-max)      top-10")
+    print(f"{'condition':<14}{'pool':<16}{'N':>7}  matched  unmatched   top-1 (min-max)      top-10")
     for cond, c in summary["conditions"].items():
         for pool, s in c["pools"].items():
             t = s["retrieval_at1"]
-            print(f"{cond:<10}{pool:<16}{s['n_candidates']:>7,}  {s['matched_cos']['mean']:.4f}   "
+            print(f"{cond:<14}{pool:<16}{s['n_candidates']:>7,}  {s['matched_cos']['mean']:.4f}   "
                   f"{s['unmatched_cos']['mean']:.4f}    {100 * t['mean']:.2f}% ({100 * t['min']:.2f}-{100 * t['max']:.2f})   "
                   f"{100 * s['retrieval_at10']['mean']:.2f}%")
     print(f"Saved -> {out}/summary.json  ({len(runs)} runs)")
