@@ -50,10 +50,21 @@ def read_obs(path):
     with h5py.File(path, "r") as f:
         obs = f["obs"]
         n = f["X"].shape[0] if isinstance(f["X"], h5py.Dataset) else int(f["X"].attrs["shape"][0])
-        index_key = obs.attrs.get("_index", "_index")
-        index_key = index_key.decode() if isinstance(index_key, bytes) else index_key
+        # The index is the per-sample string column whose length equals the number of rows.
+        # Do not trust the '_index' attribute alone: in the pretraining file it names 'sample_id',
+        # which holds a single entry, while the real 169,120 ids sit in obs['_index'] -- the same
+        # inconsistency that makes anndata report "obs has 1 rows" for that file.
+        attr = obs.attrs.get("_index", "_index")
+        attr = attr.decode() if isinstance(attr, bytes) else attr
+        candidates = [k for k in dict.fromkeys([attr, "_index", "index", "obs_names", *obs.keys()])
+                      if k in obs and isinstance(obs[k], h5py.Dataset)
+                      and obs[k].shape == (n,) and obs[k].dtype.kind in ("S", "O", "U")]
+        assert candidates, (f"{path}: no per-sample string column of length {n} in obs "
+                            f"(keys and shapes: { {k: getattr(obs[k], 'shape', 'group') for k in obs.keys()} })")
+        index_key = candidates[0]
         ids = decode(obs[index_key][:])
-        assert len(ids) == n, f"{path}: index has {len(ids)} entries but X has {n} rows"
+        print(f"  {Path(path).name}: sample ids read from obs['{index_key}'] ({n:,} rows; "
+              f"'_index' attribute says '{attr}')")
         cols = {}
         for k in obs.keys():
             if k == index_key:
