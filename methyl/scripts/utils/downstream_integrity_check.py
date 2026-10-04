@@ -59,11 +59,16 @@ def pair(a, b):
     return np.corrcoef(x, y)[0, 1], np.abs(x - y).mean(), np.corrcoef(xs, ys)[0, 1]
 
 
-def colstd(M):
-    M = np.where(np.isfinite(M), M, np.nanmean(M, axis=0))
-    M = M - M.mean(0)
+def colstd(M, min_measured=20):
+    """Column-standardise; columns with fewer than `min_measured` values or no variance become 0
+    (correlation 0 with everything) and are reported as unusable."""
+    ok = np.isfinite(M)
+    cnt = ok.sum(0)
+    mu = np.where(cnt > 0, np.where(ok, M, 0).sum(0) / np.maximum(cnt, 1), 0.0)
+    M = np.where(ok, M, mu) - mu
     sd = M.std(0)
-    return M / np.where(sd > 0, sd, np.inf)
+    usable = (cnt >= min_measured) & (sd > 0)
+    return np.where(usable, M / np.where(usable, sd, 1.0), 0.0), usable
 
 
 def main():
@@ -149,28 +154,34 @@ def main():
     st = (study == a.study) & copy_row.notna().to_numpy()
     if st.sum() >= 20:
         rows = copy_row[st].astype(int).to_numpy()
-        A_ = colstd(D[st])                                           # n x c_dn
-        B_ = colstd(np.stack([Cstudy[int(r)] for r in rows]))        # n x c_pre
+        A_, a_ok = colstd(D[st])                                     # n x c_dn
+        B_, b_ok = colstd(np.stack([Cstudy[int(r)] for r in rows]))  # n x c_pre
         n = A_.shape[0]
         best, best_r, same_r = np.empty(c_dn, int), np.empty(c_dn), np.full(c_dn, np.nan)
         for j0 in range(0, c_dn, 2000):
             R = A_[:, j0:j0 + 2000].T @ B_ / n
+            R[:, ~b_ok] = -np.inf
             best[j0:j0 + 2000] = R.argmax(1)
             best_r[j0:j0 + 2000] = R.max(1)
             for k, j in enumerate(range(j0, min(j0 + 2000, c_dn))):
                 if dn_cpg[j] in pos:
                     same_r[j] = R[k, pos[dn_cpg[j]]]
         cm = pd.DataFrame({"downstream_cpg": dn_cpg, "best_corpus_cpg": np.asarray(pre_cpg)[best], "best_r": best_r,
-                           "r_with_same_named_cpg": same_r})
+                           "r_with_same_named_cpg": same_r, "usable": a_ok})
+        cm.loc[~cm.usable, ["best_corpus_cpg", "best_r", "r_with_same_named_cpg"]] = np.nan
+        assert np.isfinite(cm.best_r[cm.usable]).all()
         cm.to_csv(out / names[3], index=False)
         named = cm.r_with_same_named_cpg.notna()
         summ["column_map"] = {
             "study": a.study, "profiles_used": int(n),
+            "usable_downstream_cpgs": int(a_ok.sum()), "usable_corpus_cpgs": int(b_ok.sum()),
             "downstream_cpgs_with_best_r_above_0.95": int((cm.best_r > 0.95).sum()),
+            "downstream_cpgs_with_best_r_above_0.8": int((cm.best_r > 0.8).sum()),
             "downstream_cpgs": int(c_dn),
             "best_partner_is_the_same_named_cpg": int((cm.downstream_cpg == cm.best_corpus_cpg).sum()),
             "median_r_with_same_named_cpg": float(cm.r_with_same_named_cpg[named].median()),
-            "median_best_r": float(cm.best_r.median()),
+            "median_best_r": float(cm.best_r[cm.usable].median()),
+            "median_best_r_for_reference": "a random column pair of ~280 samples gives |r| around 0.2-0.25 by chance",
             "distinct_best_partners": int(cm.best_corpus_cpg.nunique())}
     (out / names[2]).write_text(json.dumps(summ, indent=2))
     print(bs.head(8).round(4).to_string())
