@@ -62,3 +62,9 @@ paper/supplementary.out
 
 # SVG exports are large regenerable build products
 figures/paper/*.svg
+
+# Illumina manifest (164 MB, canonical input; download separately)
+data/manifests/
+
+# Manuscript text is kept outside git (authoring copy only, not code)
+paper/
