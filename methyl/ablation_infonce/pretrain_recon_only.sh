@@ -114,12 +114,14 @@ echo "Analysis epochs: ${ANALYSIS_EPOCHS} | stop after: ${STOP_AFTER_EPOCH} | re
 echo "============================================================"
 
 source /etc/profile.d/modules.sh 2>/dev/null || source /usr/share/modules/init/bash 2>/dev/null || true
-module purge
-module load spack/all
-module load cuda/12.3.2-gcc-5bv3kyh
+# Cluster modules changed in Oct 2026 (spack/all now needs spack-huji; cuda/12.3.2-gcc-5bv3kyh is gone).
+# Nothing here needs spack: Python comes from env.sh and torch 2.10.0+cu128 bundles its CUDA runtime.
+module purge 2>/dev/null || true
+module load cuda/12.8.1 2>/dev/null || echo "WARN: module cuda/12.8.1 not loaded (torch bundles its CUDA runtime)"
 
 cd "${REPO}"
 source ablation_infonce/env.sh
+"${PY}" -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print('GPU:', torch.cuda.get_device_name(0), '| torch', torch.__version__, '| CUDA', torch.version.cuda)"
 
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_ALLOC_CONF="expandable_segments:True"

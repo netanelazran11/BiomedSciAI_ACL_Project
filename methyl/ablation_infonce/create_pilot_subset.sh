@@ -22,8 +22,10 @@ SOURCE="/sci/labs/benjamin.yakir/netanel.azran/data/data_methyl_pretrain_type3_h
 mkdir -p "${REPO}/logs_ablation_infonce"
 cd "${REPO}"
 source /etc/profile.d/modules.sh 2>/dev/null || true
+# Cluster modules changed in Oct 2026 (spack/all now needs spack-huji; cuda/12.3.2-gcc-5bv3kyh is gone).
+# Nothing here needs spack: Python comes from env.sh and torch 2.10.0+cu128 bundles its CUDA runtime.
 module purge 2>/dev/null || true
-module load spack/all 2>/dev/null || true
+module load cuda/12.8.1 2>/dev/null || echo "WARN: module cuda/12.8.1 not loaded (torch bundles its CUDA runtime)"
 source ablation_infonce/env.sh
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 echo "Git: $(git rev-parse --short HEAD) | Host: $(hostname) | $(date)"

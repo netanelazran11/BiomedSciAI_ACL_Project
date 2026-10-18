@@ -62,11 +62,13 @@ echo "PILOT EVAL task=${TASK} arm=${ARM} | Git $(git -C "${REPO}" rev-parse --sh
 echo "Checkpoint: ${CKPT}"
 
 source /etc/profile.d/modules.sh 2>/dev/null || true
+# Cluster modules changed in Oct 2026 (spack/all now needs spack-huji; cuda/12.3.2-gcc-5bv3kyh is gone).
+# Nothing here needs spack: Python comes from env.sh and torch 2.10.0+cu128 bundles its CUDA runtime.
 module purge 2>/dev/null || true
-module load spack/all 2>/dev/null || true
-module load cuda/12.3.2-gcc-5bv3kyh 2>/dev/null || true
+module load cuda/12.8.1 2>/dev/null || echo "WARN: module cuda/12.8.1 not loaded (torch bundles its CUDA runtime)"
 cd "${REPO}"
 source ablation_infonce/env.sh
+"${PY}" -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print('GPU:', torch.cuda.get_device_name(0), '| torch', torch.__version__, '| CUDA', torch.version.cuda)"
 export PYTHONPATH="${REPO}:${REPO}/scripts/repr_analysis_v7b:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 export PYTHONUNBUFFERED=1
