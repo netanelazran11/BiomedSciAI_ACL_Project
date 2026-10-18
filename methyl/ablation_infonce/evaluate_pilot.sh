@@ -66,7 +66,7 @@ module purge 2>/dev/null || true
 module load spack/all 2>/dev/null || true
 module load cuda/12.3.2-gcc-5bv3kyh 2>/dev/null || true
 cd "${REPO}"
-source bmfm_methyl_env/bin/activate
+source ablation_infonce/env.sh
 export PYTHONPATH="${REPO}:${REPO}/scripts/repr_analysis_v7b:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 export PYTHONUNBUFFERED=1
@@ -75,7 +75,7 @@ D=scripts/repr_analysis_v7b
 # 1. view consistency (held-out, full)
 for COND in overlap disjoint; do
     if [ -f "${OUT}/view_consistency/per_run/${COND}_seed0.json" ]; then echo "skip view ${COND}"; continue; fi
-    python ${D}/view_consistency_heldout_full.py \
+    "${PY}" ${D}/view_consistency_heldout_full.py \
         --checkpoint "${CKPT}" --data "${PRETRAIN_H5AD}" --split test \
         --tokenizer "${TOKENIZER}" --genomic_rank "${RANK_PRETRAIN}" \
         --condition "${COND}" --seed 0 --n_samples 0 --outdir "${OUT}/view_consistency"
@@ -83,14 +83,14 @@ done
 
 # 2. reconstruction of withheld CpGs
 if [ ! -f "${OUT}/reconstruction/reconstruction_withheld_summary.json" ]; then
-    python ${D}/reconstruction_withheld_eval.py \
+    "${PY}" ${D}/reconstruction_withheld_eval.py \
         --checkpoint "${CKPT}" --data "${PRETRAIN_H5AD}" --tokenizer "${TOKENIZER}" \
         --genomic_rank "${RANK_PRETRAIN}" --split test --max_samples 5000 --outdir "${OUT}/reconstruction"
 else echo "skip reconstruction"; fi
 
 # 3. frozen CLS probes on AltumAge
 if [ ! -f "${OUT}/frozen_probes/analysis_summary.json" ]; then
-    python ${D}/extract_pretrain_cls.py \
+    "${PY}" ${D}/extract_pretrain_cls.py \
         --checkpoint "${CKPT}" --data "${ALTUMAGE_H5AD}" --tokenizer "${TOKENIZER}" \
         --genomic_rank "${RANK_FINETUNE}" --outdir "${OUT}/frozen_probes" --batch_size 32 \
         --age_col age --label_cols tissue_type sex dataset --split_col split

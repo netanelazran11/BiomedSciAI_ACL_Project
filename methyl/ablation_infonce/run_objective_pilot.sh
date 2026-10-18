@@ -101,14 +101,14 @@ module purge
 module load spack/all
 module load cuda/12.3.2-gcc-5bv3kyh
 cd "${REPO}"
-source bmfm_methyl_env/bin/activate
+source ablation_infonce/env.sh
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_ALLOC_CONF="expandable_segments:True"
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-python -m ablation_infonce.test_recon_only
+"${PY}" -m ablation_infonce.test_recon_only
 
-python -m ablation_infonce.pretrain_recon_only \
+"${PY}" -m ablation_infonce.pretrain_recon_only \
     data_path="${PILOT_DATA}" \
     probe_ids_csv="${PROBE_IDS_CSV}" \
     tokenizer_path="${TOKENIZER_PATH}" \

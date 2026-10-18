@@ -13,6 +13,7 @@
 # Builds outputs/ablation_infonce/pilot_data/pilot_9k_seed2026.h5ad (9,000 train / 1,000 valid /
 # 1,000 test, drawn from the published train / valid / held-out partitions). Read-only on the
 # source; refuses to overwrite. CPU work — the GPU line is only the partition's admission ticket.
+#   mkdir -p logs_ablation_infonce   # once: Slurm cannot create the --output directory itself
 #   sbatch ablation_infonce/create_pilot_subset.sh
 
 set -euo pipefail
@@ -23,7 +24,7 @@ cd "${REPO}"
 source /etc/profile.d/modules.sh 2>/dev/null || true
 module purge 2>/dev/null || true
 module load spack/all 2>/dev/null || true
-source bmfm_methyl_env/bin/activate
+source ablation_infonce/env.sh
 export PYTHONPATH="${REPO}:${PYTHONPATH:-}"
 echo "Git: $(git rev-parse --short HEAD) | Host: $(hostname) | $(date)"
-python -m ablation_infonce.create_pilot_subset --source "${SOURCE}" --outdir outputs/ablation_infonce/pilot_data
+"${PY}" -m ablation_infonce.create_pilot_subset --source "${SOURCE}" --outdir outputs/ablation_infonce/pilot_data
