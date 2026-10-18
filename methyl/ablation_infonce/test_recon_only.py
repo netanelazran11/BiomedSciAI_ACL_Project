@@ -10,6 +10,8 @@ weights into both modules, and checks:
   4. projection head gets no gradient in the arm; it does in the published objective
   5. the published module with weight 0 uses one view only (the confound this arm removes)
   6. monitor values are finite and in range
+  7. sweep module at λ=0.05 == published objective (loss, and gradients of every parameter incl. the head)
+  8. sweep module at λ=0 == recon-only module (loss and gradients)
 
 CPU only, no data. Run from methyl/:  python -m ablation_infonce.test_recon_only
 bmfm_targets is stubbed when it is not installed (it is only imported, not used here).
@@ -45,7 +47,7 @@ import torch
 
 from bmfm_methylation.llama.model import MethylLlamaConfig
 from bmfm_methylation.llama.wced_llama import WCEDLlamaModule
-from ablation_infonce.wced_llama_recon_only import WCEDLlamaReconOnlyModule
+from ablation_infonce.wced_llama_recon_only import WCEDLlamaAblationModule, WCEDLlamaReconOnlyModule
 
 torch.manual_seed(0)
 B, V, CLS, PAD = 8, 40, 3, 2
@@ -140,6 +142,40 @@ mon = arm._monitor
 check("6 monitor finite and in range",
       all(torch.isfinite(v) for v in mon.values()) and 0 <= mon["monitor_cls_top1"].item() <= 1,
       {k: round(v.item(), 4) for k, v in mon.items()})
+
+
+
+def grad_diff(ma, mb, prefixes=None):
+    d, n = 0.0, 0
+    for (na, pa), (nb, pb) in zip(ma.named_parameters(), mb.named_parameters()):
+        assert na == nb
+        if prefixes and not na.startswith(prefixes):
+            continue
+        if pa.grad is None and pb.grad is None:
+            continue
+        if (pa.grad is None) != (pb.grad is None):
+            return float("inf"), n
+        d = max(d, (pa.grad - pb.grad).abs().max().item()); n += 1
+    return d, n
+
+
+sw05 = WCEDLlamaAblationModule(contrastive_weight=0.05, **kw)
+sw0 = WCEDLlamaAblationModule(contrastive_weight=0.0, **kw)
+for m in (sw05, sw0):
+    m.load_state_dict(pub.state_dict()); m.eval()
+
+pub.zero_grad(); sw05.zero_grad()
+lp = pub._shared_step(batch, "train")["loss"]; ls = sw05._shared_step(batch, "train")["loss"]
+lp.backward(); ls.backward()
+d, n = grad_diff(pub, sw05)
+check("7 sweep λ=0.05 loss == published loss", torch.allclose(lp, ls, atol=1e-7), f"pub={lp.item():.7f} sweep={ls.item():.7f}")
+check("  sweep λ=0.05 grads == published grads (all params)", d < 1e-6, f"({n} tensors incl. head, max |diff|={d:.2e})")
+
+arm.zero_grad(); sw0.zero_grad()
+la = arm._shared_step(batch, "train")["loss"]; l0 = sw0._shared_step(batch, "train")["loss"]
+la.backward(); l0.backward()
+d, n = grad_diff(arm, sw0)
+check("8 sweep λ=0 == recon-only (loss, grads)", torch.equal(la, l0) and d == 0.0, f"({n} tensors)")
 
 print("ALL PASS" if ok else "SOME CHECKS FAILED")
 sys.exit(0 if ok else 1)

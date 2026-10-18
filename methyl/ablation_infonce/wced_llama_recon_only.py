@@ -23,6 +23,12 @@ the per-GPU batch — InfoNCE at the run's temperature, top-1, matched and
 unmatched cosine. Logged as */monitor_cls_*. Compute the same quantities on the
 published checkpoints post hoc for the comparison.
 
+Pilot (objective sweep): WCEDLlamaAblationModule runs every arm through the same
+code — two-view reconstruction + λ · InfoNCE, with λ = wced_contrastive_weight.
+At λ > 0 it reproduces the published objective exactly (loss and gradients,
+checked in test_recon_only.py); at λ = 0 it is the reconstruction-only arm.
+WCEDLlamaReconOnlyModule is the same class with λ forced to 0 (full-corpus run).
+
 The parent file is not modified.
 """
 
@@ -43,19 +49,18 @@ def _parse_epochs(s: str) -> set:
     return {int(x) for x in s.split(",") if x.strip()}
 
 
-class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
-    """WCEDLlamaModule with two-view reconstruction and no InfoNCE in the loss."""
+class WCEDLlamaAblationModule(WCEDLlamaModule):
+    """Two-view reconstruction + contrastive_weight * InfoNCE, for every weight including 0."""
 
     # Set by the entry point from environment variables (Hydra config is struct).
     analysis_epochs: set = set()
     stop_after_epoch: int = -1
 
     def __init__(self, *args, **kwargs):
-        # The parent's objective term must be off; this class owns the loss.
-        kwargs["contrastive_weight"] = 0.0
         super().__init__(*args, **kwargs)
         self._monitor: Dict[str, torch.Tensor] = {}
-        logger.info("WCEDLlamaReconOnlyModule: two-view reconstruction, InfoNCE weight 0 (monitor only)")
+        logger.info(f"{type(self).__name__}: two-view reconstruction + "
+                    f"{self.contrastive_weight} x InfoNCE (CLS identity monitor logged)")
 
     # -------------------------------------------------------------------------
     # Identity monitor on CLS (no gradient)
@@ -112,7 +117,15 @@ class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
         recon_loss_v1 = self._recon_loss(out_v1["predicted_betas"], all_betas, recon_mask_v1)
         recon_loss_v2 = self._recon_loss(out_v2["predicted_betas"], all_betas, recon_mask_v2)
         recon_loss = (recon_loss_v1 + recon_loss_v2) / 2
-        loss = recon_loss  # no InfoNCE, no age term (age_weight is 0 in pretraining)
+        zero = torch.tensor(0.0, device=recon_loss.device)
+        if self.contrastive_weight > 0:
+            # Same computation as the parent's two-view path.
+            z1 = F.normalize(self.projection_head(out_v1["cls_embedding"]), dim=-1)
+            z2 = F.normalize(self.projection_head(out_v2["cls_embedding"]), dim=-1)
+            contrastive_loss = self.info_nce_loss(z1, z2)
+        else:
+            contrastive_loss = zero
+        loss = recon_loss + self.contrastive_weight * contrastive_loss  # no age term (age_weight 0)
 
         if not loss.isfinite():
             raise ValueError(f"Non-finite loss={loss.item():.6f} at global_step={self.global_step}")
@@ -124,7 +137,6 @@ class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
             ni_pred   = predicted_betas[recon_mask_v1]
             ni_target = all_betas[recon_mask_v1]
             mae = torch.abs(ni_pred - ni_target).mean()
-            zero = torch.tensor(0.0, device=loss.device)
             metrics = {
                 "mae": mae,
                 "mse": ((ni_pred - ni_target) ** 2).mean(),
@@ -139,7 +151,7 @@ class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
         return {
             "loss": loss,
             "recon_loss": recon_loss,
-            "contrastive_loss": zero,
+            "contrastive_loss": contrastive_loss,
             "age_loss": zero,
             "age_mae": zero,
             **metrics,
@@ -170,6 +182,15 @@ class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
     # Analysis checkpoints at fixed epochs + optional stop (schedule untouched)
     # -------------------------------------------------------------------------
 
+    def on_fit_start(self):
+        # Arms that share a seed must start from identical weights: compare these lines across logs.
+        with torch.no_grad():
+            enc = sum(p.double().sum().item() for p in self.encoder.parameters())
+            allp = sum(p.double().sum().item() for p in self.parameters())
+        if self.trainer.is_global_zero:
+            print(f"[ablation_infonce] weights at fit start: encoder_sum={enc:.10e} all_sum={allp:.10e} "
+                  f"lambda={self.contrastive_weight} global_step={self.global_step}", flush=True)
+
     def setup(self, stage=None):
         # Smoke runs only: cap the post-fit test pass (pretrain_llama runs it on the full held-out split).
         n = os.environ.get("LIMIT_TEST_BATCHES")
@@ -189,7 +210,15 @@ class WCEDLlamaReconOnlyModule(WCEDLlamaModule):
             self.trainer.should_stop = True
 
 
+class WCEDLlamaReconOnlyModule(WCEDLlamaAblationModule):
+    """The λ = 0 arm, with the weight forced to 0 whatever the config says."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["contrastive_weight"] = 0.0
+        super().__init__(*args, **kwargs)
+
+
 def configure_from_env() -> None:
     """Read ANALYSIS_EPOCHS ("0,1,2,...") and STOP_AFTER_EPOCH from the environment."""
-    WCEDLlamaReconOnlyModule.analysis_epochs = _parse_epochs(os.environ.get("ANALYSIS_EPOCHS", ""))
-    WCEDLlamaReconOnlyModule.stop_after_epoch = int(os.environ.get("STOP_AFTER_EPOCH", "-1"))
+    WCEDLlamaAblationModule.analysis_epochs = _parse_epochs(os.environ.get("ANALYSIS_EPOCHS", ""))
+    WCEDLlamaAblationModule.stop_after_epoch = int(os.environ.get("STOP_AFTER_EPOCH", "-1"))

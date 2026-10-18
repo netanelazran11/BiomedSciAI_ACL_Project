@@ -15,11 +15,22 @@ Must be launched with wced_contrastive=true (so the collator builds view 2).
 # Import order matters: pretrain_llama patches torch.load at import time.
 from bmfm_methylation.llama import pretrain_llama
 
-from ablation_infonce.wced_llama_recon_only import WCEDLlamaReconOnlyModule, configure_from_env
+import os
+
+from ablation_infonce.wced_llama_recon_only import (
+    WCEDLlamaAblationModule,
+    WCEDLlamaReconOnlyModule,
+    configure_from_env,
+)
+
+# ABLATION_MODULE=recon_only (default): λ forced to 0 — the full-corpus arm.
+# ABLATION_MODULE=sweep: λ = wced_contrastive_weight — every pilot arm, λ = 0 included.
+MODULES = {"recon_only": WCEDLlamaReconOnlyModule, "sweep": WCEDLlamaAblationModule}
 
 if __name__ == "__main__":
     configure_from_env()
-    pretrain_llama.WCEDLlamaModule = WCEDLlamaReconOnlyModule  # name looked up inside main()
+    module_cls = MODULES[os.environ.get("ABLATION_MODULE", "recon_only")]
+    pretrain_llama.WCEDLlamaModule = module_cls  # name looked up inside main()
     # Hydra resolves config_path="configs" from the task function's module. Imported (not run
     # as __main__), that module name would send Hydra to pkg://bmfm_methylation.llama/configs,
     # which it rejects (configs/ has no __init__.py). Marking it __main__ makes Hydra use the
@@ -27,6 +38,6 @@ if __name__ == "__main__":
     # published run (python -m bmfm_methylation.llama.pretrain_llama) read.
     pretrain_llama.main.__wrapped__.__module__ = "__main__"
     print(f"[ablation_infonce] module class = {pretrain_llama.WCEDLlamaModule.__name__}  "
-          f"analysis_epochs={sorted(WCEDLlamaReconOnlyModule.analysis_epochs)}  "
-          f"stop_after_epoch={WCEDLlamaReconOnlyModule.stop_after_epoch}", flush=True)
+          f"analysis_epochs={sorted(module_cls.analysis_epochs)}  "
+          f"stop_after_epoch={module_cls.stop_after_epoch}", flush=True)
     pretrain_llama.main()
