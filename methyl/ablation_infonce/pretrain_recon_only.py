@@ -39,5 +39,6 @@ if __name__ == "__main__":
     pretrain_llama.main.__wrapped__.__module__ = "__main__"
     print(f"[ablation_infonce] module class = {pretrain_llama.WCEDLlamaModule.__name__}  "
           f"analysis_epochs={sorted(module_cls.analysis_epochs)}  "
-          f"stop_after_epoch={module_cls.stop_after_epoch}", flush=True)
+          f"stop_after_epoch={module_cls.stop_after_epoch}  "
+          f"grad_checkpointing={module_cls.grad_checkpointing}", flush=True)
     pretrain_llama.main()

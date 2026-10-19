@@ -12,6 +12,7 @@ weights into both modules, and checks:
   6. monitor values are finite and in range
   7. sweep module at λ=0.05 == published objective (loss, and gradients of every parameter incl. the head)
   8. sweep module at λ=0 == recon-only module (loss and gradients)
+  9. gradient checkpointing gives the same loss and gradients (eval and train mode, dropout included)
 
 CPU only, no data. Run from methyl/:  python -m ablation_infonce.test_recon_only
 bmfm_targets is stubbed when it is not installed (it is only imported, not used here).
@@ -176,6 +177,20 @@ la = arm._shared_step(batch, "train")["loss"]; l0 = sw0._shared_step(batch, "tra
 la.backward(); l0.backward()
 d, n = grad_diff(arm, sw0)
 check("8 sweep λ=0 == recon-only (loss, grads)", torch.equal(la, l0) and d == 0.0, f"({n} tensors)")
+
+
+for mode in ("eval", "train"):
+    m_plain = WCEDLlamaAblationModule(contrastive_weight=0.05, **kw)
+    m_ckpt = WCEDLlamaAblationModule(contrastive_weight=0.05, **kw)
+    m_plain.load_state_dict(pub.state_dict()); m_ckpt.load_state_dict(pub.state_dict())
+    m_ckpt.enable_grad_checkpointing()
+    for m in (m_plain, m_ckpt):
+        getattr(m, mode)()
+    torch.manual_seed(123); lp_ = m_plain._shared_step(batch, "train")["loss"]; lp_.backward()
+    torch.manual_seed(123); lc_ = m_ckpt._shared_step(batch, "train")["loss"]; lc_.backward()
+    d, n = grad_diff(m_plain, m_ckpt)
+    check(f"9 grad checkpointing ({mode}) == plain (loss, grads)",
+          torch.allclose(lp_, lc_, atol=1e-6) and d < 1e-5, f"loss {lp_.item():.7f} vs {lc_.item():.7f}, {n} tensors, max |diff|={d:.2e}")
 
 print("ALL PASS" if ok else "SOME CHECKS FAILED")
 sys.exit(0 if ok else 1)

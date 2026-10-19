@@ -56,9 +56,35 @@ class WCEDLlamaAblationModule(WCEDLlamaModule):
     analysis_epochs: set = set()
     stop_after_epoch: int = -1
 
+    # Set from ABLATION_GRAD_CKPT=1 by configure_from_env(). Recomputes each encoder layer in the
+    # backward pass instead of storing its activations: same loss and gradients (dropout RNG is
+    # replayed; checked in test_recon_only.py), less GPU memory, ~30 % slower. Needed for batch 32
+    # (31 InfoNCE negatives, as published) on a 48 GB L40S; not used on H200.
+    grad_checkpointing: bool = False
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._monitor: Dict[str, torch.Tensor] = {}
+        if self.grad_checkpointing:
+            self.enable_grad_checkpointing()
+
+    def enable_grad_checkpointing(self):
+        """Wrap each encoder layer's forward (this instance only; model.py is untouched)."""
+        from torch.utils.checkpoint import checkpoint
+
+        for layer in self.encoder.encoder.layers:
+            plain = layer.forward
+
+            def wrapped(hidden_states, attention_mask=None, position_ids=None,
+                        output_attentions=False, _plain=plain):
+                if torch.is_grad_enabled() and not output_attentions:
+                    return checkpoint(_plain, hidden_states, attention_mask, position_ids, False,
+                                      use_reentrant=False, preserve_rng_state=True)
+                return _plain(hidden_states, attention_mask=attention_mask,
+                              position_ids=position_ids, output_attentions=output_attentions)
+
+            layer.forward = wrapped
+        logger.info("gradient checkpointing ON for %d encoder layers", len(self.encoder.encoder.layers))
         logger.info(f"{type(self).__name__}: two-view reconstruction + "
                     f"{self.contrastive_weight} x InfoNCE (CLS identity monitor logged)")
 
@@ -199,6 +225,10 @@ class WCEDLlamaAblationModule(WCEDLlamaModule):
 
     def on_train_epoch_end(self):
         ep = self.current_epoch
+        if torch.cuda.is_available() and self.trainer.is_global_zero:
+            print(f"[ablation_infonce] epoch {ep}: peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB "
+                  f"of {torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GiB "
+                  f"(grad_checkpointing={self.grad_checkpointing})", flush=True)
         if ep in self.analysis_epochs and self.trainer.checkpoint_callback is not None:
             d = Path(self.trainer.checkpoint_callback.dirpath) / "analysis"
             if self.trainer.is_global_zero:
@@ -222,3 +252,4 @@ def configure_from_env() -> None:
     """Read ANALYSIS_EPOCHS ("0,1,2,...") and STOP_AFTER_EPOCH from the environment."""
     WCEDLlamaAblationModule.analysis_epochs = _parse_epochs(os.environ.get("ANALYSIS_EPOCHS", ""))
     WCEDLlamaAblationModule.stop_after_epoch = int(os.environ.get("STOP_AFTER_EPOCH", "-1"))
+    WCEDLlamaAblationModule.grad_checkpointing = os.environ.get("ABLATION_GRAD_CKPT", "0") == "1"

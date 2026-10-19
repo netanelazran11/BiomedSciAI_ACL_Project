@@ -1,12 +1,12 @@
 #!/bin/bash -l
 #SBATCH --job-name=pilot-infonce
-#SBATCH --partition=goldfish
-#SBATCH --gres=gpu:h200:1
+#SBATCH --partition=salmon
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --array=0-3
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.err
@@ -29,7 +29,10 @@ set -euo pipefail
 # Same architecture, genomic RoPE, optimiser, per-GPU batch 32 (31 InfoNCE negatives, as in
 # the published run), data subset, views and data order (per seed).
 #
-# Pilot budget (not the published one): 1×H200, effective batch 64 (32 × accum 2, as the RoPE
+# Hardware: 1×L40S (48 GB) per arm with gradient checkpointing (ABLATION_GRAD_CKPT=1): batch 32 without it
+# ran out of memory (job 46420723); checkpointing recomputes layer activations in the backward pass and gives
+# identical loss and gradients (test_recon_only.py, check 9). All arms must run on the same GPU type.
+# Pilot budget (not the published one): effective batch 64 (32 × accum 2, as the RoPE
 # pilot), 20 epochs over 9,000 profiles ≈ 2,800 optimiser steps, warm-up 200 steps, cosine
 # over the 20 epochs. Estimated ~1.7 h/epoch → ~35 h per arm (RoPE pilot throughput).
 #
@@ -63,13 +66,14 @@ WARMUP_STEPS=200
 export ANALYSIS_EPOCHS="${ANALYSIS_EPOCHS:-0,1,4,9,14,19}"
 export STOP_AFTER_EPOCH="-1"
 export ABLATION_MODULE=sweep
+export ABLATION_GRAD_CKPT="${ABLATION_GRAD_CKPT:-1}"
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"
 
 LIMITS=()
 WANDB_ON=true
 ROOT="${REPO}/outputs/ablation_infonce/pilot"
 if [ "${SMOKE}" = "1" ]; then
-    BATCH_SIZE=4
+    BATCH_SIZE="${SMOKE_BATCH:-4}"   # SMOKE_BATCH=32 checks the real batch's GPU memory
     export ANALYSIS_EPOCHS="0"
     export STOP_AFTER_EPOCH="1"
     export LIMIT_TEST_BATCHES=5
@@ -89,7 +93,7 @@ if [ -n "${RESUME_CHECKPOINT}" ] && [ ! -f "${RESUME_CHECKPOINT}" ]; then
 fi
 
 echo "============================================================"
-echo "INFONCE PILOT  task=${TASK}  arm=${ARM}  λ=${LAM}  seed=${SEED}  SMOKE=${SMOKE}"
+echo "INFONCE PILOT  task=${TASK}  arm=${ARM}  λ=${LAM}  seed=${SEED}  SMOKE=${SMOKE}  batch=${BATCH_SIZE}  grad_ckpt=${ABLATION_GRAD_CKPT}"
 echo "Job: ${SLURM_ARRAY_JOB_ID}_${TASK} | Host: $(hostname) | $(date)"
 echo "Git: $(git -C "${REPO}" rev-parse --short HEAD)  dirty=$(git -C "${REPO}" status --porcelain -- bmfm_methylation ablation_infonce | wc -l)"
 echo "Data: ${PILOT_DATA}"
