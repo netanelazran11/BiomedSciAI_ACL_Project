@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
 #SBATCH --time=12:00:00
-#SBATCH --array=0-6
+#SBATCH --array=0-3,6
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.err
 
@@ -15,7 +15,7 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pilot evaluation: the SAME analyses the manuscript reports, run unchanged on each arm.
-#   tasks 0–5  pilot arms (same order as run_objective_pilot.sh), checkpoint epoch EVAL_EPOCH
+#   tasks 0–3  pilot arms λ 0 / 0.01 / 0.05 / 0.2 (4–5 = optional seed-43 replicates), checkpoint EVAL_EPOCH
 #   task  6    published checkpoint (epoch 85) — pipeline check: must reproduce the paper's numbers
 #
 # Per task, into outputs/ablation_infonce/pilot_eval/<arm>/ (each step skipped if already done):
@@ -23,7 +23,7 @@ set -euo pipefail
 #      (view_consistency_heldout_full.py; also saves the embeddings for hard_negative_eval.py)
 #   2. reconstruction of withheld CpGs, 5,000 held-out profiles (reconstruction_withheld_eval.py)
 #   3. frozen CLS on AltumAge: geometry + age/tissue/sex/dataset probes (extract_pretrain_cls.py)
-# Then, locally after rsync: hard_negative_eval.py per arm and summarize_pilot.py.
+# Then, locally after rsync: hard_negative_eval.py per arm (with --per-query-out) and summarize_pilot.py.
 #
 #   sbatch ablation_infonce/evaluate_pilot.sh
 #   EVAL_EPOCH=9 sbatch --array=0,2 ablation_infonce/evaluate_pilot.sh   # an earlier snapshot

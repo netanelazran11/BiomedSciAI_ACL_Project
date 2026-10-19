@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --array=0-5
+#SBATCH --array=0-3
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.err
 
@@ -21,8 +21,8 @@ set -euo pipefail
 #   1     0.01   42         weak contrastive
 #   2     0.05   42         published weight
 #   3     0.2    42         strong contrastive
-#   4     0      43         seed replicate of 0  ─┐ the 0 vs 0.05 gap must exceed
-#   5     0.05   43         seed replicate of 2  ─┘ the seed-to-seed gap to count
+#   4     0      43         optional seed replicate of 0  ┐ only if the λ dose series is unclear
+#   5     0.05   43         optional seed replicate of 2  ┘ (default array is 0-3; see summarize_pilot.py)
 #
 # Every arm runs WCEDLlamaAblationModule (ABLATION_MODULE=sweep): two-view reconstruction
 # + λ · InfoNCE; at λ > 0 identical to the published objective (test_recon_only.py, check 7).

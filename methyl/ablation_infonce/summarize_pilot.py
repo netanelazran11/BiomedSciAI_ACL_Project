@@ -10,23 +10,30 @@ Reads, per arm directory under --eval-root (from evaluate_pilot.sh, rsynced to t
 
 Run from methyl/:
   for d in outputs/ablation_infonce/pilot_eval/*/; do
-    python -m ablation_infonce.hard_negative_eval --emb-dir "$d/view_consistency/per_run/" --out "$d/hard_negative.json"
+    python -m ablation_infonce.hard_negative_eval --emb-dir "$d/view_consistency/per_run/" \
+        --out "$d/hard_negative.json" --per-query-out "$d/hard_negative_queries.npz"
   done
   python -m ablation_infonce.summarize_pilot
 
-Decision rule (fixed before the results; seed noise = |seed42 - seed43| of the same λ):
-  InfoNCE adds something  <=>  λ=0.05 beats λ=0 on disjoint hard-negative top-1 (same study+tissue)
-                               by more than BOTH seed gaps, and recon PCC / frozen probes are not worse
-                               by more than the seed gap.
-  -> a full-corpus recon-only run is worth its cost if the pilot shows such a gap OR is inconclusive
-     (gap within noise); it is NOT needed if λ=0 already matches λ=0.05 everywhere within noise AND the
-     paper drops the claim that InfoNCE is what produces identity/stability.
+Design (decided 2026-10-18): one seed (42), a λ dose series 0 / 0.01 / 0.05 / 0.2 from identical
+initial weights and data order. Evidence of an InfoNCE effect comes from the dose-response, not from
+seed replicates.
+
+Decision rule (fixed before the results). For each per-profile metric, every λ>0 arm is compared with
+λ=0 on the SAME held-out profiles (paired), 95 % percentile bootstrap over profiles (B=2000):
+  effect     the λ=0.2 − λ=0 difference has a CI excluding 0 AND the arm values are monotone in λ
+  no effect  every λ>0 − λ=0 difference has a CI including 0
+  unclear    anything else (e.g. a non-monotone pattern) -> add seed 43 for λ=0 and λ=0.2 only
+Primary metric: disjoint-view hard-negative top-1, same study + tissue (hn_study_tissue).
+The bootstrap captures evaluation noise (which profiles), not training noise (which seed); a
+borderline result is therefore resolved with a seed replicate, not by reading the CI as final.
 """
 
 import argparse
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ap = argparse.ArgumentParser()
@@ -88,27 +95,90 @@ df.to_csv(out / "pilot_table.csv")
 pd.set_option("display.width", 200)
 print(df.T.to_string(float_format=lambda x: f"{x:.4f}"))
 
-# Decision rule
-key = "hn_study_tissue_top1"
-ep = [i for i in df.index if i.startswith("lam") and "_ep" in i]
-get = lambda lam, seed, col: next((df.loc[i, col] for i in ep
-                                   if i.startswith(f"lam{lam}_seed{seed}_") and col in df.columns), None)
-verdict = {"metric": key}
-try:
-    a0, a0b = get("0.0", 42, key), get("0.0", 43, key)
-    c0, c0b = get("0.05", 42, key), get("0.05", 43, key)
-    gap = ((c0 + c0b) - (a0 + a0b)) / 2
-    noise = max(abs(a0 - a0b), abs(c0 - c0b))
-    verdict.update({"lambda0_mean": (a0 + a0b) / 2, "lambda005_mean": (c0 + c0b) / 2,
-                    "gap_005_minus_0": gap, "seed_noise": noise,
-                    "infonce_adds_identity": bool(gap > noise),
-                    "inconclusive": bool(abs(gap) <= noise)})
-    for col in ("recon_pcc", "age_ridge_r2", "tissue_type_bal_acc"):
-        x0, x0b, y0, y0b = (get("0.0", 42, col), get("0.0", 43, col), get("0.05", 42, col), get("0.05", 43, col))
-        if None not in (x0, x0b, y0, y0b):
-            verdict[f"{col}_gap_005_minus_0"] = ((y0 + y0b) - (x0 + x0b)) / 2
-            verdict[f"{col}_seed_noise"] = max(abs(x0 - x0b), abs(y0 - y0b))
-except TypeError:
-    verdict["note"] = "seed replicates (tasks 0, 2, 4, 5) or hard_negative.json missing — rule not applied"
+# ── Decision rule: dose-response over λ with paired bootstrap against λ = 0 ──────────────────────
+B, rng = 2000, np.random.default_rng(0)
+
+
+def lam_of(arm):
+    if not arm.startswith("lam"):
+        return None
+    return float(arm[3:].split("_")[0])
+
+
+def per_profile(d):
+    """Per-profile vectors keyed by metric (higher = better for all, MSE negated)."""
+    out = {}
+    v = Path(d) / "view_consistency" / "per_run" / "disjoint_seed0.npz"
+    if v.exists():
+        z = np.load(v)
+        out["disjoint_top1"] = (z["all_rank"] == 0).astype(float)
+    q = Path(d) / "hard_negative_queries.npz"
+    if q.exists():
+        z = np.load(q)
+        for pool, col in [("same study+tissue", "hn_study_tissue"), ("same study", "hn_study"),
+                          ("K nearest neighbours of target", "hn_knn")]:
+            k = f"disjoint_seed0|{pool}"
+            if f"{k}|hit" in z.files:
+                out[col] = pd.Series(z[f"{k}|hit"].astype(float), index=z[f"{k}|q"])
+    r = Path(d) / "reconstruction" / "per_sample_metrics.csv"
+    if r.exists():
+        out["neg_recon_mse"] = -pd.read_csv(r)["model_mse"].values
+    return out
+
+
+arms = {d.name: (lam_of(d.name), per_profile(d)) for d in sorted(Path(a.eval_root).iterdir())
+        if d.is_dir() and lam_of(d.name) is not None}
+seeds = sorted({n.split("_seed")[1].split("_")[0] for n in arms})
+verdict = {"design": "single-seed λ dose series", "seeds_present": seeds, "B": B, "metrics": {}}
+base = [n for n, (lam, _) in arms.items() if lam == 0.0 and "_seed42" in n]
+if not base:
+    verdict["note"] = "no λ=0 seed-42 arm evaluated — rule not applied"
+else:
+    base = base[0]
+    for metric in ("hn_study_tissue", "hn_study", "hn_knn", "disjoint_top1", "neg_recon_mse"):
+        if metric not in arms[base][1]:
+            continue
+        x0 = arms[base][1][metric]
+        series, diffs = [], {}
+        for n, (lam, pp) in sorted(arms.items(), key=lambda t: t[1][0]):
+            if "_seed42" not in n or metric not in pp:
+                continue
+            x = pp[metric]
+            if isinstance(x0, pd.Series):  # align on the same queries
+                common = x0.index.intersection(x.index)
+                a0, a1 = x0.loc[common].values, x.loc[common].values
+            else:
+                a0, a1 = x0, x
+            series.append((lam, float(a1.mean())))
+            if lam == 0.0:
+                continue
+            dvec = a1 - a0
+            idx = rng.integers(0, len(dvec), size=(B, len(dvec)))
+            boot = dvec[idx].mean(axis=1)
+            lo, hi = np.percentile(boot, [2.5, 97.5])
+            diffs[str(lam)] = {"diff_vs_lambda0": float(dvec.mean()), "ci95": [float(lo), float(hi)],
+                               "ci_excludes_0": bool(lo > 0 or hi < 0), "n_profiles": int(len(dvec))}
+        vals = [v for _, v in series]
+        steps = np.sign(np.diff(vals))
+        monotone = bool(len(vals) > 2 and (np.all(steps >= 0) or np.all(steps <= 0)))
+        top = diffs.get(str(max(l for l, _ in series))) if diffs else None
+        if top and top["ci_excludes_0"] and monotone:
+            call = "effect"
+        elif diffs and not any(dd["ci_excludes_0"] for dd in diffs.values()):
+            call = "no effect"
+        else:
+            call = "unclear"
+        verdict["metrics"][metric] = {"by_lambda": series, "vs_lambda0": diffs, "monotone": monotone, "call": call}
+    prim = verdict["metrics"].get("hn_study_tissue", {}).get("call")
+    verdict["primary_call"] = prim
+    verdict["next_step"] = {
+        "effect": "InfoNCE changes identity at pilot scale -> run the full-corpus recon-only arm to measure it at scale",
+        "no effect": "no measurable InfoNCE effect at pilot scale -> full run optional; do not attribute identity to InfoNCE",
+        "unclear": "add seed 43 for λ=0 and λ=0.2 before deciding",
+        None: "primary metric missing (run hard_negative_eval with --per-query-out)",
+    }[prim]
 (out / "pilot_verdict.json").write_text(json.dumps(verdict, indent=1, default=float))
-print("\nDecision rule:", json.dumps(verdict, indent=1, default=float))
+print("\nDecision rule:", json.dumps({k: verdict[k] for k in verdict if k != "metrics"}, indent=1, default=float))
+for m, r in verdict.get("metrics", {}).items():
+    print(f"  {m:16s} call={r['call']:9s} monotone={r['monotone']}  " +
+          "  ".join(f"λ={l}:{v:.4f}" for l, v in r["by_lambda"]))

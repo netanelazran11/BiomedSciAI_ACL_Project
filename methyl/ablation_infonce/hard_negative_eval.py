@@ -33,6 +33,10 @@ ap.add_argument("--dups", default="outputs/data_structure_audit/heldout_duplicat
 ap.add_argument("--k", type=int, default=31)
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--out", default=None, help="optional JSON output path")
+ap.add_argument("--per-query-out", default=None,
+                help="optional .npz with per-query hits/margins per pool (for paired comparisons across checkpoints: "
+                     "the random pools depend only on metadata, so with the same --seed every checkpoint gets the "
+                     "same negatives for the same query)")
 a = ap.parse_args()
 
 m = pd.read_csv(a.metadata).drop_duplicates("GSM_ID").set_index("GSM_ID")
@@ -41,6 +45,7 @@ dup = dup[(dup.comparison == "heldout vs heldout") & (dup.duplicate | dup.near_d
 rng = np.random.default_rng(a.seed)
 K = a.k
 results = {}
+per_query = {}
 
 for cond in a.conds:
     z = np.load(a.emb_dir + cond + "_embeddings.npz")
@@ -68,7 +73,7 @@ for cond in a.conds:
     res = {"n_profiles": int(N), "n_with_metadata": int(has.sum()), "k_negatives": K, "pools": {}}
 
     def run(name, mask_fn):
-        hits, margins, skipped = [], [], 0
+        hits, margins, skipped, qs = [], [], 0, []
         for i in range(N):
             if not has[i]:
                 continue
@@ -83,10 +88,14 @@ for cond in a.conds:
             hard = S[i, neg].max()
             hits.append(diag[i] > hard)
             margins.append(diag[i] - hard)
+            qs.append(i)
         r = {"n": len(hits), "skipped_pool_too_small": skipped,
              "top1": float(np.mean(hits)) if hits else None,
              "median_margin": float(np.median(margins)) if margins else None}
         res["pools"][name] = r
+        per_query[f"{cond}|{name}|q"] = np.array(qs, dtype=np.int32)
+        per_query[f"{cond}|{name}|hit"] = np.array(hits, dtype=bool)
+        per_query[f"{cond}|{name}|margin"] = np.array(margins, dtype=np.float32)
         print(f"  {name:40s} n={r['n']:6d} skipped={skipped:5d}  top1={r['top1']:.4f}  median margin={r['median_margin']:.4f}")
 
     print(f"{cond}  (N={N}, with metadata {has.sum()})")
@@ -101,16 +110,28 @@ for cond in a.conds:
     # K nearest neighbours of the target (by view-2 similarity; the query's own view is not used)
     T = e2 @ e2.T
     np.fill_diagonal(T, -9)
-    hits = []
+    hits, qs = [], []
     for i in range(N):
         if not has[i]:
             continue
         o = np.argsort(-T[i])
         o = [c for c in o[: K + len(excl[i]) + 5] if c not in excl[i]][:K]
         hits.append(diag[i] > S[i, o].max())
+        qs.append(i)
+    per_query[f"{cond}|K nearest neighbours of target|q"] = np.array(qs, dtype=np.int32)
+    per_query[f"{cond}|K nearest neighbours of target|hit"] = np.array(hits, dtype=bool)
     res["pools"]["K nearest neighbours of target"] = {"n": len(hits), "top1": float(np.mean(hits))}
     print(f"  {'K nearest neighbours of target':40s} n={len(hits):6d}  top1={np.mean(hits):.4f}")
     results[cond] = res
+
+from pathlib import Path
+for _p in (a.per_query_out, a.out):
+    if _p:
+        Path(_p).parent.mkdir(parents=True, exist_ok=True)
+
+if a.per_query_out:
+    np.savez_compressed(a.per_query_out, **per_query)
+    print("wrote", a.per_query_out)
 
 if a.out:
     with open(a.out, "w") as f:
