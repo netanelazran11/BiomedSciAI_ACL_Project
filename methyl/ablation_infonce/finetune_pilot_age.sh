@@ -7,16 +7,17 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=80:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0-2
 #SBATCH --output=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.out
 #SBATCH --error=/sci/labs/benjamin.yakir/netanel.azran/repos/BMFM-RNA/methyl/logs_ablation_infonce/%x_%A_%a.err
 
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Age fine-tuning of the InfoNCE pilot models (fold 0), two arms that differ ONLY in the starting checkpoint:
+# Age fine-tuning of the InfoNCE pilot models (fold 0), three arms that differ ONLY in the starting checkpoint:
 #   task 0  pilot λ=0    (reconstruction only)   outputs/ablation_infonce/pilot/lam0.0_seed42/.../epoch=19-analysis.ckpt
 #   task 1  pilot λ=0.05 (published objective)   outputs/ablation_infonce/pilot/lam0.05_seed42/.../epoch=19-analysis.ckpt
+#   task 2  pilot λ=0.2  (strongest contrastive; weakest frozen probes in the pilot)
 #
 # Fine-tuning recipe = the paper's fold-0 run (scripts/llama/finetune_llama_small_v7b_kfold.sh, W&B a154lzjy):
 # same data, fold files, test set, tokenizer, fine-tune genomic rank, head 256→128→1, dropout 0.1, Huber,
@@ -31,7 +32,7 @@ set -euo pipefail
 #   sbatch ablation_infonce/finetune_pilot_age.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
-ARMS=(lam0.0_seed42 lam0.05_seed42)
+ARMS=(lam0.0_seed42 lam0.05_seed42 lam0.2_seed42)
 TASK="${SLURM_ARRAY_TASK_ID:?run as an array job}"
 ARM="${ARMS[$TASK]}"
 SMOKE="${SMOKE:-0}"
