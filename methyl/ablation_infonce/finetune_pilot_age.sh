@@ -88,9 +88,14 @@ export TOKENIZERS_PARALLELISM=false PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF="expandable_segments:True"
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-# Sample GPU memory during training (the smoke unfreezes at once, so it shows the peak)
-( while true; do nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 >> "${OUTDIR}/gpu_mem_mib.txt"; sleep 20; done ) &
-SAMPLER_PID=$!
+# Sample GPU memory during training when nvidia-smi exists (it is missing on the upgraded nodes, Oct 2026).
+# Every sample is padded to the same length, so one unfrozen epoch without OOM (the smoke) already
+# proves the full run fits; this log is only a margin estimate.
+SAMPLER_PID=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    ( while true; do nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 >> "${OUTDIR}/gpu_mem_mib.txt"; sleep 20; done ) &
+    SAMPLER_PID=$!
+fi
 
 "${PY}" -m bmfm_methylation.llama.finetune_llama \
     "data_path='${DATA}'" \
@@ -131,9 +136,11 @@ SAMPLER_PID=$!
     track_wandb.name="${RUN_NAME}" \
     "+track_wandb.group='infonce-pilot-ft'"
 
-kill "${SAMPLER_PID}" 2>/dev/null || true
+[ -n "${SAMPLER_PID}" ] && kill "${SAMPLER_PID}" 2>/dev/null || true
 echo "Training finished: $(date)"
-echo "Peak GPU memory used during training (nvidia-smi, every 20 s): $(sort -n "${OUTDIR}/gpu_mem_mib.txt" | tail -1) MiB of $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1) MiB"
+if [ -n "${SAMPLER_PID}" ]; then
+    echo "Peak GPU memory used during training (nvidia-smi, every 20 s): $(sort -n "${OUTDIR}/gpu_mem_mib.txt" | tail -1) MiB"
+fi
 ls -la "${OUTDIR}/checkpoints/"
 
 # Best checkpoint by the value in the file name (lowest), for one metric
