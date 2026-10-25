@@ -47,10 +47,16 @@ PRE_CKPT="${REPO}/outputs/ablation_infonce/pilot/${ARM}/checkpoints/analysis/epo
 
 FINETUNE_EPOCHS=200
 EARLY_STOP=40
+UNFREEZE_EPOCH=10
+# Batch per step and accumulation; effective batch 32 x 4 = 128 as in the paper. On a 48 GB L40S use
+# BATCH_SIZE=16 ACCUM=8 (same effective batch). All arms must use the same values and GPU type.
+BATCH_SIZE="${BATCH_SIZE:-32}"
+ACCUM="${ACCUM:-4}"
 WANDB_ON=true
 ROOT="${REPO}/outputs/ablation_infonce/pilot_finetune"
 if [ "${SMOKE}" = "1" ]; then
     FINETUNE_EPOCHS=1
+    UNFREEZE_EPOCH=0      # unfreeze at once: the smoke must hit the peak (unfrozen) GPU memory
     WANDB_ON=false
     ROOT="${REPO}/outputs/ablation_infonce/pilot_finetune_smoke"
 fi
@@ -64,7 +70,7 @@ for f in "${DATA}" "${KFOLD_DIR}/fold_0_train.npy" "${KFOLD_DIR}/fold_0_val.npy"
 done
 
 echo "============================================================"
-echo "PILOT AGE FINE-TUNE  task=${TASK}  arm=${ARM}  SMOKE=${SMOKE}  epochs=${FINETUNE_EPOCHS}  early_stop=${EARLY_STOP}"
+echo "PILOT AGE FINE-TUNE  task=${TASK}  arm=${ARM}  SMOKE=${SMOKE}  epochs=${FINETUNE_EPOCHS}  early_stop=${EARLY_STOP}  unfreeze=${UNFREEZE_EPOCH}  batch=${BATCH_SIZE}x${ACCUM}"
 echo "Job: ${SLURM_ARRAY_JOB_ID}_${TASK} | Host: $(hostname) | $(date)"
 echo "Git: $(git -C "${REPO}" rev-parse --short HEAD)  dirty=$(git -C "${REPO}" status --porcelain -- bmfm_methylation ablation_infonce | wc -l)"
 echo "Pretrained: ${PRE_CKPT}"
@@ -82,6 +88,10 @@ export TOKENIZERS_PARALLELISM=false PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF="expandable_segments:True"
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
+# Sample GPU memory during training (the smoke unfreezes at once, so it shows the peak)
+( while true; do nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 >> "${OUTDIR}/gpu_mem_mib.txt"; sleep 20; done ) &
+SAMPLER_PID=$!
+
 "${PY}" -m bmfm_methylation.llama.finetune_llama \
     "data_path='${DATA}'" \
     "checkpoint_path='${PRE_CKPT}'" \
@@ -90,7 +100,7 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
     data_module.subset_k=49156 \
     data_module.fixed_subset_seed=42 \
     data_module.max_length=21369 \
-    data_module.batch_size=32 \
+    data_module.batch_size="${BATCH_SIZE}" \
     data_module.num_workers=8 \
     data_module.filter_age_outliers=true \
     "data_module.duplicate_pairs_csv='${DUP_CSV}'" \
@@ -105,13 +115,13 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
     finetune.weight_decay=0.01 \
     finetune.warmup_steps=500 \
     finetune.freeze_encoder=true \
-    finetune.unfreeze_encoder_epoch=10 \
+    finetune.unfreeze_encoder_epoch="${UNFREEZE_EPOCH}" \
     finetune.recon_weight=0.0 \
     finetune.pooling=cls \
     finetune.loss_type=huber \
     finetune.beta_noise=0.0 \
     finetune_epochs="${FINETUNE_EPOCHS}" \
-    accumulate_grad_batches=4 \
+    accumulate_grad_batches="${ACCUM}" \
     gradient_clip_val=1.0 \
     early_stop_patience="${EARLY_STOP}" \
     precision="16-mixed" \
@@ -121,7 +131,9 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
     track_wandb.name="${RUN_NAME}" \
     "+track_wandb.group='infonce-pilot-ft'"
 
+kill "${SAMPLER_PID}" 2>/dev/null || true
 echo "Training finished: $(date)"
+echo "Peak GPU memory used during training (nvidia-smi, every 20 s): $(sort -n "${OUTDIR}/gpu_mem_mib.txt" | tail -1) MiB of $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1) MiB"
 ls -la "${OUTDIR}/checkpoints/"
 
 # Best checkpoint by the value in the file name (lowest), for one metric
